@@ -230,8 +230,27 @@ func modulePackMetadata(modulePath lock.ModuleLoadPath, moduleName string) (attr
 }
 
 // modulePackMetadataFromConfig is shared by publish and lock-selected module
-// packing so both paths emit the same module identity and publication fields.
+// packing so both paths emit the same module identity, publication fields and
+// published runtime metadata.
 func modulePackMetadataFromConfig(
+	cfg *moduleconfig.ModuleConfig,
+	baseDir string,
+	moduleName string,
+	fallbackVersion string,
+) (attrs.Bag, error) {
+	metadata, err := modulePackIdentityFromConfig(cfg, baseDir, moduleName, fallbackVersion)
+	if err != nil {
+		return nil, err
+	}
+	if err := addPublishedRuntimeMetadata(metadata, baseDir, cfg.Publish); err != nil {
+		return nil, err
+	}
+	return metadata, nil
+}
+
+// modulePackIdentityFromConfig returns the identity and publication fields a
+// manifest declares, without runtime metadata.
+func modulePackIdentityFromConfig(
 	cfg *moduleconfig.ModuleConfig,
 	baseDir string,
 	moduleName string,
@@ -276,9 +295,6 @@ func modulePackMetadataFromConfig(
 			continue
 		}
 		metadata[key] = value
-	}
-	if err := addPublishedRuntimeMetadata(metadata, baseDir, cfg.Publish); err != nil {
-		return nil, err
 	}
 	return metadata, nil
 }
@@ -330,7 +346,8 @@ func validateModulePackIdentityOverride(metadata, selected attrs.Bag) error {
 
 // rootPackMetadata gives a pack of the root application the identity and
 // publication fields its own wippy.yaml declares, as a lock-selected module
-// pack carries them. A root without an identified manifest gets none.
+// pack carries them. The pack adds its runtime metadata separately. A root
+// without an identified manifest gets none.
 func rootPackMetadata(root string) (attrs.Bag, error) {
 	manifestPath := filepath.Join(root, moduleconfig.DefaultConfigFile)
 	if _, err := os.Stat(manifestPath); err != nil {
@@ -346,5 +363,5 @@ func rootPackMetadata(root string) (attrs.Bag, error) {
 	if cfg.Organization == "" || cfg.ModuleName == "" {
 		return attrs.Bag{}, nil
 	}
-	return modulePackMetadataFromConfig(cfg, root, cfg.FullName(), "")
+	return modulePackIdentityFromConfig(cfg, root, cfg.FullName(), "")
 }

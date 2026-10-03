@@ -327,3 +327,16 @@ func TestRootPackMetadataIsEmptyWithoutAnIdentifiedManifest(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, metadata)
 }
+
+func TestRootPackMetadataLeavesRuntimeMetadataToThePack(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wippy.yaml"), []byte(
+		"organization: acme\nmodule: desk\ntype: application\nversion: 0.3.0\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".wippy.yaml"), []byte(
+		"version: '1.0'\nprofiles:\n  node:\n    shutdown: {timeout: 3s}\n"), 0o644))
+
+	metadata, err := rootPackMetadata(root)
+	require.NoError(t, err)
+	require.Equal(t, "acme.desk", metadata["namespace"])
+	require.NoError(t, addPackRuntimeMetadata(metadata, root))
+}
