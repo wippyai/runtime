@@ -899,7 +899,10 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		execErr := p.execErr
 		p.clearExecution()
 		out.Done(result)
-		return toExecutionError(p.ctx, execErr)
+		if execErr != nil {
+			return toExecutionError(p.ctx, execErr)
+		}
+		return nil
 	}
 
 	// Initialize pendingYields map if needed
