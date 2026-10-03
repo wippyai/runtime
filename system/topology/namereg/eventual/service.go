@@ -325,6 +325,50 @@ func (s *Service) Unregister(name string) bool {
 	return true
 }
 
+// ReleasePID tombstones every name this node holds for p, as Unregister does.
+// A name whose owned binding is a different PID is left untouched.
+func (s *Service) ReleasePID(p pid.PID) {
+	if s.stopped.Load() {
+		return
+	}
+	s.ownedMu.Lock()
+	var names []string
+	for name, reg := range s.owned {
+		if reg.pid.Equal(p) {
+			names = append(names, name)
+		}
+	}
+	s.ownedMu.Unlock()
+
+	for _, name := range names {
+		s.releaseOwned(name, p)
+	}
+}
+
+func (s *Service) releaseOwned(name string, p pid.PID) {
+	mutation := &s.ownedMutations[ShardFor(name)]
+	mutation.Lock()
+	s.ownedMu.Lock()
+	reg, ok := s.owned[name]
+	if !ok || !reg.pid.Equal(p) {
+		s.ownedMu.Unlock()
+		mutation.Unlock()
+		return
+	}
+	delete(s.owned, name)
+	s.ownedMu.Unlock()
+	e := s.state.Unregister(name, time.Now().UnixMilli())
+	mutation.Unlock()
+	if e == nil {
+		s.tel.recordUnregister("not_found")
+		return
+	}
+	s.queue.Push(e)
+	s.tel.recordUnregister("ok")
+	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
+	s.tel.setQueueDepth(s.queue.Depth())
+}
+
 // Lookup returns the live PID for a name (Found=true), or a zero LookupResult
 // if absent or tombstoned. EventualRegistry has no reverse-by-PID index, so
 // ByPID(p) is unsupported — it returns Found=false with an empty NamesForPID

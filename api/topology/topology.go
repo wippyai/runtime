@@ -127,6 +127,9 @@ type (
 	EventualRegistry interface {
 		Register(name string, p pid.PID) (pid.PID, error)
 		Unregister(name string) bool
+		// ReleasePID withdraws every name this node holds for p. Names bound to
+		// any other PID are left untouched.
+		ReleasePID(p pid.PID)
 		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 	}
 
