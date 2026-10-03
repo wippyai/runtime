@@ -128,3 +128,17 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: upgrade_denied
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval code cannot upgrade into a registry process
+    source: file://upgrade_denied.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert

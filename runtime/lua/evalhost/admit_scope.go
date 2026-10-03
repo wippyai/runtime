@@ -9,9 +9,10 @@ import (
 	secapi "github.com/wippyai/runtime/api/security"
 )
 
-// evalPolicy is the only security policy in an eval process's scope, so
-// every action it does not allow is denied: eval code has no ambient
-// authority beyond its admission policy.
+// evalPolicy is the only security policy in an eval process's scope and
+// explicitly denies every action it does not allow: eval code has no ambient
+// authority beyond its admission policy, including actions that run unless a
+// policy denies them.
 type evalPolicy struct {
 	targets map[string]struct{}
 	id      registry.ID
@@ -59,7 +60,6 @@ func (p *evalPolicy) Evaluate(_ secapi.Actor, action, resource string, _ attrs.B
 		if p.spawn {
 			return secapi.Allow
 		}
-		return secapi.Deny
 	}
-	return secapi.Undefined
+	return secapi.Deny
 }
