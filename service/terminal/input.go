@@ -10,12 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/x/term"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	tty "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/internal/term/input"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	xterm "golang.org/x/term"
 )
 
 // InputReader reads terminal input and delivers parsed events to a sink.
@@ -312,7 +313,7 @@ func (r *InputReader) screenSize() (int, int, error) {
 	if r.stdin == nil {
 		return 0, 0, errors.New("stdin is nil")
 	}
-	return term.GetSize(r.stdin.Fd())
+	return xterm.GetSize(int(r.stdin.Fd()))
 }
 
 func (r *InputReader) readLoop(ctx context.Context, reader terminalInputReader, session <-chan struct{}) {
@@ -357,3 +358,42 @@ func (r *InputReader) deliverToSink(ev *TTYEvent) {
 }
 
 var _ tty.InputController = (*InputReader)(nil)
+
+// consoleEventSource is an input reader that delivers decoded events instead
+// of bytes, as the Windows console does.
+type consoleEventSource interface {
+	ReadEvents() ([]input.Event, error)
+}
+
+// streamTerminalInput decodes the reader's input and delivers each event to
+// sink until the reader fails or ctx is done. Kitty graphics replies are
+// offered to graphics first and are not delivered when it consumes them.
+func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink inputEventSink, graphics graphicsEventSink) error {
+	deliver := func(ev input.Event) {
+		if reply, ok := ev.(input.GraphicsEvent); ok && graphics != nil && graphics(reply.ID, reply.Payload) {
+			return
+		}
+		sink(ConvertInputEvent(ev))
+	}
+
+	if console, ok := reader.(consoleEventSource); ok {
+		for {
+			events, err := console.ReadEvents()
+			if ctx.Err() != nil {
+				return nil
+			}
+			for _, ev := range events {
+				deliver(ev)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	framed := newFramedTerminalInput(reader)
+	return input.Stream(ctx, framed, func(ev input.Event) {
+		framed.acknowledgeEvent()
+		deliver(ev)
+	})
+}

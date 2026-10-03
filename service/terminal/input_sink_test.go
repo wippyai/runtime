@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/x/input"
 	"github.com/creack/pty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -588,12 +587,15 @@ func (m *mockErrorReader) Read(p []byte) (int, error) {
 	return 0, m.err
 }
 
+func (m *mockErrorReader) Cancel() bool { return true }
+
+func (m *mockErrorReader) Close() error { return nil }
+
 func TestInputReader_PermanentReadError_TerminatesWithoutSpinning(t *testing.T) {
 	expectedErr := errors.New("permanent I/O device error")
 	errReader := &mockErrorReader{err: expectedErr}
 
-	inputRd, err := input.NewReader(errReader, "xterm", 0)
-	require.NoError(t, err)
+	inputRd := terminalInputReader(errReader)
 
 	reader := NewEventInputReader(nil, io.Discard, nil, func(tty.Event) {})
 	reader.started = true

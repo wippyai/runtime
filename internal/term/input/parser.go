@@ -34,6 +34,7 @@ type Parser struct {
 	buf     []byte
 	scan    int
 	inPaste bool
+	console ConsoleDecoder
 }
 
 // NewParser returns an empty Parser.
@@ -57,12 +58,17 @@ func (p *Parser) Feed(data []byte, emit func(Event)) {
 			break
 		}
 		off += n
-		if _, start := ev.(pasteStart); start {
+		switch e := ev.(type) {
+		case pasteStart:
 			p.inPaste = true
 			p.scan = 0
-			continue
+		case win32Key:
+			for _, out := range p.console.Key(e.rec) {
+				emit(out)
+			}
+		default:
+			emit(ev)
 		}
-		emit(ev)
 	}
 	rest := copy(p.buf, p.buf[off:])
 	p.buf = p.buf[:rest]
@@ -85,8 +91,9 @@ func (p *Parser) consumePaste(b []byte, emit func(Event)) (int, bool) {
 	return idx + len(pasteEnd), true
 }
 
-// ResolveEscape reports a pending bare ESC as the Escape key and a pending
-// ESC ESC as Alt+Escape. Other partial sequences stay pending.
+// ResolveEscape reports a pending bare ESC as the Escape key, ESC ESC as
+// Alt+Escape, and ESC followed by a string introducer (P ] _ ^ X) as Alt plus
+// that key. Other partial sequences stay pending.
 func (p *Parser) ResolveEscape(emit func(Event)) {
 	if p.inPaste {
 		return
@@ -98,6 +105,18 @@ func (p *Parser) ResolveEscape(emit func(Event)) {
 	case len(p.buf) == 2 && p.buf[0] == esc && p.buf[1] == esc:
 		p.buf = p.buf[:0]
 		emit(KeyPressEvent{Code: KeyEscape, Mod: ModAlt})
+	case len(p.buf) == 2 && p.buf[0] == esc && bytes.IndexByte([]byte("]P_^X"), p.buf[1]) >= 0:
+		// String introducers never arrive split from their body, so a read
+		// ending after one is Alt plus that key. ESC [ and ESC O are excluded:
+		// terminals split cursor and function key sequences after them.
+		k := p.buf[1]
+		p.buf = p.buf[:0]
+		switch k {
+		case 'P', 'X':
+			emit(KeyPressEvent{Code: rune(k) + 32, ShiftedCode: rune(k), Mod: ModShift | ModAlt})
+		default:
+			emit(KeyPressEvent{Code: rune(k), Mod: ModAlt})
+		}
 	}
 }
 
@@ -428,9 +447,7 @@ func (c *csi) event(raw []byte) Event {
 		}
 	case '_':
 		if len(c.params) == 6 {
-			if ev := win32InputKey(c); ev != nil {
-				return ev
-			}
+			return win32InputKey(c)
 		}
 	case 't':
 		switch c.param(0, 0, 0) {

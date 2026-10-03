@@ -153,15 +153,15 @@ type GraphicsEvent struct {
 // well-formed but does not interpret, or malformed input it discards.
 type UnknownEvent string
 
-func (KeyPressEvent) isEvent()      {}
-func (KeyReleaseEvent) isEvent()    {}
-func (MouseClickEvent) isEvent()    {}
-func (MouseReleaseEvent) isEvent()  {}
-func (MouseMotionEvent) isEvent()   {}
-func (MouseWheelEvent) isEvent()    {}
-func (FocusEvent) isEvent()         {}
-func (BlurEvent) isEvent()          {}
-func (PasteEvent) isEvent()         {}
-func (WindowSizeEvent) isEvent()    {}
-func (GraphicsEvent) isEvent()      {}
-func (UnknownEvent) isEvent()       {}
+func (KeyPressEvent) isEvent()     {}
+func (KeyReleaseEvent) isEvent()   {}
+func (MouseClickEvent) isEvent()   {}
+func (MouseReleaseEvent) isEvent() {}
+func (MouseMotionEvent) isEvent()  {}
+func (MouseWheelEvent) isEvent()   {}
+func (FocusEvent) isEvent()        {}
+func (BlurEvent) isEvent()         {}
+func (PasteEvent) isEvent()        {}
+func (WindowSizeEvent) isEvent()   {}
+func (GraphicsEvent) isEvent()     {}
+func (UnknownEvent) isEvent()      {}

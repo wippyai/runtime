@@ -5,15 +5,13 @@ package terminal
 import (
 	"testing"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/input"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/internal/term/input"
 )
 
-func TestConvertUVInputEventPreservesNavigationAndKittyModifiers(t *testing.T) {
-	navigation := convertUVInputEvent(uv.KeyPressEvent(uv.Key{Code: uv.KeyPgDown, Mod: uv.ModCtrl | uv.ModAlt}))
+func TestConvertInputEventPreservesNavigationAndKittyModifiers(t *testing.T) {
+	navigation := ConvertInputEvent(input.KeyPressEvent(input.Key{Code: input.KeyPgDown, Mod: input.ModCtrl | input.ModAlt}))
 	require.NotNil(t, navigation)
 	assert.Equal(t, "key", navigation.Type)
 	assert.Equal(t, "pgdown", navigation.Key)
@@ -21,10 +19,10 @@ func TestConvertUVInputEventPreservesNavigationAndKittyModifiers(t *testing.T) {
 	assert.True(t, navigation.Ctrl)
 	assert.True(t, navigation.Alt)
 
-	kittyControl := convertUVInputEvent(uv.KeyReleaseEvent(uv.Key{
+	kittyControl := ConvertInputEvent(input.KeyReleaseEvent(input.Key{
 		Code:     'a',
 		BaseCode: 'a',
-		Mod:      uv.ModCtrl,
+		Mod:      input.ModCtrl,
 	}))
 	require.NotNil(t, kittyControl)
 	assert.Equal(t, "release", kittyControl.Action)
@@ -32,12 +30,12 @@ func TestConvertUVInputEventPreservesNavigationAndKittyModifiers(t *testing.T) {
 	assert.Equal(t, "runes", kittyControl.KeyType)
 	assert.True(t, kittyControl.Ctrl)
 
-	kittyText := convertUVInputEvent(uv.KeyPressEvent(uv.Key{
+	kittyText := ConvertInputEvent(input.KeyPressEvent(input.Key{
 		Code:        'é',
 		BaseCode:    'e',
 		ShiftedCode: 'É',
 		Text:        "é",
-		Mod:         uv.ModShift,
+		Mod:         input.ModShift,
 	}))
 	require.NotNil(t, kittyText)
 	assert.Equal(t, "é", kittyText.Key)
@@ -114,7 +112,7 @@ func TestConvertInputEvent_MouseClick(t *testing.T) {
 	ev := input.MouseClickEvent(input.Mouse{
 		X:      10,
 		Y:      20,
-		Button: ansi.MouseLeft,
+		Button: input.MouseLeft,
 	})
 	result := ConvertInputEvent(ev)
 	require.NotNil(t, result)
@@ -129,7 +127,7 @@ func TestConvertInputEvent_MouseRelease(t *testing.T) {
 	ev := input.MouseReleaseEvent(input.Mouse{
 		X:      5,
 		Y:      3,
-		Button: ansi.MouseNone,
+		Button: input.MouseNone,
 	})
 	result := ConvertInputEvent(ev)
 	require.NotNil(t, result)
@@ -140,7 +138,7 @@ func TestConvertInputEvent_MouseRelease(t *testing.T) {
 
 func TestConvertInputEvent_MouseWheel(t *testing.T) {
 	ev := input.MouseWheelEvent(input.Mouse{
-		Button: ansi.MouseWheelDown,
+		Button: input.MouseWheelDown,
 	})
 	result := ConvertInputEvent(ev)
 	require.NotNil(t, result)
@@ -153,7 +151,7 @@ func TestConvertInputEvent_MouseMotion(t *testing.T) {
 	ev := input.MouseMotionEvent(input.Mouse{
 		X:      1,
 		Y:      2,
-		Button: ansi.MouseLeft,
+		Button: input.MouseLeft,
 		Mod:    input.ModShift,
 	})
 	result := ConvertInputEvent(ev)
@@ -196,21 +194,21 @@ func TestConvertInputEvent_Paste(t *testing.T) {
 }
 
 func TestConvertInputEvent_UnknownReturnsNil(t *testing.T) {
-	result := ConvertInputEvent("some unknown event")
+	result := ConvertInputEvent(input.UnknownEvent("some unknown event"))
 	assert.Nil(t, result)
 }
 
 func TestConvertInputEvent_MouseButtons(t *testing.T) {
 	tests := []struct {
 		name   string
-		button ansi.MouseButton
+		button input.MouseButton
 	}{
-		{name: "none", button: ansi.MouseNone},
-		{name: "left", button: ansi.MouseLeft},
-		{name: "middle", button: ansi.MouseMiddle},
-		{name: "right", button: ansi.MouseRight},
-		{name: "wheel_up", button: ansi.MouseWheelUp},
-		{name: "wheel_down", button: ansi.MouseWheelDown},
+		{name: "none", button: input.MouseNone},
+		{name: "left", button: input.MouseLeft},
+		{name: "middle", button: input.MouseMiddle},
+		{name: "right", button: input.MouseRight},
+		{name: "wheel_up", button: input.MouseWheelUp},
+		{name: "wheel_down", button: input.MouseWheelDown},
 	}
 
 	for _, tt := range tests {
