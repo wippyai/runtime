@@ -91,7 +91,7 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 		_ = h.raw.Reset()
 	}
 	ctxapi.CompleteFrame(ctx)
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
 		_ = fc.Close()
 	}
 	h.closeDone()
@@ -424,7 +424,7 @@ var _ process.Host = (*Host)(nil)
 // processes it owns end with it, and its frame is released.
 func abandonFrame(ctx context.Context) {
 	ctxapi.CompleteFrame(ctx)
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }

@@ -26,6 +26,12 @@ var (
 	testLocalKey = &ctxapi.Key{Name: "test.local"}
 )
 
+// completion records what the host saw when the process completed.
+type completion struct {
+	source           registry.ID
+	onExecutionFrame bool
+}
+
 // countingCloser records how often the frame holding it is reclaimed.
 type countingCloser struct {
 	// reclaimed is closed by the first Close.
@@ -82,18 +88,19 @@ func (*incarnation) Send(*relay.Package) error { return nil }
 func (*incarnation) Close()                    {}
 
 func TestUpgradeContinuesTheExecution(t *testing.T) {
-	// completed reports whether completion ran on the execution's frame.
-	completed := make(chan bool, 1)
+	completed := make(chan completion, 1)
 	sched := newTestSchedulerWithLifecycle(1, &testLifecycle{
 		onComplete: func(ctx context.Context, _ pidapi.PID, _ *runtime.Result) {
-			fc := ctxapi.FrameFromContext(ctx)
+			// Completion describes the code that ended; the host completes
+			// and releases the execution frame it created.
+			source, _ := runtime.GetFrameID(ctx)
+			fc := ctxapi.ExecutionFrame(ctx)
 			onExecutionFrame := fc != nil && fc.Has(testLocalKey)
-			// The host completes and releases the frame it created.
 			ctxapi.CompleteFrame(ctx)
 			if fc != nil {
 				_ = fc.Close()
 			}
-			completed <- onExecutionFrame
+			completed <- completion{source: source, onExecutionFrame: onExecutionFrame}
 		},
 	})
 	sched.Start()
@@ -130,9 +137,9 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 	if _, err := sched.Submit(rootCtx, self, first, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	var onExecutionFrame bool
+	var done completion
 	select {
-	case onExecutionFrame = <-completed:
+	case done = <-completed:
 	case <-time.After(5 * time.Second):
 		t.Fatal("process did not complete")
 	}
@@ -152,8 +159,11 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 			t.Errorf("%s incarnation sees the execution's values, got %v", name, view.execution)
 		}
 	}
-	if !onExecutionFrame {
-		t.Error("completion is reported on the execution's frame, not an incarnation's")
+	if done.source.Name != "third" {
+		t.Errorf("completion reports the code that ended, got %v", done.source)
+	}
+	if !done.onExecutionFrame {
+		t.Error("the host reaches the execution frame it created")
 	}
 	for _, c := range []*countingCloser{root, port} {
 		select {

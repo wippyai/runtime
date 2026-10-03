@@ -346,7 +346,7 @@ func (h *Host) OnStart(_ context.Context, _ pid.PID, _ process.Process) error { 
 // OnComplete implements scheduler.Lifecycle.
 func (h *Host) OnComplete(ctx context.Context, _ pid.PID, _ *runtime.Result) {
 	ctxapi.CompleteFrame(ctx)
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }
@@ -387,7 +387,7 @@ var _ process.Host = (*Host)(nil)
 // processes it owns end with it, and its frame is released.
 func abandonFrame(ctx context.Context) {
 	ctxapi.CompleteFrame(ctx)
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }

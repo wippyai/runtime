@@ -481,7 +481,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	}
 
 	if s.lifecycle != nil {
-		s.lifecycle.OnComplete(proc.root, proc.pid, res)
+		s.lifecycle.OnComplete(proc.ctx, proc.pid, res)
 	}
 
 	if proc.pooled {

@@ -56,9 +56,9 @@ type frameContext struct {
 	refcount   atomic.Int32
 	sealed     atomic.Bool
 	writers    atomic.Int32
-	// continuation marks the frame of a later code incarnation; its
-	// Execution values belong to the execution's frame, which closes them.
-	continuation bool
+	// execution is set on the frame of a later code incarnation: the
+	// execution's own frame, which owns and closes the Execution values.
+	execution FrameContext
 }
 
 type frameContextRef struct {
@@ -431,7 +431,7 @@ func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, e
 	next, nfc := OpenFrameContext(ctx)
 	if ref, ok := nfc.(*frameContextRef); ok {
 		if frame := ref.resolveFrame(); frame != nil {
-			frame.continuation = true
+			frame.execution = ExecutionFrame(ctx)
 		}
 	}
 	if len(carried) > 0 {
@@ -443,10 +443,23 @@ func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, e
 	return next, nfc, nil
 }
 
-// CompleteFrame releases the Completer values of the frame in ctx; process
-// hosts call it when the process owning the frame completes.
-func CompleteFrame(ctx context.Context) {
+// ExecutionFrame returns the frame of the execution running in ctx: the
+// frame its host created, also when ctx belongs to a later code incarnation
+// (see ContinueFrameContext). It is nil when ctx has no frame.
+func ExecutionFrame(ctx context.Context) FrameContext {
 	fc := FrameFromContext(ctx)
+	if ref, ok := fc.(*frameContextRef); ok {
+		if frame := ref.resolveFrame(); frame != nil && frame.execution != nil {
+			return frame.execution
+		}
+	}
+	return fc
+}
+
+// CompleteFrame releases the Completer values of the execution frame of ctx;
+// process hosts call it when the process owning the frame completes.
+func CompleteFrame(ctx context.Context) {
+	fc := ExecutionFrame(ctx)
 	if fc == nil {
 		return
 	}
@@ -519,12 +532,12 @@ func releaseFrame(f *frameContext, expectedGeneration uint64) {
 		if !ok {
 			continue
 		}
-		if key, isKey := k.(*Key); isKey && key.Execution && f.continuation {
+		if key, isKey := k.(*Key); isKey && key.Execution && f.execution != nil {
 			continue
 		}
 		closers = append(closers, closer)
 	}
-	f.continuation = false
+	f.execution = nil
 	values := make(frameValues, 8)
 	f.values.Store(&values)
 	parent := f.parent
