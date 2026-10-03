@@ -23,7 +23,8 @@ type (
 	}
 
 	// Cloner is implemented by types that can create a copy of themselves.
-	// Used during frame inheritance to prevent shared mutable state.
+	// Used during frame inheritance and cross-process propagation to prevent
+	// shared mutable state.
 	Cloner interface {
 		Clone() any
 	}

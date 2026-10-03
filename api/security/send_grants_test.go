@@ -55,3 +55,25 @@ func TestProcessSendGrantsFrame(t *testing.T) {
 	inherited.Grant(later)
 	require.False(t, grants.Holds(later), "acquisitions after the fork stay with the forked frame")
 }
+
+func TestProcessSendGrantsPropagateAsCopy(t *testing.T) {
+	child := pid.PID{Host: "app:host", UniqID: "child"}
+	grants := NewProcessSendGrants(child)
+	parent, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, fc.SetMultiple(ProcessSendGrantsPair(grants)))
+
+	// A spawned process starts from the propagated pairs of its spawner.
+	spawned, sfc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(sfc)
+	require.NoError(t, sfc.SetMultiple(ctxapi.PropagatedPairs(parent)...))
+
+	inherited := GetProcessSendGrants(spawned)
+	require.NotNil(t, inherited, "a spawned process stays restricted")
+	require.NotSame(t, grants, inherited, "a spawned process gets its own copy")
+	require.True(t, inherited.Holds(child))
+
+	later := pid.PID{Host: "app:host", UniqID: "later"}
+	inherited.Grant(later)
+	require.False(t, grants.Holds(later), "acquisitions of the spawned process stay with it")
+}

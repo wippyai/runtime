@@ -1004,3 +1004,39 @@ func TestPropagatedPairs_PropagatorReturnsNil(t *testing.T) {
 		t.Errorf("expected 0 pairs when propagator returns nil, got %d", len(pairs))
 	}
 }
+
+type mockCloner struct {
+	items map[string]struct{}
+}
+
+func (m *mockCloner) Clone() any {
+	c := &mockCloner{items: make(map[string]struct{}, len(m.items))}
+	for k := range m.items {
+		c.items[k] = struct{}{}
+	}
+	return c
+}
+
+func TestPropagatedPairs_ClonesCloner(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	key := &Key{Name: "test.cloner", Inherit: true}
+	original := &mockCloner{items: map[string]struct{}{"a": {}}}
+	_ = fc.Set(key, original)
+
+	pairs := PropagatedPairs(ctx)
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 pair, got %d", len(pairs))
+	}
+	propagated, ok := pairs[0].Value.(*mockCloner)
+	if !ok {
+		t.Fatalf("expected *mockCloner, got %T", pairs[0].Value)
+	}
+	if propagated == original {
+		t.Fatal("a child process gets its own copy, as a forked frame does")
+	}
+	if _, ok := propagated.items["a"]; !ok {
+		t.Error("the copy holds the parent's contents")
+	}
+}

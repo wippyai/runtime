@@ -371,6 +371,8 @@ func FrameFromContext(ctx context.Context) FrameContext {
 // It extracts all inheritable pairs from the frame context and applies the
 // Propagator interface for values that need transformation before crossing process boundaries.
 // Values where PropagateValue() returns nil are excluded from propagation.
+// Cloner values are copied, as on a frame fork, so a spawned process shares
+// no mutable state with its spawner.
 func PropagatedPairs(ctx context.Context) []Pair {
 	fc := FrameFromContext(ctx)
 	if fc == nil {
@@ -390,6 +392,10 @@ func PropagatedPairs(ctx context.Context) []Pair {
 			if transformed != nil {
 				pairs = append(pairs, Pair{Key: p.Key, Value: transformed})
 			}
+			continue
+		}
+		if cloner, ok := p.Value.(Cloner); ok {
+			pairs = append(pairs, Pair{Key: p.Key, Value: cloner.Clone()})
 			continue
 		}
 		pairs = append(pairs, p)
