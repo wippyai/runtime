@@ -4,6 +4,7 @@ package actor
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,10 +27,20 @@ var (
 )
 
 // countingCloser records how often the frame holding it is reclaimed.
-type countingCloser struct{ closed atomic.Int32 }
+type countingCloser struct {
+	first  sync.Once
+	closed atomic.Int32
+	// reclaimed is closed by the first Close.
+	reclaimed chan struct{}
+}
+
+func newCountingCloser() *countingCloser {
+	return &countingCloser{reclaimed: make(chan struct{})}
+}
 
 func (c *countingCloser) Close() error {
 	c.closed.Add(1)
+	c.first.Do(func() { close(c.reclaimed) })
 	return nil
 }
 
@@ -102,8 +113,8 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 	})
 
 	self := pidapi.PID{UniqID: "upgrader"}
-	root := &countingCloser{}
-	port := &countingCloser{}
+	root := newCountingCloser()
+	port := newCountingCloser()
 	rootCtx, fc := ctxapi.OpenFrameContext(appCtx)
 	if err := fc.SetMultiple(
 		ctxapi.Pair{Key: runtime.FrameIDKey, Value: registry.NewID("app", "first")},
@@ -144,9 +155,12 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 	if !onExecutionFrame {
 		t.Error("completion is reported on the execution's frame, not an incarnation's")
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for root.closed.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	for _, c := range []*countingCloser{root, port} {
+		select {
+		case <-c.reclaimed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the execution frame was not reclaimed")
+		}
 	}
 	if got := root.closed.Load(); got != 1 {
 		t.Fatalf("the execution frame is reclaimed once after completion, got %d", got)
