@@ -93,11 +93,46 @@ type Processor struct {
 	output     process.StepOutput
 	gen        atomic.Uint64
 	steps      atomic.Uint64
+	wakeMu     sync.Mutex
 	id         uint64
 	startedAt  int64
 	state      atomic.Int32
 	lastWorker atomic.Int32
 	pooled     bool
+}
+
+// setGeneration binds the processor to a new queue generation. A wake in
+// progress completes against the incarnation it checked, so a wake bound to an
+// earlier generation never transitions this one.
+func (p *Processor) setGeneration(gen uint64) {
+	p.wakeMu.Lock()
+	p.gen.Store(gen)
+	p.wakeMu.Unlock()
+}
+
+// casStateAt is casState for a wake bound to a queue generation: the
+// transition happens only while the processor still runs that generation.
+func (p *Processor) casStateAt(gen uint64, old, newState ProcessState) bool {
+	p.wakeMu.Lock()
+	defer p.wakeMu.Unlock()
+	return p.gen.Load() == gen && p.casState(old, newState)
+}
+
+// wake makes a processor that waits runnable once an event was queued for it
+// under gen, and reports whether the caller must schedule it. A running
+// processor is flagged instead, and re-queues itself when it stops. The
+// generation check and the transition are one step against slot reuse.
+func (p *Processor) wake(gen uint64) bool {
+	p.wakeMu.Lock()
+	defer p.wakeMu.Unlock()
+	if p.gen.Load() != gen {
+		return false
+	}
+	if p.casState(StateBlocked, StateReady) || p.casState(StateIdle, StateReady) {
+		return true
+	}
+	p.setWakeup(StateRunning)
+	return false
 }
 
 // publishSignalRef publishes immutable identity, generation and the

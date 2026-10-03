@@ -283,21 +283,9 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 	}
 	proc := v.(*Processor)
 
-	// Verify generation matches to avoid waking wrong processor
-	if proc.gen.Load() != gen {
-		return
-	}
-
-	// Same wake logic as processor.CompleteYield
-	if proc.casState(StateBlocked, StateReady) {
+	if proc.wake(gen) {
 		s.injectOrGlobal(proc)
-		return
 	}
-	if proc.casState(StateIdle, StateReady) {
-		s.injectOrGlobal(proc)
-		return
-	}
-	proc.setWakeup(StateRunning)
 }
 
 func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, method string, input payload.Payloads) (*Processor, error) {
@@ -345,7 +333,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	if admission, ok := p.(interface{ EventAdmission() process.EventAdmission }); ok {
 		proc.queue.SetAdmission(admission.EventAdmission())
 	}
-	proc.gen.Store(proc.queue.Generation())
+	proc.setGeneration(proc.queue.Generation())
 	proc.completer = proc.queue.NewYieldCompleter(s)
 	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
@@ -481,7 +469,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
-	proc.gen.Store(proc.queue.Generation())
+	proc.setGeneration(proc.queue.Generation())
 	proc.completer = proc.queue.NewYieldCompleter(s)
 	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
@@ -612,9 +600,7 @@ func (s *Scheduler) deliverToProcError(proc *Processor, gen uint64, pkg *relay.P
 	// Wake process if waiting for messages.
 	// CAS ensures exactly-once wake even with concurrent senders.
 	// Try both Idle (waiting on select) and Blocked (waiting on yield completion).
-	if proc.casState(StateIdle, StateReady) {
-		s.injectOrGlobal(proc)
-	} else if proc.casState(StateBlocked, StateReady) {
+	if proc.casStateAt(gen, StateIdle, StateReady) || proc.casStateAt(gen, StateBlocked, StateReady) {
 		s.injectOrGlobal(proc)
 	}
 
