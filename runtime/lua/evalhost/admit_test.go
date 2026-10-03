@@ -5,6 +5,7 @@ package evalhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -137,12 +138,8 @@ func TestAdmitterCachesByCanonicalPolicy(t *testing.T) {
 	require.NotEqual(t, first.Key, other.Key)
 	require.Equal(t, 2, len(a.entries))
 
-	evicted, err := a.Evict(ctx, first)
-	require.NoError(t, err)
-	require.True(t, evicted)
-	evicted, err = a.Evict(ctx, first)
-	require.NoError(t, err)
-	require.False(t, evicted)
+	require.NoError(t, a.Evict(ctx, first))
+	require.ErrorIs(t, a.Evict(ctx, first), apihost.ErrEvalProgramNotFound, "a program that is not cached is not found")
 }
 
 func TestAdmitterEvictsLeastRecentlyUsed(t *testing.T) {
@@ -507,4 +504,58 @@ func TestEvalPolicyRegistryLookupIsOptIn(t *testing.T) {
 		Policy:     apihost.EvalPolicy{AllowCommands: []apihost.EvalCommand{apihost.EvalCommandLookup}},
 	})
 	require.NoError(t, err, "lookup needs no child limit")
+}
+
+func TestAdmitterSpawnMethodOverridesProgramMethod(t *testing.T) {
+	a, starter := newTestAdmitter(t)
+	ctx, _ := ownerContext(t)
+	program, err := a.Compile(ctx, apihost.EvalCompileSpec{SourceCode: `return { main = function() end, alt = function() end }`})
+	require.NoError(t, err)
+
+	_, err = a.Spawn(ctx, apihost.EvalSpawnSpec{Program: program, Parent: admitParent})
+	require.NoError(t, err)
+	require.Equal(t, "main", starter.start.Admission.Meta.Method, "the compiled method is the default")
+
+	_, err = a.Spawn(ctx, apihost.EvalSpawnSpec{Program: program, Parent: admitParent, Method: "alt"})
+	require.NoError(t, err)
+	require.Equal(t, "alt", starter.start.Admission.Meta.Method, "a spawn method overrides the compiled one")
+}
+
+func TestAdmitterCacheKeepsProgramsOfRunningEvals(t *testing.T) {
+	a, starter := newTestAdmitter(t, WithProgramCacheSize(2))
+	ctx, _ := ownerContext(t)
+	compile := func(n int) apihost.EvalProgram {
+		p, err := a.Compile(ctx, apihost.EvalCompileSpec{SourceCode: fmt.Sprintf(`return { main = function() return %d end }`, n)})
+		require.NoError(t, err)
+		return p
+	}
+	running := compile(1)
+	frames := make([]context.Context, 0, 2)
+	spawn := func() error {
+		_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{Program: running, Parent: admitParent})
+		if err != nil {
+			return err
+		}
+		frameCtx, fc := ctxapi.OpenFrameContext(context.Background())
+		t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+		require.NoError(t, fc.SetMultiple(starter.start.Context...))
+		frames = append(frames, frameCtx)
+		return nil
+	}
+	require.NoError(t, spawn())
+
+	compile(2)
+	compile(3)
+	compile(4)
+	require.NoError(t, spawn(), "a program with a running eval is not evicted for capacity")
+
+	ctxapi.CompleteFrame(frames[0])
+	compile(5)
+	require.NoError(t, spawn(), "one running eval still holds the program")
+	ctxapi.CompleteFrame(frames[1])
+	ctxapi.CompleteFrame(frames[2])
+	compile(6)
+	compile(7)
+	err := spawn()
+	require.ErrorIs(t, err, apihost.ErrEvalProgramNotFound, "once its evals end the program is evictable again")
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	lua "github.com/wippyai/go-lua"
@@ -64,6 +65,9 @@ type admitEntry struct {
 	policy    apihost.EvalPolicy
 	identity  sourceIdentity
 	key       apihost.EvalCacheKey
+	// pins counts running evals admitted from the program; the cache keeps a
+	// pinned program when it trims for capacity.
+	pins atomic.Int64
 }
 
 // admittedImport is an imported library compiled at admission; spawns run
@@ -357,11 +361,21 @@ func (a *Admitter) insert(entry *admitEntry) *admitEntry {
 	entry.elem = a.lru.PushFront(entry.key)
 	a.entries[entry.key] = entry
 	a.sources[entry.identity] = entry.key
-	for len(a.entries) > a.capacity {
-		oldest := a.lru.Back()
-		a.removeLocked(oldest.Value.(apihost.EvalCacheKey))
-	}
+	a.trimLocked()
 	return entry
+}
+
+// trimLocked evicts least recently used programs without running evals until
+// the cache is within capacity; programs with running evals stay.
+func (a *Admitter) trimLocked() {
+	for elem := a.lru.Back(); elem != nil && len(a.entries) > a.capacity; {
+		prev := elem.Prev()
+		key := elem.Value.(apihost.EvalCacheKey)
+		if a.entries[key].pins.Load() == 0 {
+			a.removeLocked(key)
+		}
+		elem = prev
+	}
 }
 
 func (a *Admitter) removeLocked(key apihost.EvalCacheKey) bool {
@@ -379,14 +393,42 @@ func (a *Admitter) removeLocked(key apihost.EvalCacheKey) bool {
 
 // Evict implements apihost.EvalHost. Running eval processes keep their
 // program.
-func (a *Admitter) Evict(_ context.Context, program apihost.EvalProgram) (bool, error) {
+func (a *Admitter) Evict(_ context.Context, program apihost.EvalProgram) error {
 	if program.IsZero() {
-		return false, apihost.ErrEvalProgramNotFound
+		return apihost.ErrEvalProgramNotFound
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.removeLocked(program.Key), nil
+	if !a.removeLocked(program.Key) {
+		return apihost.ErrEvalProgramNotFound
+	}
+	return nil
 }
+
+// programPin holds a program in the cache while an eval admitted from it
+// runs. It is a frame attachment of the eval: released when the eval
+// completes, or when its start fails.
+type programPin struct {
+	entry    *admitEntry
+	released atomic.Bool
+}
+
+var programPinKey = &ctxapi.Key{Name: "eval.program_pin"}
+
+func (a *Admitter) pin(entry *admitEntry) *programPin {
+	entry.pins.Add(1)
+	return &programPin{entry: entry}
+}
+
+func (p *programPin) release() {
+	if p.released.CompareAndSwap(false, true) {
+		p.entry.pins.Add(-1)
+	}
+}
+
+func (p *programPin) Complete()       { p.release() }
+func (p *programPin) Close() error    { p.release(); return nil }
+func (p *programPin) Rollback() error { p.release(); return nil }
 
 // Spawn implements apihost.EvalHost.
 func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.PID, error) {
@@ -398,6 +440,13 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 		return pid.PID{}, err
 	}
 	policy := entry.policy
+	pin := a.pin(entry)
+	started := false
+	defer func() {
+		if !started {
+			pin.release()
+		}
+	}()
 
 	link, monitor, err := evalLinkMode(spec.LinkMode, spec.Parent, policy)
 	if err != nil {
@@ -448,6 +497,11 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 		options.Set(process.ProcessOwnedKey, true)
 	}
 
+	method := spec.Method
+	if method == "" {
+		method = entry.program.Method()
+	}
+
 	start := &process.Start{
 		HostID:  hostID,
 		Source:  registry.ID{NS: EvalProgramNamespace, Name: entry.frameName},
@@ -455,7 +509,7 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 		Options: options,
 		// The eval starts from a clean frame: only values meant to cross
 		// into another process, such as trace context, follow it.
-		Context: append(frame, ctxapi.PropagatorPairs(ctx)...),
+		Context: append(append(frame, ctxapi.Pair{Key: programPinKey, Value: pin}), ctxapi.PropagatorPairs(ctx)...),
 		Admission: &process.Admission{
 			Factory: engine.NewFactory(engine.FactoryConfig{
 				Proto:         entry.program.Proto(),
@@ -468,10 +522,11 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 				},
 				Lifetime: lifetime,
 			}),
-			Meta: process.Meta{Method: entry.program.Method()},
+			Meta: process.Meta{Method: method},
 		},
 	}
 	child, err := a.manager.Start(ctx, start)
+	started = err == nil
 	if err != nil && a.spawnOn == "" && errors.Is(err, sysprocess.ErrInvalidHost) {
 		return child, fmt.Errorf("eval runs on the caller's host %s, which cannot run processes; configure lua.eval.spawn_host: %w", hostID, err)
 	}

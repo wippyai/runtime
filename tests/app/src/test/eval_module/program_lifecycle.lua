@@ -44,6 +44,15 @@ local function main()
 	assert.eq(values[1], 2, "first spawn of the program")
 	assert.eq(values[2], 11, "second spawn of the program")
 
+	local alternate = eval.compile([[
+		return { main = function() return "main" end, alt = function() return "alt" end }
+	]])
+	local plain = alternate:spawn({ monitor_only = true })
+	local overridden = alternate:spawn({ method = "alt", monitor_only = true })
+	local methods = wait_values(events, { plain, overridden })
+	assert.eq(methods[1], "main", "a program runs its compiled method")
+	assert.eq(methods[2], "alt", "a spawn method overrides the compiled one")
+
 	local mismatch, merr = program:spawn({ modules = { "json" }, monitor_only = true })
 	assert.is_nil(mismatch, "spawn with a different policy fails")
 	assert.contains(tostring(merr), "eval policy mismatch", "policy mismatch reported")
@@ -53,8 +62,8 @@ local function main()
 	assert.eq(evicted, true, "evict returns true for a cached program")
 
 	local again, aerr = program:evict()
-	assert.is_nil(aerr, "evicting an evicted program succeeds")
-	assert.eq(again, false, "evict returns false for a program that is not cached")
+	assert.is_nil(again, "evicting an evicted program fails")
+	assert.contains(tostring(aerr), "eval program not found", "a program that is not cached is not found")
 
 	local gone, gerr = program:spawn({ monitor_only = true })
 	assert.is_nil(gone, "spawn after evict fails")

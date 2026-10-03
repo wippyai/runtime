@@ -162,8 +162,8 @@ type EvalHost interface {
 	// Spawn starts an eval process and returns its PID.
 	Spawn(ctx context.Context, spec EvalSpawnSpec) (pid.PID, error)
 	// Evict drops a compiled program from the cache. Running processes are
-	// unaffected. It reports whether the program was cached.
-	Evict(ctx context.Context, program EvalProgram) (bool, error)
+	// unaffected. A program that is not cached is ErrEvalProgramNotFound.
+	Evict(ctx context.Context, program EvalProgram) error
 }
 
 // WithEvalHost stores the node-local EvalHost in the AppContext.

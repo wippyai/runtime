@@ -81,9 +81,7 @@ func TestAdmitterEvictReleasesProgram(t *testing.T) {
 		})
 		require.NoError(t, err)
 		trackEntry(a, program, &collected)
-		ok, err := a.Evict(context.Background(), program)
-		require.NoError(t, err)
-		require.True(t, ok)
+		require.NoError(t, a.Evict(context.Background(), program))
 	}
 	require.Empty(t, a.entries)
 	require.Zero(t, a.lru.Len())
