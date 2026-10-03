@@ -3,6 +3,7 @@
 package evalhost
 
 import (
+	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -28,6 +29,9 @@ type CompileCmd struct {
 	Imports       map[string]registry.ID // Registry entries to import (alias -> ID)
 	ImportModules map[string][]string    // Per-import privileged modules (alias -> module names) usable only inside that import
 	AllowClasses  []string               // Additional classes to allow (e.g., "process")
+	// Globals declares the types of globals the program receives besides its
+	// modules, for type checking.
+	Globals map[string]typ.Type
 	// AllowModules names modules allowed regardless of their classes.
 	AllowModules []string
 	// ExplicitModules loads exactly Modules; an empty list loads none instead

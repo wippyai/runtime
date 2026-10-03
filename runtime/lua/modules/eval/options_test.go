@@ -136,7 +136,6 @@ func TestOptions_CompileMode(t *testing.T) {
 		{`"LITE"`, apihost.EvalCompileLite},
 		{`""`, apihost.EvalCompileLite},
 		{`"typed"`, apihost.EvalCompileTyped},
-		{`"jit"`, apihost.EvalCompileJIT},
 	}
 	for _, tt := range tests {
 		c, err := compile(t, `{compile = `+tt.src+`}`)
@@ -147,6 +146,8 @@ func TestOptions_CompileMode(t *testing.T) {
 
 	_, err := compile(t, `{compile = "fast"}`)
 	assert.EqualError(t, err, `unknown eval compile mode "fast"`)
+	_, err = compile(t, `{compile = "jit"}`)
+	assert.EqualError(t, err, `unknown eval compile mode "jit"`)
 	_, err = compile(t, `{compile = 1}`)
 	assert.EqualError(t, err, "eval compile mode must be string")
 }
@@ -690,4 +691,38 @@ func TestOptions_ErrorsLeaveZeroValue(t *testing.T) {
 	s, err := spawn(t, `{name = "n", link = "bogus"}`)
 	require.Error(t, err)
 	assert.Equal(t, spawnOptions{}, s)
+}
+
+func TestOptions_BindingsAreBoundedTrees(t *testing.T) {
+	c, err := compile(t, `{bindings = {cfg = {name = "x", list = {1, 2, 3}, nested = {deep = true}}, n = 7}}`)
+	require.NoError(t, err)
+	byName := map[string]any{}
+	for _, b := range c.Policy.Bindings {
+		byName[b.Name] = b.Value
+	}
+	assert.Equal(t, int64(7), byName["n"])
+	cfg := byName["cfg"].(map[string]any)
+	assert.Equal(t, []any{int64(1), int64(2), int64(3)}, cfg["list"])
+	assert.Equal(t, map[string]any{"deep": true}, cfg["nested"])
+
+	_, err = compile(t, `(function() local t = {}; local s = {t, t}; return {bindings = {x = s}} end)()`)
+	assert.ErrorContains(t, err, "repeats a table", "shared subtables are rejected")
+
+	// {t, t} graphs would cost 2^levels visits if shared tables were re-walked.
+	_, err = compile(t, `(function() local t = {} for i = 1, 20 do t = {t, t} end return {bindings = {x = t}} end)()`)
+	assert.ErrorContains(t, err, "repeats a table")
+	_, err = compile(t, `(function() local t = {} for i = 1, 35 do t = {t, t} end return {bindings = {x = t}} end)()`)
+	assert.ErrorContains(t, err, "eval binding invalid")
+
+	_, err = compile(t, `{bindings = {x = {[1] = "a", tag = "b"}}}`)
+	assert.ErrorContains(t, err, "mixes array and string keys", "mixed tables would lose keys")
+
+	_, err = compile(t, `{bindings = {x = {[2] = "a"}}}`)
+	assert.ErrorContains(t, err, "eval binding invalid")
+
+	_, err = compile(t, `(function() local t = {} for i = 1, 40 do t = {t} end return {bindings = {x = t}} end)()`)
+	assert.ErrorContains(t, err, "nests deeper than")
+
+	_, err = compile(t, `(function() local t = {} for i = 1, 5000 do t[i] = {} end return {bindings = {x = t}} end)()`)
+	assert.ErrorContains(t, err, "exceed")
 }

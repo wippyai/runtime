@@ -90,8 +90,8 @@ func validatePolicy(policy apihost.EvalPolicy) error {
 			return unsupported("invalid module name %q", module)
 		}
 	}
-	if policy.CompileMode == apihost.EvalCompileJIT {
-		return unsupported("compile mode jit is not supported")
+	if policy.CompileMode > apihost.EvalCompileTyped {
+		return unsupported("unknown compile mode")
 	}
 	if policy.TickBudget == 0 || policy.TickBudget > maxEvalTickBudget ||
 		policy.MaxSteps == 0 || policy.MaxSteps > maxEvalMaxSteps ||
@@ -207,9 +207,6 @@ func validateBindings(policy apihost.EvalPolicy) error {
 			if imp.Alias == binding.Name {
 				return apihost.ErrEvalBindingInvalid
 			}
-		}
-		if _, err := json.Marshal(binding.Value); err != nil {
-			return apihost.ErrEvalBindingInvalid
 		}
 	}
 	return nil

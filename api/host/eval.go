@@ -25,8 +25,6 @@ const (
 	// EvalCompileTyped additionally requires the source to pass strict type
 	// checking.
 	EvalCompileTyped
-	// EvalCompileJIT is reserved; admission rejects it.
-	EvalCompileJIT
 )
 
 // EvalLinkMode controls the parent relationship at spawn admission.

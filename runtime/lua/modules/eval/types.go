@@ -11,7 +11,6 @@ var (
 	compileModeType = typ.NewUnion(
 		typ.LiteralString("lite"),
 		typ.LiteralString("typed"),
-		typ.LiteralString("jit"),
 	)
 	sendModeType = typ.NewUnion(
 		typ.LiteralString("cap"),

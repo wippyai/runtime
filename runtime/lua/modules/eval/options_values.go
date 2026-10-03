@@ -13,7 +13,7 @@ import (
 	apihost "github.com/wippyai/runtime/api/host"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/evalhost"
 )
 
 // tableKey returns the string form of a string table key.
@@ -246,6 +246,7 @@ func bindingsValue(raw lua.LValue, name string) ([]apihost.EvalBinding, error) {
 	}
 	var out []apihost.EvalBinding
 	var err error
+	conv := bindingConverter{seen: make(map[*lua.LTable]struct{})}
 	tbl.ForEach(func(k, v lua.LValue) {
 		if err != nil {
 			return
@@ -259,11 +260,11 @@ func bindingsValue(raw lua.LValue, name string) ([]apihost.EvalBinding, error) {
 			err = fmt.Errorf("eval binding invalid: %q is not a valid identifier", key)
 			return
 		}
-		if verr := validateBindingData(v, key, nil); verr != nil {
-			err = verr
+		var data any
+		if data, err = conv.value(v, key, 0); err != nil {
 			return
 		}
-		out = append(out, apihost.EvalBinding{Name: key, Value: value.ToGoAny(v)})
+		out = append(out, apihost.EvalBinding{Name: key, Value: data})
 	})
 	if err != nil {
 		return nil, err
@@ -288,39 +289,97 @@ func validBindingName(name string) bool {
 	return true
 }
 
-// validateBindingData accepts nil, booleans, numbers, strings and acyclic
-// tables of those.
-func validateBindingData(v lua.LValue, path string, stack []*lua.LTable) error {
+// bindingConverter copies binding data out of Lua in one bounded pass. A
+// binding is a tree of nil, booleans, numbers, strings, arrays (keys 1..n)
+// and string-keyed maps; every table is visited once, so repeated tables are
+// rejected rather than re-walked.
+type bindingConverter struct {
+	seen  map[*lua.LTable]struct{}
+	nodes int
+}
+
+func (c *bindingConverter) value(v lua.LValue, path string, depth int) (any, error) {
 	switch x := v.(type) {
-	case *lua.LNilType, lua.LBool, lua.LNumber, lua.LInteger, lua.LString:
-		return nil
+	case *lua.LNilType:
+		return nil, nil
+	case lua.LBool:
+		return bool(x), nil
+	case lua.LInteger:
+		return int64(x), nil
+	case lua.LNumber:
+		return float64(x), nil
+	case lua.LString:
+		return string(x), nil
 	case *lua.LTable:
-		for _, seen := range stack {
-			if seen == x {
-				return fmt.Errorf("eval binding invalid: %s is a recursive table", path)
-			}
-		}
-		stack = append(stack, x)
-		var err error
-		x.ForEach(func(k, item lua.LValue) {
-			if err != nil {
-				return
-			}
-			var sub string
-			switch kk := k.(type) {
-			case lua.LString:
-				sub = path + "." + string(kk)
-			case lua.LNumber, lua.LInteger:
-				sub = fmt.Sprintf("%s[%v]", path, kk)
-			default:
-				err = fmt.Errorf("eval binding invalid: %s has unsupported key type %s", path, k.Type())
-				return
-			}
-			err = validateBindingData(item, sub, stack)
-		})
-		return err
+		return c.table(x, path, depth)
 	default:
-		return fmt.Errorf("eval binding invalid: %s has unsupported %s value", path, v.Type())
+		return nil, fmt.Errorf("eval binding invalid: %s has unsupported %s value", path, v.Type())
+	}
+}
+
+func (c *bindingConverter) table(t *lua.LTable, path string, depth int) (any, error) {
+	if _, dup := c.seen[t]; dup {
+		return nil, fmt.Errorf("eval binding invalid: %s repeats a table", path)
+	}
+	c.seen[t] = struct{}{}
+	if depth >= evalhost.MaxBindingDepth {
+		return nil, fmt.Errorf("eval binding invalid: %s nests deeper than %d", path, evalhost.MaxBindingDepth)
+	}
+	c.nodes++
+	if c.nodes > evalhost.MaxBindingNodes {
+		return nil, fmt.Errorf("eval binding invalid: bindings exceed %d tables", evalhost.MaxBindingNodes)
+	}
+
+	n := t.Len()
+	var arr []any
+	var obj map[string]any
+	count := 0
+	var err error
+	t.ForEach(func(k, item lua.LValue) {
+		if err != nil {
+			return
+		}
+		count++
+		switch kk := k.(type) {
+		case lua.LString:
+			if obj == nil {
+				obj = make(map[string]any)
+			}
+			var data any
+			if data, err = c.value(item, path+"."+string(kk), depth+1); err == nil {
+				obj[string(kk)] = data
+			}
+		case lua.LNumber, lua.LInteger:
+			idx := int(lua.LVAsNumber(kk))
+			if lua.LVAsNumber(kk) != lua.LNumber(idx) || idx < 1 || idx > n {
+				err = fmt.Errorf("eval binding invalid: %s has non-sequence key %v", path, kk)
+				return
+			}
+			if arr == nil {
+				arr = make([]any, n)
+			}
+			var data any
+			if data, err = c.value(item, fmt.Sprintf("%s[%d]", path, idx), depth+1); err == nil {
+				arr[idx-1] = data
+			}
+		default:
+			err = fmt.Errorf("eval binding invalid: %s has unsupported key type %s", path, k.Type())
+		}
+	})
+	switch {
+	case err != nil:
+		return nil, err
+	case arr != nil && obj != nil:
+		return nil, fmt.Errorf("eval binding invalid: %s mixes array and string keys", path)
+	case arr != nil:
+		if count != n {
+			return nil, fmt.Errorf("eval binding invalid: %s is not a dense array", path)
+		}
+		return arr, nil
+	case obj != nil:
+		return obj, nil
+	default:
+		return map[string]any{}, nil
 	}
 }
 
@@ -382,8 +441,6 @@ func parseCompileMode(raw lua.LValue) (apihost.EvalCompileMode, error) {
 		return apihost.EvalCompileLite, nil
 	case "typed":
 		return apihost.EvalCompileTyped, nil
-	case "jit":
-		return apihost.EvalCompileJIT, nil
 	default:
 		return apihost.EvalCompileLite, fmt.Errorf("unknown eval compile mode %q", string(s))
 	}

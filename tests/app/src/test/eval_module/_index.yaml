@@ -95,3 +95,36 @@ entries:
       - eval
     imports:
       assert: app.lib:assert
+
+  - name: long_sleeper
+    kind: process.lua
+    meta:
+      comment: Child an eval spawns that would run for 10s
+    source: file://long_sleeper.lua
+    method: main
+    modules:
+      - time
+
+  - name: spawn_and_return
+    kind: function.lua
+    meta:
+      comment: Spawns an eval with a long-running child, then returns at once
+    source: file://spawn_and_return.lua
+    method: main
+    modules:
+      - eval
+
+  - name: function_lifetime
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: a linked eval does not outlive the function call that spawned it
+    source: file://function_lifetime.lua
+    method: main
+    modules:
+      - eval
+      - funcs
+      - time
+    imports:
+      assert: app.lib:assert

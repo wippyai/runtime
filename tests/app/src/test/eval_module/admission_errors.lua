@@ -14,8 +14,8 @@ local function main()
 	local r, err = eval.compile(source, { unknown_key = true })
 	expect_error(r, err, "unknown or non-string field", "unknown option")
 
-	r, err = eval.compile(source, { compile = "jit" })
-	expect_error(r, err, "eval policy unsupported", "jit compile mode")
+	r, err = eval.compile(source, { compile = ("jit" :: any) })
+	expect_error(r, err, 'unknown eval compile mode "jit"', "jit is not a compile mode")
 
 	r, err = eval.compile(source, { commands = { "upgrade" } })
 	expect_error(r, err, "eval policy unsupported", "upgrade command")

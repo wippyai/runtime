@@ -9,7 +9,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
+
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/parse"
+	"github.com/wippyai/go-lua/types/typ"
 
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -20,7 +25,9 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
+	luacode "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	payloadconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	sysprocess "github.com/wippyai/runtime/system/process"
 	syssecurity "github.com/wippyai/runtime/system/security"
 )
@@ -29,18 +36,13 @@ import (
 // names the frame only; eval programs are never registry entries.
 const EvalProgramNamespace = "eval.program"
 
-// ProcessStarter starts processes; process.Manager implements it.
-type ProcessStarter interface {
-	Start(ctx context.Context, start *process.Start) (pid.PID, error)
-}
-
 // Admitter is the eval host: it compiles dynamic source under an eval policy
 // into a cached program and runs programs as supervised processes. Eval code
 // does not inherit the caller's authority; its frame carries a scope built
 // from the policy alone.
 type Admitter struct {
 	host    *Host
-	starter ProcessStarter
+	manager process.Manager
 	entries map[apihost.EvalCacheKey]*admitEntry
 	sources map[sourceIdentity]apihost.EvalCacheKey
 	lru     *list.List
@@ -52,11 +54,29 @@ type Admitter struct {
 
 // admitEntry is a compiled program with the policy it was admitted under.
 type admitEntry struct {
-	program  *Program
-	elem     *list.Element
-	policy   apihost.EvalPolicy
-	identity sourceIdentity
-	key      apihost.EvalCacheKey
+	program   *Program
+	elem      *list.Element
+	frameName string
+	modules   []*luaapi.ModuleDef
+	imports   []admittedImport
+	policy    apihost.EvalPolicy
+	identity  sourceIdentity
+	key       apihost.EvalCacheKey
+}
+
+// admittedImport is an imported library compiled at admission; spawns run
+// exactly the revision the program was admitted with.
+type admittedImport struct {
+	proto *lua.FunctionProto
+	alias string
+	id    registry.ID
+}
+
+// importSource is an imported library's source loaded at admission.
+type importSource struct {
+	source string
+	alias  string
+	id     registry.ID
 }
 
 // sourceIdentity groups programs that differ only in imported library
@@ -88,11 +108,11 @@ func WithProgramCacheSize(size int) AdmitterOption {
 }
 
 // NewAdmitter returns an eval host that compiles with host's compiler and
-// import loader and starts processes through starter.
-func NewAdmitter(host *Host, starter ProcessStarter, opts ...AdmitterOption) *Admitter {
+// import loader and starts and stops processes through manager.
+func NewAdmitter(host *Host, manager process.Manager, opts ...AdmitterOption) *Admitter {
 	a := &Admitter{
 		host:     host,
-		starter:  starter,
+		manager:  manager,
 		capacity: DefaultEvalProgramCacheSize,
 		entries:  make(map[apihost.EvalCacheKey]*admitEntry),
 		sources:  make(map[sourceIdentity]apihost.EvalCacheKey),
@@ -120,6 +140,11 @@ func (a *Admitter) compile(ctx context.Context, source, method string, raw apiho
 	if err := validatePolicyShape(raw); err != nil {
 		return nil, err
 	}
+	bindings, err := copyBindings(raw.Bindings)
+	if err != nil {
+		return nil, err
+	}
+	raw.Bindings = bindings
 	policy := canonicalPolicy(raw)
 	if err := validatePolicy(policy); err != nil {
 		return nil, err
@@ -127,7 +152,7 @@ func (a *Admitter) compile(ctx context.Context, source, method string, raw apiho
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	imports, err := a.importFingerprint(policy.Imports)
+	sources, imports, err := a.loadImports(policy.Imports)
 	if err != nil {
 		return nil, err
 	}
@@ -147,9 +172,15 @@ func (a *Admitter) compile(ctx context.Context, source, method string, raw apiho
 		return entry, nil
 	}
 
-	if err := a.validateModuleClasses(policy); err != nil {
+	available := a.host.compiler.getModules()
+	if err := validateModuleClasses(policy, available); err != nil {
 		return nil, err
 	}
+	admitted, err := compileImports(sources)
+	if err != nil {
+		return nil, err
+	}
+	typed := policy.CompileMode == apihost.EvalCompileTyped
 	program, err := a.host.compiler.Compile(CompileCmd{
 		Source:          source,
 		Method:          method,
@@ -157,25 +188,28 @@ func (a *Admitter) compile(ctx context.Context, source, method string, raw apiho
 		AllowClasses:    policy.AllowClasses,
 		ExplicitModules: true,
 		AllowModules:    evalModuleNames,
-		Strict:          policy.CompileMode == apihost.EvalCompileTyped,
+		Strict:          typed,
+		Globals:         admittedGlobals(policy, sources, typed),
 	})
 	if err != nil {
 		return nil, NewCompileError(err)
 	}
 
 	entry := &admitEntry{
-		program:  program,
-		policy:   policy,
-		key:      key,
-		identity: sourceIdentity{source: sourceHash, policy: basePolicy},
+		modules:   modulesFor(program.Modules(), available),
+		imports:   admitted,
+		program:   program,
+		policy:    policy,
+		key:       key,
+		identity:  sourceIdentity{source: sourceHash, policy: basePolicy},
+		frameName: hex.EncodeToString(sourceHash[:8]) + hex.EncodeToString(policyHash[:8]),
 	}
 	return a.insert(entry), nil
 }
 
 // validateModuleClasses applies the eval module rule: a module is allowed by
 // name, or it has an allowed class and no denied class.
-func (a *Admitter) validateModuleClasses(policy apihost.EvalPolicy) error {
-	available := a.host.compiler.getModules()
+func validateModuleClasses(policy apihost.EvalPolicy, available map[string]*luaapi.ModuleDef) error {
 	allowed := evalModuleClasses(policy.AllowClasses)
 	for _, name := range policy.Modules {
 		if containsString(evalModuleNames, name) {
@@ -201,27 +235,87 @@ func (a *Admitter) validateModuleClasses(policy apihost.EvalPolicy) error {
 	return nil
 }
 
-// importFingerprint hashes the current source of every imported library, so
-// a library change yields a new program.
-func (a *Admitter) importFingerprint(imports []apihost.EvalImport) ([32]byte, error) {
+// loadImports loads the current source of every imported library and
+// fingerprints it, so a library change yields a new program.
+func (a *Admitter) loadImports(imports []apihost.EvalImport) ([]importSource, [32]byte, error) {
 	if len(imports) == 0 {
-		return [32]byte{}, nil
+		return nil, [32]byte{}, nil
 	}
 	if a.host.importLoader == nil {
-		return [32]byte{}, unsupported("imports are not available")
+		return nil, [32]byte{}, unsupported("imports are not available")
 	}
+	sources := make([]importSource, 0, len(imports))
 	h := sha256.New()
 	for _, imp := range imports {
 		source, err := a.host.importLoader(imp.Source)
 		if err != nil {
-			return [32]byte{}, NewImportError(imp.Alias, imp.Source, err)
+			return nil, [32]byte{}, NewImportError(imp.Alias, imp.Source, err)
 		}
 		writeString(h, imp.Alias)
 		writeString(h, source)
+		sources = append(sources, importSource{source: source, alias: imp.Alias, id: imp.Source})
 	}
 	var sum [32]byte
 	copy(sum[:], h.Sum(nil))
-	return sum, nil
+	return sources, sum, nil
+}
+
+// compileImports compiles imported libraries once, at admission.
+func compileImports(sources []importSource) ([]admittedImport, error) {
+	if len(sources) == 0 {
+		return nil, nil
+	}
+	out := make([]admittedImport, 0, len(sources))
+	for _, src := range sources {
+		chunk, err := parse.Parse(strings.NewReader(src.source), src.alias)
+		if err != nil {
+			return nil, NewImportError(src.alias, src.id, err)
+		}
+		proto, err := lua.CompileWithOptions(chunk, src.alias, lua.CompileOptions{})
+		if err != nil {
+			return nil, NewImportError(src.alias, src.id, err)
+		}
+		out = append(out, admittedImport{proto: proto, alias: src.alias, id: src.id})
+	}
+	return out, nil
+}
+
+// admittedGlobals declares the program's bindings and imports to the type
+// checker; only typed compilation checks them.
+func admittedGlobals(policy apihost.EvalPolicy, sources []importSource, typed bool) map[string]typ.Type {
+	if !typed || len(policy.Bindings)+len(sources) == 0 {
+		return nil
+	}
+	globals := make(map[string]typ.Type, len(policy.Bindings)+len(sources))
+	for _, b := range policy.Bindings {
+		globals[b.Name] = typ.Any
+	}
+	for _, src := range sources {
+		globals[src.alias] = libraryExportType(src)
+	}
+	return globals
+}
+
+// libraryExportType is the type of the value an imported library returns.
+func libraryExportType(src importSource) typ.Type {
+	cfg := luacode.DefaultTypeCheckConfig()
+	cfg.Enabled = true
+	checker := luacode.NewTypeChecker(cfg, nil)
+	manifest, _, err := checker.Check(src.source, src.alias, nil)
+	if err != nil || manifest == nil || manifest.Export == nil {
+		return typ.Any
+	}
+	return manifest.Export
+}
+
+func modulesFor(names []string, available map[string]*luaapi.ModuleDef) []*luaapi.ModuleDef {
+	out := make([]*luaapi.ModuleDef, 0, len(names))
+	for _, name := range names {
+		if mod := available[name]; mod != nil {
+			out = append(out, mod)
+		}
+	}
+	return out
 }
 
 func (a *Admitter) lookup(key apihost.EvalCacheKey) *admitEntry {
@@ -293,6 +387,11 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 	if err != nil {
 		return pid.PID{}, err
 	}
+	if spec.LinkMode == apihost.EvalLinkDetached {
+		if err := detachableFrom(ctx); err != nil {
+			return pid.PID{}, err
+		}
+	}
 
 	hostID := a.spawnOn
 	if hostID == "" {
@@ -319,13 +418,18 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 		options.Set(netapi.OptionKeyNetwork, spec.Network)
 	}
 
-	frameName := hex.EncodeToString(entry.key.SourceHash[:8]) + hex.EncodeToString(entry.key.PolicyHash[:8])
+	// Unless detached, the eval is owned by the execution that spawned it:
+	// it never outlives that execution, however the execution ends.
+	if spec.LinkMode != apihost.EvalLinkDetached {
+		options.Set(process.ProcessOwnedKey, true)
+	}
+
 	start := &process.Start{
 		HostID:  hostID,
-		Source:  registry.ID{NS: EvalProgramNamespace, Name: frameName},
+		Source:  registry.ID{NS: EvalProgramNamespace, Name: entry.frameName},
 		Input:   spec.Input,
 		Options: options,
-		Context: evalFrame(frameName, spec.Parent, policy),
+		Context: evalFrame(entry.frameName, spec.Parent, policy),
 		Admission: &process.Admission{
 			Factory: engine.NewFactory(engine.FactoryConfig{
 				Proto:         entry.program.Proto(),
@@ -340,7 +444,7 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 			Meta: process.Meta{Method: entry.program.Method()},
 		},
 	}
-	child, err := a.starter.Start(ctx, start)
+	child, err := a.manager.Start(ctx, start)
 	if err != nil && a.spawnOn == "" && errors.Is(err, sysprocess.ErrInvalidHost) {
 		return child, fmt.Errorf("eval runs on the caller's host %s, which cannot run processes; configure lua.eval.spawn_host: %w", hostID, err)
 	}
@@ -353,9 +457,7 @@ func (a *Admitter) programFor(ctx context.Context, spec apihost.EvalSpawnSpec) (
 	if spec.Program.IsZero() {
 		return a.compile(ctx, spec.SourceCode, spec.Method, spec.Policy)
 	}
-	a.mu.Lock()
-	entry := a.entries[spec.Program.Key]
-	a.mu.Unlock()
+	entry := a.lookup(spec.Program.Key)
 	if entry == nil {
 		return nil, apihost.ErrEvalProgramNotFound
 	}
@@ -391,6 +493,22 @@ func evalLinkMode(mode apihost.EvalLinkMode, parent pid.PID, policy apihost.Eval
 	}
 }
 
+// detachableFrom reports whether the execution in ctx may start an eval that
+// outlives it: only a process that is not itself owned may. A function call
+// never is, and an owned process stays contained.
+func detachableFrom(ctx context.Context) error {
+	scope := process.GetExecutionScope(ctx)
+	switch {
+	case scope == nil:
+		return fmt.Errorf("%w: caller has no execution scope", apihost.ErrEvalDetachedDenied)
+	case scope.Kind() == process.ExecutionFunction:
+		return fmt.Errorf("%w: a function call cannot outlive its evals", apihost.ErrEvalDetachedDenied)
+	case process.IsOwned(ctx):
+		return fmt.Errorf("%w: an owned process cannot detach", apihost.ErrEvalDetachedDenied)
+	}
+	return nil
+}
+
 // evalFrame returns the frame pairs that confine an eval process: its own
 // actor and scope, send grants in object-capability mode, and a child limit
 // when it may spawn.
@@ -416,23 +534,28 @@ func evalFrame(name string, parent pid.PID, policy apihost.EvalPolicy) []ctxapi.
 	return pairs
 }
 
-// binder loads the program's modules, imports and bindings into a new
-// process state.
+// binder loads the program's admitted modules, imports and bindings into a
+// new process state.
 func (a *Admitter) binder(entry *admitEntry) engine.ModuleBinder {
-	policy := entry.policy
-	var imports map[string]registry.ID
-	if len(policy.Imports) > 0 {
-		imports = make(map[string]registry.ID, len(policy.Imports))
-		for _, imp := range policy.Imports {
-			imports[imp.Alias] = imp.Source
+	return func(l *lua.LState) error {
+		for _, mod := range entry.modules {
+			l.SetGlobal(mod.Name, engine.ModuleValue(mod))
 		}
-	}
-	var bindings map[string]any
-	if len(policy.Bindings) > 0 {
-		bindings = make(map[string]any, len(policy.Bindings))
-		for _, b := range policy.Bindings {
-			bindings[b.Name] = b.Value
+		for _, imp := range entry.imports {
+			l.Push(l.NewFunctionFromProto(imp.proto))
+			if err := l.PCall(0, 1, nil); err != nil {
+				return NewImportError(imp.alias, imp.id, err)
+			}
+			l.SetGlobal(imp.alias, l.Get(-1))
+			l.Pop(1)
 		}
+		for _, b := range entry.policy.Bindings {
+			v, err := payloadconv.GoToLua(b.Value)
+			if err != nil {
+				return err
+			}
+			l.SetGlobal(b.Name, v)
+		}
+		return nil
 	}
-	return a.host.createModuleBinder(entry.program.Modules(), imports, nil, bindings)
 }

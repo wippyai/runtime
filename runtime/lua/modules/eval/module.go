@@ -122,6 +122,9 @@ func spawnProgram(l *lua.LState, source string, program apihost.EvalProgram) int
 	if !security.IsAllowed(ctx, "eval.spawn", "", nil) {
 		return pushError(l, lua.PermissionDenied, "permission denied: eval.spawn")
 	}
+	if opts.Network != "" && !security.IsAllowed(ctx, "network.select", opts.Network, nil) {
+		return pushError(l, lua.PermissionDenied, "not allowed: network "+opts.Network)
+	}
 	child, err := host.Spawn(ctx, apihost.EvalSpawnSpec{
 		Program:    program,
 		SourceCode: source,

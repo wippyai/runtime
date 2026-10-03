@@ -126,7 +126,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 		return nil, NewParseError(err)
 	}
 
-	compileOpts, err := compileOptionsForSourceAndModules(chunk, modules, available, cmd.Strict)
+	compileOpts, err := compileOptionsForSourceAndModules(chunk, modules, available, cmd.Globals, cmd.Strict)
 	if err != nil {
 		return nil, NewCompileScriptError(err)
 	}
@@ -143,7 +143,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 	}, nil
 }
 
-func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef, strict bool) (lua.CompileOptions, error) {
+func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef, globals map[string]typ.Type, strict bool) (lua.CompileOptions, error) {
 	manifest := typeio.NewManifest("eval")
 	conflicts := make(map[string]struct{})
 	for _, name := range modules {
@@ -177,7 +177,7 @@ func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, avail
 	typeCfg := luacode.DefaultTypeCheckConfig()
 	typeCfg.Enabled = true
 	typeCfg.Strict = strict
-	checker := luacode.NewTypeChecker(typeCfg, modulesForNames(modules, available))
+	checker := luacode.NewTypeChecker(typeCfg, append(modulesForNames(modules, available), globalDefs(globals)...))
 	sourceManifest, diagnostics := checker.CheckParsed(chunk, "eval", nil)
 	if strict {
 		for _, d := range diagnostics {
@@ -218,6 +218,21 @@ func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, avail
 		typeNames[name] = struct{}{}
 	}
 	return lua.CompileOptions{TypeInfo: data, TypeNames: typeNames}, nil
+}
+
+// globalDefs declares typed globals to the type checker as module manifests
+// exporting the global's type.
+func globalDefs(globals map[string]typ.Type) []*luaapi.ModuleDef {
+	if len(globals) == 0 {
+		return nil
+	}
+	defs := make([]*luaapi.ModuleDef, 0, len(globals))
+	for name, t := range globals {
+		manifest := typeio.NewManifest(name)
+		manifest.SetExport(t)
+		defs = append(defs, &luaapi.ModuleDef{Name: name, Types: func() *typeio.Manifest { return manifest }})
+	}
+	return defs
 }
 
 func modulesForNames(names []string, available map[string]*luaapi.ModuleDef) []*luaapi.ModuleDef {

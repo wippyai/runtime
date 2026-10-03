@@ -55,8 +55,7 @@ func (p *evalPolicy) Evaluate(_ secapi.Actor, action, resource string, _ attrs.B
 			}
 		}
 		return secapi.Deny
-	case "process.spawn", "process.spawn.linked", "process.spawn.monitored",
-		"process.exec", "process.host", "process.context":
+	case "process.spawn", "process.spawn.linked", "process.spawn.monitored", "process.host":
 		if p.spawn {
 			return secapi.Allow
 		}

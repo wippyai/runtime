@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apihost "github.com/wippyai/runtime/api/host"
@@ -16,13 +17,17 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	sysprocess "github.com/wippyai/runtime/system/process"
 	"go.uber.org/zap"
 )
 
+// recordingStarter is a process.Manager that records starts and
+// terminations.
 type recordingStarter struct {
-	start *process.Start
-	err   error
+	start      *process.Start
+	err        error
+	terminated []pid.PID
 }
 
 func (s *recordingStarter) Start(_ context.Context, start *process.Start) (pid.PID, error) {
@@ -33,7 +38,29 @@ func (s *recordingStarter) Start(_ context.Context, start *process.Start) (pid.P
 	return pid.PID{Host: start.HostID, UniqID: "eval-1"}, nil
 }
 
+func (s *recordingStarter) Terminate(_ context.Context, p pid.PID) error {
+	s.terminated = append(s.terminated, p)
+	return nil
+}
+
+func (s *recordingStarter) Cancel(context.Context, pid.PID, pid.PID, string) error { return nil }
+
 var admitParent = pid.PID{Host: "app:processes", UniqID: "parent"}
+
+// ownerContext is the execution context of an eval's caller: a frame with
+// an execution scope of the given kind.
+func ownerContext(t *testing.T, kind ...process.ExecutionKind) (context.Context, *process.ExecutionScope) {
+	t.Helper()
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+	k := process.ExecutionProcess
+	if len(kind) > 0 {
+		k = kind[0]
+	}
+	scope := process.NewExecutionScope(ctx, k, &recordingStarter{})
+	require.NoError(t, fc.SetMultiple(process.ExecutionScopePair(scope)))
+	return ctx, scope
+}
 
 const admitSource = `return { main = function(x) return x end }`
 
@@ -53,7 +80,7 @@ func newTestAdmitter(t *testing.T, opts ...AdmitterOption) (*Admitter, *recordin
 
 func TestAdmitterPolicyValidation(t *testing.T) {
 	cases := map[string]apihost.EvalPolicy{
-		"jit":                       {CompileMode: apihost.EvalCompileJIT},
+		"unknown compile mode":      {CompileMode: apihost.EvalCompileTyped + 1},
 		"denied class":              {AllowClasses: []string{luaapi.ClassStorage}},
 		"module path":               {Modules: []string{"app:lib"}},
 		"tick budget too large":     {TickBudget: maxEvalTickBudget + 1},
@@ -119,7 +146,7 @@ func TestAdmitterCachesByCanonicalPolicy(t *testing.T) {
 
 func TestAdmitterEvictsLeastRecentlyUsed(t *testing.T) {
 	a, _ := newTestAdmitter(t, WithProgramCacheSize(2))
-	ctx := context.Background()
+	ctx, _ := ownerContext(t)
 	compile := func(src string) apihost.EvalProgram {
 		p, err := a.Compile(ctx, apihost.EvalCompileSpec{SourceCode: src})
 		require.NoError(t, err)
@@ -154,7 +181,7 @@ func TestAdmitterSupersedesProgramWhenImportChanges(t *testing.T) {
 
 func TestAdmitterSpawnBuildsConfinedProcess(t *testing.T) {
 	a, starter := newTestAdmitter(t)
-	ctx := context.Background()
+	ctx, _ := ownerContext(t)
 	child, err := a.Spawn(ctx, apihost.EvalSpawnSpec{
 		SourceCode: admitSource,
 		Name:       "worker",
@@ -205,7 +232,7 @@ func TestAdmitterSpawnBuildsConfinedProcess(t *testing.T) {
 }
 
 func TestAdmitterSpawnLinkModes(t *testing.T) {
-	ctx := context.Background()
+	ctx, _ := ownerContext(t)
 	a, starter := newTestAdmitter(t)
 
 	_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{SourceCode: admitSource, Parent: admitParent, LinkMode: apihost.EvalLinkMonitorOnly})
@@ -229,7 +256,7 @@ func TestAdmitterSpawnLinkModes(t *testing.T) {
 }
 
 func TestAdmitterSpawnProgramPolicyMustMatch(t *testing.T) {
-	ctx := context.Background()
+	ctx, _ := ownerContext(t)
 	a, _ := newTestAdmitter(t)
 	program, err := a.Compile(ctx, apihost.EvalCompileSpec{SourceCode: admitSource, Policy: apihost.EvalPolicy{Modules: []string{"json"}}})
 	require.NoError(t, err)
@@ -243,7 +270,7 @@ func TestAdmitterSpawnProgramPolicyMustMatch(t *testing.T) {
 }
 
 func TestAdmitterSpawnHost(t *testing.T) {
-	ctx := context.Background()
+	ctx, _ := ownerContext(t)
 	a, starter := newTestAdmitter(t, WithSpawnHost("app:evals"))
 	_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{SourceCode: admitSource, Parent: admitParent})
 	require.NoError(t, err)
@@ -254,4 +281,89 @@ func TestAdmitterSpawnHost(t *testing.T) {
 	_, err = b.Spawn(ctx, apihost.EvalSpawnSpec{SourceCode: admitSource, Parent: admitParent})
 	require.ErrorIs(t, err, sysprocess.ErrInvalidHost)
 	require.ErrorContains(t, err, "lua.eval.spawn_host", "the error names the setting that fixes it")
+}
+
+func TestAdmitterMarksEvalsOwnedUnlessDetached(t *testing.T) {
+	a, starter := newTestAdmitter(t)
+	ctx, _ := ownerContext(t)
+	for _, mode := range []apihost.EvalLinkMode{apihost.EvalLinkRequired, apihost.EvalLinkMonitorOnly} {
+		_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{SourceCode: admitSource, Parent: admitParent, LinkMode: mode})
+		require.NoError(t, err)
+		require.True(t, starter.start.Options.GetBool(process.ProcessOwnedKey, false), "mode %d is owned by the caller", mode)
+	}
+
+	_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{
+		SourceCode: admitSource, Parent: admitParent, LinkMode: apihost.EvalLinkDetached,
+		Policy: apihost.EvalPolicy{AllowDetached: true},
+	})
+	require.NoError(t, err, "a process that is not owned may detach an eval")
+	require.False(t, starter.start.Options.GetBool(process.ProcessOwnedKey, false))
+}
+
+func TestAdmitterDetachedRequiresUnownedProcessCaller(t *testing.T) {
+	a, _ := newTestAdmitter(t)
+	detached := apihost.EvalSpawnSpec{
+		SourceCode: admitSource, Parent: admitParent, LinkMode: apihost.EvalLinkDetached,
+		Policy: apihost.EvalPolicy{AllowDetached: true},
+	}
+
+	fn, _ := ownerContext(t, process.ExecutionFunction)
+	_, err := a.Spawn(fn, detached)
+	require.ErrorIs(t, err, apihost.ErrEvalDetachedDenied, "a function call cannot outlive its evals")
+
+	_, err = a.Spawn(context.Background(), detached)
+	require.ErrorIs(t, err, apihost.ErrEvalDetachedDenied, "detaching needs a caller execution")
+
+	owner, _ := ownerContext(t)
+	pair, child, err := process.GetExecutionScope(owner).Reserve()
+	require.NoError(t, err)
+	require.NoError(t, child.Bind(admitParent))
+	owned, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, fc.SetMultiple(pair, process.ExecutionScopePair(process.NewExecutionScope(owned, process.ExecutionProcess, &recordingStarter{}))))
+	_, err = a.Spawn(owned, detached)
+	require.ErrorIs(t, err, apihost.ErrEvalDetachedDenied, "an owned process stays contained")
+}
+
+func TestAdmitterSpawnRunsAdmittedImportRevision(t *testing.T) {
+	a, starter := newTestAdmitter(t)
+	library := `return { value = 1 }`
+	a.host.WithImportLoader(func(registry.ID) (string, error) { return library, nil })
+	ctx, _ := ownerContext(t)
+	policy := apihost.EvalPolicy{Imports: []apihost.EvalImport{{Alias: "lib", Source: registry.NewID("app", "lib")}}}
+
+	program, err := a.Compile(ctx, apihost.EvalCompileSpec{SourceCode: admitSource, Policy: policy})
+	require.NoError(t, err)
+	library = `return { value = 2 }`
+
+	_, err = a.Spawn(ctx, apihost.EvalSpawnSpec{Program: program, Parent: admitParent})
+	require.NoError(t, err)
+	proc, err := starter.start.Admission.Factory()
+	require.NoError(t, err)
+	defer proc.Close()
+	lib, ok := proc.(*engine.Process).State().GetGlobal("lib").(*lua.LTable)
+	require.True(t, ok, "the import is bound")
+	require.Equal(t, "1", lib.RawGetString("value").String(), "a program runs the library revision it was admitted with")
+}
+
+func TestAdmitterTypedCompileKnowsBindingsAndImports(t *testing.T) {
+	a, _ := newTestAdmitter(t)
+	a.host.WithImportLoader(func(registry.ID) (string, error) {
+		return `return { greet = function(n: string): string return "hi " .. n end }`, nil
+	})
+	ctx := context.Background()
+	policy := apihost.EvalPolicy{
+		CompileMode: apihost.EvalCompileTyped,
+		Bindings:    []apihost.EvalBinding{{Name: "limit", Value: int64(3)}},
+		Imports:     []apihost.EvalImport{{Alias: "lib", Source: registry.NewID("app", "lib")}},
+	}
+	_, err := a.Compile(ctx, apihost.EvalCompileSpec{Policy: policy, SourceCode: `
+		return { main = function() return lib.greet("x"), limit end }
+	`})
+	require.NoError(t, err, "typed source may use its bindings and imports")
+
+	_, err = a.Compile(ctx, apihost.EvalCompileSpec{Policy: policy, SourceCode: `
+		return { main = function() return lib.greet(42) end }
+	`})
+	require.Error(t, err, "typed compilation still rejects type errors")
 }
