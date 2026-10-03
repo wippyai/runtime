@@ -530,6 +530,11 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Swap
 		proc.Process = newProc
 		enablePreemption(newProc)
+		// The replacement numbers its yields from the start; completions of the
+		// replaced code must not resume them. Messages and wakes stay bound to
+		// the unchanged queue generation.
+		proc.queue.RetireYieldCompletions()
+		proc.completer = proc.queue.NewYieldCompleter(w.scheduler)
 
 		// Init new process
 		method := "main"

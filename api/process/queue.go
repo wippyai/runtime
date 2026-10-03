@@ -40,8 +40,12 @@ type EventQueue struct {
 	events        []Event
 	drainBuf      []Event
 	generation    atomic.Uint64
-	mu            sync.Mutex
-	closed        atomic.Bool
+	// yieldEpoch identifies the code incarnation whose yield tags are valid.
+	// It changes when a process is replaced in place, so completions of the
+	// replaced code cannot resume the replacement.
+	yieldEpoch atomic.Uint64
+	mu         sync.Mutex
+	closed     atomic.Bool
 }
 
 // messageTopicState is the accounting identity for one bounded topic
@@ -120,6 +124,12 @@ func (q *EventQueue) Push(e Event, gen uint64) bool {
 
 // PushWithError preserves admission errors such as a full bounded mailbox.
 func (q *EventQueue) PushWithError(e Event, gen uint64) error {
+	return q.push(e, gen, nil)
+}
+
+// push admits e when the generation, and the yield epoch if one is given,
+// still match.
+func (q *EventQueue) push(e Event, gen uint64, epoch *uint64) error {
 	// Fast path: check generation and closed without lock
 	if q.generation.Load() != gen {
 		return ErrProcessClosed
@@ -130,7 +140,7 @@ func (q *EventQueue) PushWithError(e Event, gen uint64) error {
 
 	q.mu.Lock()
 	// Recheck under lock
-	if q.generation.Load() != gen || q.closed.Load() {
+	if q.generation.Load() != gen || q.closed.Load() || (epoch != nil && q.yieldEpoch.Load() != *epoch) {
 		q.mu.Unlock()
 		return ErrProcessClosed
 	}
@@ -145,6 +155,24 @@ func (q *EventQueue) PushWithError(e Event, gen uint64) error {
 
 	q.signalPush()
 	return nil
+}
+
+// RetireYieldCompletions starts a new yield epoch for a process replaced in
+// place: completers created before the call become inert and yield
+// completions already queued are discarded. Messages and senders bound to the
+// queue generation are unaffected.
+func (q *EventQueue) RetireYieldCompletions() {
+	q.mu.Lock()
+	q.yieldEpoch.Add(1)
+	kept := q.events[:0]
+	for _, e := range q.events {
+		if e.Type != EventYieldComplete {
+			kept = append(kept, e)
+		}
+	}
+	clear(q.events[len(kept):])
+	q.events = kept
+	q.mu.Unlock()
 }
 
 // SetAdmission installs an execution's ingress policy before publishing its
@@ -545,20 +573,23 @@ type YieldScheduler interface {
 }
 
 // YieldCompleter delivers yield completion results to a queue.
-// Bound to a specific generation - stale completers silently no-op.
+// Bound to a specific generation and yield epoch - stale completers silently no-op.
 // This breaks the direct reference to Processor, preventing races
 // when processor is released to pool while handler goroutines are still running.
 type YieldCompleter struct {
 	scheduler YieldScheduler
 	queue     *EventQueue
 	gen       uint64
+	epoch     uint64
 }
 
-// NewYieldCompleter creates a completer bound to current queue generation.
+// NewYieldCompleter creates a completer bound to the current queue generation
+// and yield epoch.
 func (q *EventQueue) NewYieldCompleter(sched YieldScheduler) *YieldCompleter {
 	return &YieldCompleter{
 		queue:     q,
 		gen:       q.generation.Load(),
+		epoch:     q.yieldEpoch.Load(),
 		scheduler: sched,
 	}
 }
@@ -566,12 +597,12 @@ func (q *EventQueue) NewYieldCompleter(sched YieldScheduler) *YieldCompleter {
 // CompleteYield implements dispatcher.ResultReceiver.
 // Safe to call from any goroutine - uses generation to detect staleness.
 func (c *YieldCompleter) CompleteYield(tag uint64, data any, err error) {
-	if !c.queue.Push(Event{
+	if c.queue.push(Event{
 		Type:  EventYieldComplete,
 		Tag:   tag,
 		Data:  data,
 		Error: err,
-	}, c.gen) {
+	}, c.gen, &c.epoch) != nil {
 		return
 	}
 

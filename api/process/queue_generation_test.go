@@ -100,3 +100,22 @@ func TestA05ResetDrainsStaleSignal(t *testing.T) {
 	default:
 	}
 }
+
+func TestRetireYieldCompletionsInvalidatesEarlierCompleters(t *testing.T) {
+	queue := NewEventQueue()
+	wake := &boundaryWakeRecorder{}
+	old := queue.NewYieldCompleter(wake)
+	old.CompleteYield(1, "queued-before", nil)
+	require.True(t, queue.PushDirect(Event{Type: EventMessage, Data: "message"}))
+
+	queue.RetireYieldCompletions()
+	fresh := queue.NewYieldCompleter(wake)
+	old.CompleteYield(1, "stale", nil)
+	fresh.CompleteYield(1, "fresh", nil)
+
+	events := queue.Drain()
+	require.Len(t, events, 2)
+	assert.Equal(t, EventMessage, events[0].Type, "messages survive")
+	assert.Equal(t, "fresh", events[1].Data)
+	assert.Equal(t, 2, wake.calls, "the retired completer does not wake")
+}
