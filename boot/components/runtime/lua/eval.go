@@ -64,6 +64,7 @@ func Eval() boot.Component {
 			var evalCacheTTL time.Duration
 			maxSteps := evalhost.DefaultMaxSteps
 			programCacheSize := evalhost.DefaultEvalProgramCacheSize
+			detachedLifetime := evalhost.DefaultDetachedEvalLifetime
 			var spawnHost string
 			if cfg := boot.GetConfig(ctx); cfg != nil {
 				if luaCfg := cfg.Sub("lua"); luaCfg != nil {
@@ -71,6 +72,10 @@ func Eval() boot.Component {
 					evalCacheTTL = luaCfg.GetDuration("eval.cache_ttl", evalCacheTTL)
 					programCacheSize = luaCfg.GetInt("eval.program_cache_size", programCacheSize)
 					spawnHost = luaCfg.GetString("eval.spawn_host", "")
+					detachedLifetime = luaCfg.GetDuration("eval.detached_lifetime", detachedLifetime)
+					if detachedLifetime <= 0 {
+						return ctx, fmt.Errorf("lua.eval.detached_lifetime must be positive")
+					}
 					resolvedMaxSteps, err := evalMaxSteps(luaCfg)
 					if err != nil {
 						return ctx, err
@@ -120,7 +125,10 @@ func Eval() boot.Component {
 			if err := resolvers.Register(childSlotsResolverName, FrameResolverOrderChildSlots, processapi.ChildSlotResolver); err != nil {
 				return ctx, fmt.Errorf("register child slot resolver: %w", err)
 			}
-			opts := []evalhost.AdmitterOption{evalhost.WithProgramCacheSize(programCacheSize)}
+			opts := []evalhost.AdmitterOption{
+				evalhost.WithProgramCacheSize(programCacheSize),
+				evalhost.WithDetachedLifetime(detachedLifetime),
+			}
 			if spawnHost != "" {
 				opts = append(opts, evalhost.WithSpawnHost(spawnHost))
 			}

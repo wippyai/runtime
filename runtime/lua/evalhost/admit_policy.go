@@ -10,6 +10,7 @@ import (
 	"hash"
 	"sort"
 	"strings"
+	"time"
 
 	apihost "github.com/wippyai/runtime/api/host"
 	"github.com/wippyai/runtime/api/pid"
@@ -40,6 +41,9 @@ const (
 
 	// DefaultEvalProgramCacheSize bounds compiled eval programs per host.
 	DefaultEvalProgramCacheSize = 1024
+
+	// DefaultDetachedEvalLifetime bounds how long a detached eval may run.
+	DefaultDetachedEvalLifetime = time.Hour
 
 	defaultEvalMethod = "main"
 )

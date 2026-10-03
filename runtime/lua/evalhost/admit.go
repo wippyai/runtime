@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/parse"
@@ -48,8 +49,9 @@ type Admitter struct {
 	lru     *list.List
 	spawnOn pid.HostID
 
-	capacity int
-	mu       sync.Mutex
+	detachedLifetime time.Duration
+	capacity         int
+	mu               sync.Mutex
 }
 
 // admitEntry is a compiled program with the policy it was admitted under.
@@ -98,6 +100,16 @@ func WithSpawnHost(host pid.HostID) AdmitterOption {
 	}
 }
 
+// WithDetachedLifetime bounds how long a detached eval may run; it has no
+// owner to end it.
+func WithDetachedLifetime(d time.Duration) AdmitterOption {
+	return func(a *Admitter) {
+		if d > 0 {
+			a.detachedLifetime = d
+		}
+	}
+}
+
 // WithProgramCacheSize bounds the number of cached programs.
 func WithProgramCacheSize(size int) AdmitterOption {
 	return func(a *Admitter) {
@@ -111,12 +123,13 @@ func WithProgramCacheSize(size int) AdmitterOption {
 // import loader and starts and stops processes through manager.
 func NewAdmitter(host *Host, manager process.Manager, opts ...AdmitterOption) *Admitter {
 	a := &Admitter{
-		host:     host,
-		manager:  manager,
-		capacity: DefaultEvalProgramCacheSize,
-		entries:  make(map[apihost.EvalCacheKey]*admitEntry),
-		sources:  make(map[sourceIdentity]apihost.EvalCacheKey),
-		lru:      list.New(),
+		host:             host,
+		manager:          manager,
+		capacity:         DefaultEvalProgramCacheSize,
+		detachedLifetime: DefaultDetachedEvalLifetime,
+		entries:          make(map[apihost.EvalCacheKey]*admitEntry),
+		sources:          make(map[sourceIdentity]apihost.EvalCacheKey),
+		lru:              list.New(),
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -419,8 +432,12 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 	}
 
 	// Unless detached, the eval is owned by the execution that spawned it:
-	// it never outlives that execution, however the execution ends.
-	if spec.LinkMode != apihost.EvalLinkDetached {
+	// it never outlives that execution, however the execution ends. A
+	// detached eval has no owner, so its lifetime is bounded instead.
+	var lifetime time.Duration
+	if spec.LinkMode == apihost.EvalLinkDetached {
+		lifetime = a.detachedLifetime
+	} else {
 		options.Set(process.ProcessOwnedKey, true)
 	}
 
@@ -440,6 +457,7 @@ func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.P
 					MaxSteps:      policy.MaxSteps,
 					MaxStepsSet:   true,
 				},
+				Lifetime: lifetime,
 			}),
 			Meta: process.Meta{Method: entry.program.Method()},
 		},

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
@@ -366,4 +367,26 @@ func TestAdmitterTypedCompileKnowsBindingsAndImports(t *testing.T) {
 		return { main = function() return lib.greet(42) end }
 	`})
 	require.Error(t, err, "typed compilation still rejects type errors")
+}
+
+func TestAdmitterBoundsDetachedEvalLifetime(t *testing.T) {
+	a, starter := newTestAdmitter(t, WithDetachedLifetime(5*time.Minute))
+	ctx, _ := ownerContext(t)
+	lifetimeOf := func() time.Duration {
+		proc, err := starter.start.Admission.Factory()
+		require.NoError(t, err)
+		defer proc.Close()
+		return proc.(process.ExecutionTimeoutProvider).ExecutionTimeout()
+	}
+
+	_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{SourceCode: admitSource, Parent: admitParent})
+	require.NoError(t, err)
+	require.Zero(t, lifetimeOf(), "an owned eval lives as long as its owner")
+
+	_, err = a.Spawn(ctx, apihost.EvalSpawnSpec{
+		SourceCode: admitSource, Parent: admitParent, LinkMode: apihost.EvalLinkDetached,
+		Policy: apihost.EvalPolicy{AllowDetached: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Minute, lifetimeOf(), "a detached eval has a bounded lifetime")
 }

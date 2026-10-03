@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
@@ -144,6 +145,8 @@ type Process struct {
 	entryBudgets luaapi.ExecutionBudgets
 	budgets      luaapi.ExecutionBudgets
 	steps        uint64
+	// lifetime bounds the process's total run time; zero is unbounded.
+	lifetime time.Duration
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -951,6 +954,12 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	}
 
 	return nil
+}
+
+// ExecutionTimeout implements process.ExecutionTimeoutProvider; zero means
+// the process may run indefinitely.
+func (p *Process) ExecutionTimeout() time.Duration {
+	return p.lifetime
 }
 
 // EnablePreemption implements process.Preemptible. Each step may then run
@@ -2052,6 +2061,7 @@ func (p *Process) Close() {
 	p.pendingOutdated = nil
 	p.linkDownError = nil
 	p.entryBudgets = luaapi.ExecutionBudgets{}
+	p.lifetime = 0
 	p.budgets = luaapi.ExecutionBudgets{}
 	p.steps = 0
 	p.preemptive = false
