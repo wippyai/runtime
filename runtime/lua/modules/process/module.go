@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
@@ -115,6 +116,7 @@ func init() {
 		{Sample: &LinkYield{}, CmdID: process.Link},
 		{Sample: &UnlinkYield{}, CmdID: process.Unlink},
 		{Sample: &ExecYield{}, CmdID: process.Exec},
+		{Sample: &LookupWaitYield{}, CmdID: process.LookupWait},
 	}
 }
 
@@ -777,6 +779,35 @@ func getEventualRegistrar(ctx context.Context) eventualRegistrar {
 	return topology.GetEventualRegistry(ctx)
 }
 
+// lookupTimeout reads the optional third lookup argument {timeout = DURATION}.
+// A timeout waits for an EVENTUAL name that is not bound yet; it returns the
+// timeout, or a message when the options are invalid.
+func lookupTimeout(l *lua.LState, scope topology.RegistrationMode) (time.Duration, string) {
+	if l.GetTop() < 3 || l.Get(3) == lua.LNil {
+		return 0, ""
+	}
+	options, ok := l.Get(3).(*lua.LTable)
+	if !ok {
+		return 0, "lookup options must be a table"
+	}
+	raw := options.RawGetString("timeout")
+	if raw == lua.LNil {
+		return 0, ""
+	}
+	text, ok := raw.(lua.LString)
+	if !ok {
+		return 0, "lookup timeout must be a duration string such as \"5s\""
+	}
+	timeout, err := time.ParseDuration(string(text))
+	if err != nil || timeout <= 0 {
+		return 0, "lookup timeout must be a positive duration such as \"5s\""
+	}
+	if scope != topology.Eventual {
+		return 0, "lookup timeout requires process.registry.EVENTUAL"
+	}
+	return timeout, ""
+}
+
 func registryLookup(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
@@ -790,6 +821,10 @@ func registryLookup(l *lua.LState) int {
 			number != lua.LNumber(topology.Consistent) && number != lua.LNumber(topology.Strong)) {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG"))
 		}
+		timeout, invalid := lookupTimeout(l, topology.RegistrationMode(number))
+		if invalid != "" {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, invalid))
+		}
 		p, found, err := topology.LookupScopedPID(ctx, name, topology.RegistrationMode(number))
 		if err != nil {
 			kind := lua.Internal
@@ -799,6 +834,13 @@ func registryLookup(l *lua.LState) int {
 			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", kind))
 		}
 		if !found {
+			if timeout > 0 {
+				yield := AcquireLookupWaitYield()
+				yield.Name = name
+				yield.Timeout = timeout
+				l.Push(yield)
+				return -1
+			}
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
 		}
 		l.Push(lua.LString(p.String()))

@@ -437,3 +437,49 @@ func (y *ExecYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		WithRetryable(false)
 	return []lua.LValue{lua.LNil, luaErr}
 }
+
+// LookupWaitYield wraps LookupWaitCmd for Lua.
+type LookupWaitYield struct {
+	*process.LookupWaitCmd
+}
+
+var lookupWaitYieldPool = sync.Pool{New: func() any { return &LookupWaitYield{} }}
+
+func AcquireLookupWaitYield() *LookupWaitYield {
+	y := lookupWaitYieldPool.Get().(*LookupWaitYield)
+	y.LookupWaitCmd = process.AcquireLookupWaitCmd()
+	return y
+}
+
+func ReleaseLookupWaitYield(y *LookupWaitYield) {
+	if y.LookupWaitCmd != nil {
+		y.LookupWaitCmd.Release()
+		y.LookupWaitCmd = nil
+	}
+	lookupWaitYieldPool.Put(y)
+}
+
+func (y *LookupWaitYield) String() string                { return "<process_lookup_wait_yield>" }
+func (y *LookupWaitYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *LookupWaitYield) ToCommand() dispatcher.Command { return y.LookupWaitCmd }
+func (y *LookupWaitYield) CmdID() dispatcher.CommandID   { return process.LookupWait }
+func (y *LookupWaitYield) Release()                      { ReleaseLookupWaitYield(y) }
+
+// HandleResult returns the bound PID, or not-found once the timeout passed.
+func (y *LookupWaitYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "lookup wait failed")
+		if luaErr.Kind() == lua.Unknown {
+			luaErr = luaErr.WithKind(lua.Internal).WithRetryable(false)
+		}
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	result, ok := data.(process.LookupWaitResult)
+	if !ok || !result.Found {
+		luaErr := lua.NewLuaError(l, "name not registered within "+y.Timeout.String()).
+			WithKind(lua.NotFound).
+			WithRetryable(true)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	return []lua.LValue{lua.LString(result.PID.String()), lua.LNil}
+}
