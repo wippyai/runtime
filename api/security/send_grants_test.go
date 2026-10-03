@@ -77,3 +77,27 @@ func TestProcessSendGrantsPropagateAsCopy(t *testing.T) {
 	inherited.Grant(later)
 	require.False(t, grants.Holds(later), "acquisitions of the spawned process stay with it")
 }
+
+// A frame is forked from other goroutines while the process keeps running,
+// for instance by an asynchronous function call; forking copies the grants
+// the process is still acquiring.
+func TestProcessSendGrantsForkWhileGranting(t *testing.T) {
+	grants := NewProcessSendGrants()
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, fc.SetMultiple(ProcessSendGrantsPair(grants)))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 2000; i++ {
+			forked, ffc := ctxapi.ForkFrameContext(ctx)
+			_ = GetProcessSendGrants(forked).Holds(pid.PID{UniqID: "x"})
+			ctxapi.ReleaseFrameContext(ffc)
+		}
+	}()
+	for i := 0; i < 2000; i++ {
+		GrantProcessSend(ctx, pid.PID{Host: "app:host", UniqID: string(rune('a'+i%26)) + string(rune('a'+i/26%26))})
+	}
+	<-done
+}

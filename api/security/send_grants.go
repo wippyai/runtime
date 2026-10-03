@@ -4,6 +4,7 @@ package security
 
 import (
 	"context"
+	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
@@ -18,10 +19,12 @@ var sendGrantsKey = &ctxapi.Key{Name: "security.process_send_grants", Inherit: t
 // address besides its parent. It contains only PIDs the runtime handed to the
 // process (itself, processes it spawned, senders of messages it received,
 // registry lookup results) or its spawner held, so a PID string the process
-// made up is never in it. Grants are owned by one process and used from its
-// execution only.
+// made up is never in it. A process acquires grants from its execution while
+// other goroutines fork its frame, which copies them, so access is
+// synchronized.
 type ProcessSendGrants struct {
 	pids map[grantKey]struct{}
+	mu   sync.RWMutex
 }
 
 type grantKey struct {
@@ -44,11 +47,15 @@ func (g *ProcessSendGrants) Grant(p pid.PID) {
 	if p.UniqID == "" {
 		return
 	}
+	g.mu.Lock()
 	g.pids[keyOf(p)] = struct{}{}
+	g.mu.Unlock()
 }
 
 // Holds reports whether p was granted.
 func (g *ProcessSendGrants) Holds(p pid.PID) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	_, ok := g.pids[keyOf(p)]
 	return ok
 }
@@ -56,6 +63,8 @@ func (g *ProcessSendGrants) Holds(p pid.PID) bool {
 // Clone implements ctxapi.Cloner: a forked frame gets an independent copy,
 // so acquisitions after the fork stay with the process that made them.
 func (g *ProcessSendGrants) Clone() any {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	c := &ProcessSendGrants{pids: make(map[grantKey]struct{}, len(g.pids))}
 	for k := range g.pids {
 		c.pids[k] = struct{}{}
