@@ -218,6 +218,8 @@ var processorPool = sync.Pool{
 			queue: process.NewEventQueue(),
 		}
 		p.lastWorker.Store(noWorkerAffinity)
+		// A processor becomes Ready only when its submitter publishes it.
+		p.state.Store(int32(StateComplete))
 		return p
 	},
 }

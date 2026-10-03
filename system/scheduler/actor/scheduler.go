@@ -335,7 +335,6 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.state.Store(int32(StateReady))
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
@@ -377,6 +376,9 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	})
 	proc.cancel = func() { stopWake(); cancel() }
 
+	// A pooled processor can still be referenced by a stale queue entry from
+	// its previous incarnation; Ready is published only once it is initialized.
+	proc.state.Store(int32(StateReady))
 	s.global.Push(proc)
 	s.wakeAny()
 
@@ -470,7 +472,6 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.state.Store(int32(StateReady))
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
@@ -488,6 +489,8 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
 	s.byQueue.Store(proc.queue, proc)
+	// Ready is published only once the processor is initialized; see Submit.
+	proc.state.Store(int32(StateReady))
 
 	return proc, nil
 }
