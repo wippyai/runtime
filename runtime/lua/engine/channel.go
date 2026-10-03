@@ -5,6 +5,7 @@ package engine
 import (
 	"container/list"
 	"errors"
+	"slices"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
@@ -123,11 +124,15 @@ func NewChannel(capacity int) *Channel {
 	if capacity < 0 {
 		capacity = 0
 	}
+	// Group the zero-value list headers, preserving pointer ownership and
+	// native value-copy aliases. Keep Channel separate so a queue alias does
+	// not extend the lifetime of its original channel value.
+	queues := &struct{ buffer, sendq, recvq list.List }{}
 	return &Channel{
 		capacity: capacity,
-		buffer:   list.New(),
-		sendq:    list.New(),
-		recvq:    list.New(),
+		buffer:   &queues.buffer,
+		sendq:    &queues.sendq,
+		recvq:    &queues.recvq,
 	}
 }
 
@@ -206,7 +211,7 @@ func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
 		}
 		r.Updates = append(r.Updates, uRecv)
 		r.Release = append(r.Release, c)
-		r.Release = append(r.Release, c.flushSelect(op.selectOp)...)
+		r.Release = c.flushSelect(op.selectOp, r.Release)
 		return r, true
 	}
 
@@ -276,7 +281,7 @@ func (c *Channel) Close(caller *lua.LState) *ChannelResult {
 		u.Error = errors.New("send on closed channel")
 		r.Updates = append(r.Updates, u)
 		r.Release = append(r.Release, c)
-		r.Release = append(r.Release, c.flushSelect(op.selectOp)...)
+		r.Release = c.flushSelect(op.selectOp, r.Release)
 		releaseChanOp(op)
 	}
 
@@ -287,7 +292,7 @@ func (c *Channel) Close(caller *lua.LState) *ChannelResult {
 		u.State = op.task
 		if op.selectOp != nil {
 			u.setSelectResult(op.task, c.value, lua.LNil, false)
-			r.Release = append(r.Release, c.flushSelect(op.selectOp)...)
+			r.Release = c.flushSelect(op.selectOp, r.Release)
 		} else {
 			u.setResult2(lua.LNil, lua.LFalse)
 		}
@@ -340,8 +345,8 @@ func (c *Channel) handoff(sender *lua.LState, value lua.LValue, senderSel *Selec
 	r.Updates = append(r.Updates, uRecv)
 
 	r.Release = append(r.Release, c)
-	r.Release = append(r.Release, c.flushSelect(senderSel)...)
-	r.Release = append(r.Release, c.flushSelect(recvOp.selectOp)...)
+	r.Release = c.flushSelect(senderSel, r.Release)
+	r.Release = c.flushSelect(recvOp.selectOp, r.Release)
 	return r
 }
 
@@ -356,7 +361,7 @@ func (c *Channel) senderDone(task *lua.LState, value lua.LValue, sel *SelectOp) 
 		u.setResult1(lua.LTrue)
 	}
 	r.Updates = append(r.Updates, u)
-	r.Release = append(r.Release, c.flushSelect(sel)...)
+	r.Release = c.flushSelect(sel, r.Release)
 	return r
 }
 
@@ -387,7 +392,7 @@ func (c *Channel) receiverDone(task *lua.LState, value lua.LValue, sel *SelectOp
 		u.setResult2(value, lua.LTrue)
 	}
 	r.Updates = append(r.Updates, u)
-	r.Release = append(r.Release, c.flushSelect(sel)...)
+	r.Release = c.flushSelect(sel, r.Release)
 	return r
 }
 
@@ -419,8 +424,8 @@ func (c *Channel) recvWithSenderWake(task *lua.LState, value lua.LValue, recvSel
 	r.Updates = append(r.Updates, u2)
 
 	r.Release = append(r.Release, c)
-	r.Release = append(r.Release, c.flushSelect(recvSel)...)
-	r.Release = append(r.Release, c.flushSelect(sendOp.selectOp)...)
+	r.Release = c.flushSelect(recvSel, r.Release)
+	r.Release = c.flushSelect(sendOp.selectOp, r.Release)
 	return r
 }
 
@@ -452,8 +457,8 @@ func (c *Channel) recvHandoff(task *lua.LState, recvSel *SelectOp, sendOp *chanO
 	r.Updates = append(r.Updates, u2)
 
 	r.Release = append(r.Release, c)
-	r.Release = append(r.Release, c.flushSelect(sendOp.selectOp)...)
-	r.Release = append(r.Release, c.flushSelect(recvSel)...)
+	r.Release = c.flushSelect(sendOp.selectOp, r.Release)
+	r.Release = c.flushSelect(recvSel, r.Release)
 	return r
 }
 
@@ -468,7 +473,7 @@ func (c *Channel) receiverClosed(task *lua.LState, sel *SelectOp) *ChannelResult
 		u.setResult2(lua.LNil, lua.LFalse)
 	}
 	r.Updates = append(r.Updates, u)
-	r.Release = append(r.Release, c.flushSelect(sel)...)
+	r.Release = c.flushSelect(sel, r.Release)
 	return r
 }
 
@@ -487,12 +492,15 @@ func (c *Channel) blockReceiver(task *lua.LState, sel *SelectOp) *ChannelResult 
 	return r
 }
 
-// flushSelect removes all ops for a select from their channels
-func (c *Channel) flushSelect(s *SelectOp) []*Channel {
+// flushSelect removes all ops for a select from their channels, appending the
+// release bookkeeping directly to the caller-owned result storage.
+func (c *Channel) flushSelect(s *SelectOp, releases []*Channel) []*Channel {
 	if s == nil {
-		return nil
+		return releases
 	}
-	releases := make([]*Channel, 0, len(s.Cases))
+	// Reserve once for a cold large select, rather than growing the result
+	// through several intermediate backing arrays. Warm results already fit.
+	releases = slices.Grow(releases, len(s.Cases))
 	for _, op := range s.Cases {
 		if op.Channel == nil {
 			continue
