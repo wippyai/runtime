@@ -145,3 +145,19 @@ func TestExecutionScopeSurvivesUpgrade(t *testing.T) {
 	require.Same(t, slots, got, "the child limit spans the whole process")
 	require.False(t, ufc.Has(ownedChildKey), "the registration stays with the execution's frame")
 }
+
+func TestOwnedChildBindAfterRollback(t *testing.T) {
+	term := &recordingTerminator{}
+	scope := NewExecutionScope(context.Background(), ExecutionProcess, term)
+	pairs, child, err := scope.Reserve()
+	require.NoError(t, err)
+	require.NoError(t, registration(t, pairs).(ctxapi.FrameAttachment).Rollback())
+	require.ErrorIs(t, child.Bind(pid.PID{Host: "h", UniqID: "existing"}), ErrOwnedNotStarted)
+
+	fast, fastChild, err := scope.Reserve()
+	require.NoError(t, err)
+	registration(t, fast).(ctxapi.Completer).Complete()
+	require.NoError(t, fastChild.Bind(pid.PID{Host: "h", UniqID: "fast"}), "a child may complete before it is bound")
+	scope.Complete()
+	require.Empty(t, term.terminated)
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	process "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
@@ -173,4 +174,47 @@ func TestManagerStartChildrenOfOwnedProcessAreOwned(t *testing.T) {
 	require.NoError(t, err, "no owned option is needed")
 	ownScope.Complete()
 	require.Equal(t, []pid.PID{grandchild}, term.terminated, "an owned process owns what it spawns")
+}
+
+// signalingHost answers a named spawn with an existing process, as host
+// spawn-or-signal does: the start's attachments are rolled back and no new
+// process runs. beforeReturn runs between the rollback and the reply.
+type signalingHost struct {
+	beforeReturn func()
+	existing     pid.PID
+	mockHost
+}
+
+func (h *signalingHost) Run(_ context.Context, start *process.Start) (pid.PID, error) {
+	for _, pair := range start.Context {
+		if attachment, ok := pair.Value.(ctxapi.FrameAttachment); ok {
+			_ = attachment.Rollback()
+		}
+	}
+	if h.beforeReturn != nil {
+		h.beforeReturn()
+	}
+	return h.existing, nil
+}
+
+func TestManagerStartOwnedNeverAdoptsAnExistingProcess(t *testing.T) {
+	for _, ownerEnds := range []bool{false, true} {
+		node := newMockNode()
+		ctx, scope, term := scopedContext(t)
+		existing := pid.PID{Host: "host", UniqID: "unrelated"}
+		host := &signalingHost{existing: existing, mockHost: mockHost{acceptsAttachments: true}}
+		if ownerEnds {
+			host.beforeReturn = scope.Complete
+		}
+		_ = node.RegisterHost("host", host)
+
+		_, err := NewManager(node, zap.NewNop()).Start(ctx, ownedStart())
+		require.ErrorIs(t, err, topology.ErrNameAlreadyRegistered, "an owned spawn starts a process or fails")
+		got, ok := topology.GetExistingPID(err)
+		require.True(t, ok)
+		require.Equal(t, existing, got)
+		require.False(t, host.terminateCalled, "the existing process belongs to someone else")
+		scope.Complete()
+		require.Empty(t, term.terminated, "nothing was started for the owner")
+	}
 }

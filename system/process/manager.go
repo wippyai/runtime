@@ -112,6 +112,10 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	}
 	if owned != nil {
 		if err := owned.Bind(procPID); err != nil {
+			if errors.Is(err, api.ErrOwnedNotStarted) {
+				// The name belongs to a process the owner did not start.
+				return pid.PID{}, errors.Join(topology.NameAlreadyRegisteredError(procPID), err)
+			}
 			// The owner ended while the child was starting.
 			return pid.PID{}, errors.Join(err, host.Terminate(context.WithoutCancel(ctx), procPID))
 		}

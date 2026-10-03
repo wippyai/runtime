@@ -21,6 +21,9 @@ var (
 	ErrOwnerRequired = apierror.New(InvalidState, "owned spawn requires an owning execution").WithRetryable(apierror.False)
 	// ErrOwnerEnded fails an owned spawn whose owning execution has ended.
 	ErrOwnerEnded = apierror.New(InvalidState, "owning execution has ended").WithRetryable(apierror.False)
+	// ErrOwnedNotStarted reports that the host started no process for an
+	// owned spawn, such as when a named spawn reached an existing process.
+	ErrOwnedNotStarted = apierror.New(InvalidState, "no process was started for the owned spawn").WithRetryable(apierror.False)
 )
 
 var (
@@ -179,12 +182,17 @@ type OwnedChild struct {
 	child *ownedChild
 }
 
-// Bind records the started child's PID. It returns ErrOwnerEnded when the
-// owner ended while the child was starting; the caller must stop the child.
+// Bind records the started child's PID. It returns ErrOwnedNotStarted when
+// the host rolled the registration back: p is not a process started for the
+// owner and must be left alone. It returns ErrOwnerEnded when the owner ended
+// while the child was starting; the caller must stop the child.
 func (o *OwnedChild) Bind(p pid.PID) error {
 	c := o.child
 	c.scope.mu.Lock()
 	defer c.scope.mu.Unlock()
+	if c.rolledBack {
+		return ErrOwnedNotStarted
+	}
 	if c.ended {
 		return ErrOwnerEnded
 	}
@@ -195,10 +203,11 @@ func (o *OwnedChild) Bind(p pid.PID) error {
 
 // ownedChild is a child's registration with its owner's scope.
 type ownedChild struct {
-	scope *ExecutionScope
-	pid   pid.PID
-	bound bool
-	ended bool
+	scope      *ExecutionScope
+	pid        pid.PID
+	bound      bool
+	ended      bool
+	rolledBack bool
 }
 
 // Complete releases the registration when the child completes.
@@ -212,7 +221,10 @@ func (c *ownedChild) Close() error {
 
 // Rollback releases the registration when the child is not admitted.
 func (c *ownedChild) Rollback() error {
-	c.release()
+	c.scope.mu.Lock()
+	defer c.scope.mu.Unlock()
+	c.rolledBack = true
+	delete(c.scope.owned, c)
 	return nil
 }
 
