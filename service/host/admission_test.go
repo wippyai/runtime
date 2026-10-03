@@ -10,8 +10,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/topology"
 )
@@ -84,4 +86,42 @@ func TestHostRunAdmissionRejectsTakenName(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, existing, got)
 	require.EqualValues(t, 0, created.Load())
+}
+
+// An admitted process starts from a clean frame: the caller's delivery and
+// other caller-scoped values are not inherited, while an ordinary spawn
+// inherits them.
+func TestHostRunAdmissionDoesNotInheritCallerFrame(t *testing.T) {
+	started := make(chan context.Context, 2)
+	th := newTestHost(func(th *testHost) {
+		th.lifecycle.onStartFunc = func(ctx context.Context, _ pid.PID, _ process.Process) { started <- ctx }
+	})
+	th.start(t)
+	defer th.stop()
+
+	callerCtx, fc := ctxapi.OpenFrameContext(ctxWithAppContext())
+	require.NoError(t, queue.WithDelivery(callerCtx, &queue.Delivery{}))
+	fc.Seal()
+
+	run := func(admission *process.Admission) bool {
+		_, err := th.host.Run(callerCtx, &process.Start{
+			HostID:    "test:host",
+			Source:    registry.NewID("eval.program", "abc"),
+			Admission: admission,
+		})
+		require.NoError(t, err)
+		select {
+		case ctx := <-started:
+			_, ok := queue.GetDelivery(ctx)
+			return ok
+		case <-time.After(2 * time.Second):
+			t.Fatal("process did not start")
+			return false
+		}
+	}
+
+	admitted := run(&process.Admission{Factory: func() (process.Process, error) { return &mockProcess{}, nil }})
+	ordinary := run(nil)
+	assert.False(t, admitted, "admitted process inherits the caller's delivery")
+	assert.True(t, ordinary, "ordinary spawn inherits the caller's delivery")
 }

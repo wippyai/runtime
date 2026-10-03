@@ -55,7 +55,8 @@ type (
 		// Admission starts the process from an in-memory factory instead of
 		// the registry entry named by Source, which then only identifies the
 		// process frame. Only Go callers can set it, and only hosts that
-		// implement AdmissionHost run it.
+		// implement AdmissionHost run it. The process frame inherits nothing from
+		// the starter's frame: Context is its whole configuration.
 		Admission *Admission
 		HostID    pid.HostID
 		Source    registry.ID
