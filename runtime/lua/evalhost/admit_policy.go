@@ -179,7 +179,7 @@ func validatePolicyShape(policy apihost.EvalPolicy) error {
 
 func validateImports(policy apihost.EvalPolicy) error {
 	for i, imp := range policy.Imports {
-		if !validBindingName(imp.Alias) || imp.Source.NS == "" || imp.Source.Name == "" {
+		if !ValidBindingName(imp.Alias) || imp.Source.NS == "" || imp.Source.Name == "" {
 			return unsupported("invalid import %q", imp.Alias)
 		}
 		if i > 0 && policy.Imports[i-1].Alias == imp.Alias {
@@ -196,7 +196,7 @@ func validateImports(policy apihost.EvalPolicy) error {
 
 func validateBindings(policy apihost.EvalPolicy) error {
 	for i, binding := range policy.Bindings {
-		if !validBindingName(binding.Name) {
+		if !ValidBindingName(binding.Name) {
 			return apihost.ErrEvalBindingInvalid
 		}
 		if i > 0 && policy.Bindings[i-1].Name == binding.Name {
@@ -216,7 +216,9 @@ func validateBindings(policy apihost.EvalPolicy) error {
 	return nil
 }
 
-func validBindingName(name string) bool {
+// ValidBindingName reports whether name is a Lua identifier an eval program
+// can receive a binding or import under.
+func ValidBindingName(name string) bool {
 	if name == "" {
 		return false
 	}

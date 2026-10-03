@@ -158,29 +158,18 @@ func commandAliasFields(opts *lua.LTable) ([]apihost.EvalCommand, error) {
 }
 
 func commandSetEqual(a, b []apihost.EvalCommand) bool {
-	ua, ub := uniqueSortedCommands(a), uniqueSortedCommands(b)
-	if len(ua) != len(ub) {
-		return false
+	set := make(map[apihost.EvalCommand]struct{}, len(a))
+	for _, c := range a {
+		set[c] = struct{}{}
 	}
-	for i := range ua {
-		if ua[i] != ub[i] {
+	other := make(map[apihost.EvalCommand]struct{}, len(b))
+	for _, c := range b {
+		if _, ok := set[c]; !ok {
 			return false
 		}
+		other[c] = struct{}{}
 	}
-	return true
-}
-
-func uniqueSortedCommands(src []apihost.EvalCommand) []apihost.EvalCommand {
-	dst := append([]apihost.EvalCommand(nil), src...)
-	sort.Slice(dst, func(i, j int) bool { return dst[i] < dst[j] })
-	n := 0
-	for _, c := range dst {
-		if n == 0 || dst[n-1] != c {
-			dst[n] = c
-			n++
-		}
-	}
-	return dst[:n]
+	return len(set) == len(other)
 }
 
 func commandFromValue(v lua.LValue) (apihost.EvalCommand, error) {
@@ -256,7 +245,7 @@ func bindingsValue(raw lua.LValue, name string) ([]apihost.EvalBinding, error) {
 			err = errors.New("eval binding invalid: name must be string")
 			return
 		}
-		if !validBindingName(key) {
+		if !evalhost.ValidBindingName(key) {
 			err = fmt.Errorf("eval binding invalid: %q is not a valid identifier", key)
 			return
 		}
@@ -271,22 +260,6 @@ func bindingsValue(raw lua.LValue, name string) ([]apihost.EvalBinding, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
-}
-
-func validBindingName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for i := 0; i < len(name); i++ {
-		c := name[i]
-		switch {
-		case c == '_' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z':
-		case i > 0 && c >= '0' && c <= '9':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // bindingConverter copies binding data out of Lua in one bounded pass. A
