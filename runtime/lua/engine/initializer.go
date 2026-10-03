@@ -31,11 +31,7 @@ type Initializer struct {
 // Call it from a ModuleBinder. Registration order must follow dependency
 // order, so a library's imports are initialized before the library.
 func DeferInitializer(l *lua.LState, init Initializer) {
-	list := initializersOf(l)
-	if list == nil {
-		list = &initializerList{}
-		l.G.Registry.RawSetString(initializersRegistryKey, list)
-	}
+	list := ensureInitializers(l)
 	list.items = append(list.items, init)
 }
 
@@ -58,16 +54,21 @@ func (*initializerList) Type() lua.LValueType { return lua.LTUserData }
 // completed, before the entry chunk runs. It does not run if none are
 // registered with DeferInitializer.
 func OnInitialized(l *lua.LState, fn func()) {
-	list := initializersOf(l)
-	if list == nil {
-		list = &initializerList{}
-		l.G.Registry.RawSetString(initializersRegistryKey, list)
-	}
+	list := ensureInitializers(l)
 	list.onComplete = append(list.onComplete, fn)
 }
 
 func initializersOf(l *lua.LState) *initializerList {
 	list, _ := l.G.Registry.RawGetString(initializersRegistryKey).(*initializerList)
+	return list
+}
+
+func ensureInitializers(l *lua.LState) *initializerList {
+	list := initializersOf(l)
+	if list == nil {
+		list = &initializerList{}
+		l.G.Registry.RawSetString(initializersRegistryKey, list)
+	}
 	return list
 }
 

@@ -240,7 +240,7 @@ func (s *Scheduler) wakeAny() {
 
 // enablePreemption lets a preemptible process suspend long steps: the
 // scheduler runs it again after StepPreempted.
-func (s *Scheduler) enablePreemption(p process.Process) {
+func enablePreemption(p process.Process) {
 	if pp, ok := p.(process.Preemptible); ok {
 		pp.EnablePreemption()
 	}
@@ -325,7 +325,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		procCtx, cancel = context.WithCancel(ctx)
 	}
 
-	s.enablePreemption(p)
+	enablePreemption(p)
 	if err := p.Init(procCtx, method, input); err != nil {
 		cancel()
 		return nil, err
@@ -463,7 +463,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 		return nil, process.ErrMaxProcessesExceeded
 	}
 
-	s.enablePreemption(p)
+	enablePreemption(p)
 
 	// Wrap context with cancel for Terminate support
 	procCtx, cancel := context.WithCancel(ctx)

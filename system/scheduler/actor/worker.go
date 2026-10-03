@@ -529,7 +529,7 @@ func (w *Worker) executeOne(proc *Processor) {
 
 		// Swap
 		proc.Process = newProc
-		w.scheduler.enablePreemption(newProc)
+		enablePreemption(newProc)
 
 		// Init new process
 		method := "main"
