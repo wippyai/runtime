@@ -343,14 +343,18 @@ func oemCode(vk uint16) rune {
 	return 0
 }
 
-// consoleCase aligns the text and shifted code of a key with the Shift and
-// Caps Lock state.
+// consoleCase follows the kitty model: an upper-case character reports the
+// lower-case key as Code and the character as ShiftedCode.
 func consoleCase(k Key, cks uint32) Key {
 	if k.Text == "" {
 		return k
 	}
 	if cks&(shiftPressed|capsLockOn) != 0 {
-		if unicode.IsLower(k.Code) {
+		switch {
+		case unicode.IsUpper(k.Code):
+			k.ShiftedCode = k.Code
+			k.Code = unicode.ToLower(k.Code)
+		case unicode.IsLower(k.Code):
 			k.ShiftedCode = unicode.ToUpper(k.Code)
 			k.Text = string(k.ShiftedCode)
 		}

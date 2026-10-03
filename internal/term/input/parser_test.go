@@ -76,6 +76,32 @@ func TestEscapeAndAlt(t *testing.T) {
 	assert.Equal(t, []Event{press('^', ModAlt)}, decode(t, "\x1b^"))
 }
 
+func TestVTUppercaseReportsBaseKey(t *testing.T) {
+	assert.Equal(t, []Event{KeyPressEvent{Code: 'é', ShiftedCode: 'É', Text: "É", Mod: ModShift}}, decode(t, "É"))
+	assert.Equal(t, []Event{KeyPressEvent{Code: 'a', ShiftedCode: 'A', Text: "A", Mod: ModShift}}, decode(t, "A"))
+	assert.Equal(t, []Event{KeyPressEvent{Code: 'a', ShiftedCode: 'A', BaseCode: 'a', Text: "A", Mod: ModShift}},
+		decode(t, "\x1b[65;30;65;1;16;1_"))
+}
+
+func TestAltOpenBracketAndAltOAtEndOfRead(t *testing.T) {
+	assert.Equal(t, []Event{KeyPressEvent{Code: 'o', ShiftedCode: 'O', Mod: ModShift | ModAlt}}, decode(t, "\x1bO"))
+
+	// A CSI split after its introducer completes with the next read.
+	p := NewParser()
+	var out []Event
+	emit := func(e Event) { out = append(out, e) }
+	p.Feed([]byte("\x1b["), emit)
+	p.ResolveEscape(emit)
+	p.Feed([]byte("1;5"), emit)
+	p.ResolveEscape(emit)
+	assert.Empty(t, out)
+	p.Feed([]byte("A"), emit)
+	assert.Equal(t, []Event{press(KeyUp, ModCtrl)}, out)
+
+	// SS3 and CSI that arrive whole are unaffected.
+	assert.Equal(t, []Event{press(KeyUp, 0)}, decode(t, "\x1bOA"))
+}
+
 func TestLoneEscapeIsResolvedOnlyOnRequest(t *testing.T) {
 	p := NewParser()
 	var out []Event
