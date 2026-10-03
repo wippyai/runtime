@@ -85,12 +85,7 @@ func (list *initializerList) begin() {
 // function to run, or nothing when all have run.
 func (list *initializerList) advance(l *lua.LState) int {
 	if list.started {
-		item := list.items[list.done]
-		list.done++
-		if item.Done != nil {
-			item.Done(l.Get(1))
-		}
-		list.finishIfDone()
+		list.complete(l.Get(1))
 	}
 	list.started = list.done < len(list.items)
 	if !list.started {
@@ -116,20 +111,27 @@ func (list *initializerList) runSync(l *lua.LState) error {
 		}
 		result := l.Get(-1)
 		l.Pop(1)
-		list.done++
-		if item.Done != nil {
-			item.Done(result)
-		}
-		list.finishIfDone()
+		list.complete(result)
 	}
 	return nil
 }
 
-func (list *initializerList) finishIfDone() {
+// complete records the result of the current initializer and drops it, so the
+// state keeps neither the function nor its callback after the run. The last
+// completion runs the one-shot callbacks and drops them as well.
+func (list *initializerList) complete(result lua.LValue) {
+	item := list.items[list.done]
+	list.items[list.done] = Initializer{}
+	list.done++
+	if item.Done != nil {
+		item.Done(result)
+	}
 	if list.done < len(list.items) {
 		return
 	}
-	for _, fn := range list.onComplete {
+	callbacks := list.onComplete
+	list.onComplete = nil
+	for _, fn := range callbacks {
 		fn()
 	}
 }
