@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	"go.uber.org/zap"
 )
@@ -29,7 +30,11 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 					return
 				}
 				var body struct{ Labels map[string]string }
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("invalid container create request: %v", err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
 				received <- body.Labels
 				if deadline {
 					<-r.Context().Done()
@@ -55,7 +60,7 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 			default:
 				t.Fatalf("unexpected Docker process %T", proc)
 			}
-			process.startTimeout = 25 * time.Millisecond
+			process.startTimeout = 250 * time.Millisecond
 			err = process.Start()
 			require.Error(t, err)
 			if deadline {
@@ -64,7 +69,12 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 				require.ErrorContains(t, err, "daemon create refused")
 			}
 			require.ErrorContains(t, err, "create container")
-			require.Equal(t, map[string]string{"bee.owner": "bee", "bee.node_id": "node-1", "bee.state_id": "state-1", "bee.attempt_id": "attempt-1"}, <-received)
+			select {
+			case labels := <-received:
+				require.Equal(t, map[string]string{"bee.owner": "bee", "bee.node_id": "node-1", "bee.state_id": "state-1", "bee.attempt_id": "attempt-1"}, labels)
+			case <-time.After(time.Second):
+				t.Fatal("container create request did not reach the daemon")
+			}
 			require.False(t, process.started)
 			require.Empty(t, process.containerID)
 		})
@@ -79,6 +89,10 @@ func TestMissingOwnershipSourceRefusesBeforeCreate(t *testing.T) {
 	defer executor.Close()
 	_, err = executor.NewProcess("true", execapi.ProcessOptions{})
 	require.ErrorContains(t, err, "label source OWNER")
+	var invalid apierror.Error
+	require.ErrorAs(t, err, &invalid)
+	require.Equal(t, apierror.Invalid, invalid.Kind())
+	require.Equal(t, apierror.False, invalid.Retryable())
 	for _, value := range []string{"", "bad\x00value", strings.Repeat("x", 4097)} {
 		_, err = executor.NewProcess("true", execapi.ProcessOptions{Env: map[string]string{"OWNER": value}})
 		require.ErrorContains(t, err, "label source OWNER")
@@ -107,4 +121,29 @@ func TestOwnershipLabelsFreezeHostMappingAndProcessValues(t *testing.T) {
 		}
 		require.Equal(t, map[string]string{"owner": "owned"}, labels)
 	}
+}
+
+func TestOwnershipValuesRequireExplicitEnv(t *testing.T) {
+	t.Setenv("OWNER", "ambient")
+	cfg := &execapi.DockerExecutorConfig{
+		Image: "fixture", LabelsFromEnv: map[string]string{"owner": "OWNER"},
+		DefaultEnv: map[string]string{"OWNER": "default"},
+	}
+	executor, err := NewDockerExecutor(zap.NewNop(), cfg)
+	require.NoError(t, err)
+	defer executor.Close()
+	_, err = executor.NewProcess("true", execapi.ProcessOptions{})
+	require.ErrorContains(t, err, "label source OWNER")
+	value := strings.Repeat("v", 4096)
+	proc, err := executor.NewProcess("true", execapi.ProcessOptions{Env: map[string]string{"OWNER": value}})
+	require.NoError(t, err)
+	require.Equal(t, value, proc.(*Process).labels["owner"])
+
+	cfg.LabelsFromEnv = nil
+	unlabelled, err := NewDockerExecutor(zap.NewNop(), cfg)
+	require.NoError(t, err)
+	defer unlabelled.Close()
+	proc, err = unlabelled.NewProcess("true", execapi.ProcessOptions{})
+	require.NoError(t, err)
+	require.Empty(t, proc.(*Process).labels)
 }

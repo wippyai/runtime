@@ -13,7 +13,11 @@ labels_from_env:
 Missing, empty, oversized or NUL-containing values refuse process creation.
 Sources come from the explicit process environment, not ambient environment or
 executor defaults. Select only nonsecret identities: Docker labels are visible
-to daemon clients. The mapping has at most 64 entries.
+to daemon clients. The mapping has at most 64 entries; each label key is at most
+256 bytes and each value at most 4096 bytes. Keys must be nonempty and contain
+no NUL. Source names must be nonempty and contain neither `=` nor NUL.
+Invalid mappings and source values return the canonical `Invalid` error kind
+with retry disabled. Errors identify the source name, never its value.
 
 Labels reach `containers/create` for both streamed and PTY processes, including
 when the daemon returns an error or the request exceeds its deadline. A failed

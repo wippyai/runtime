@@ -2,8 +2,6 @@
 
 package exec
 
-import "fmt"
-
 // NativeExecutorConfig defines configuration for native process execution
 type NativeExecutorConfig struct {
 	// Default environment variables (always extended, never replaced)
@@ -72,11 +70,11 @@ func (c *DockerExecutorConfig) Validate() error {
 		return ErrImageRequired
 	}
 	if len(c.LabelsFromEnv) > 64 {
-		return fmt.Errorf("Docker ownership label mapping exceeds 64 entries")
+		return NewInvalidDockerLabelMappingError("maximum 64 entries")
 	}
 	for label, source := range c.LabelsFromEnv {
 		if label == "" || len(label) > 256 || containsNUL(label) || !validConfinementEnvName(source) {
-			return fmt.Errorf("invalid Docker ownership label mapping")
+			return NewInvalidDockerLabelMappingError("invalid label or environment source name")
 		}
 	}
 	return nil

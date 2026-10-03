@@ -115,7 +115,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	for label, source := range e.labelsFromEnv {
 		value := options.Env[source]
 		if value == "" || len(value) > 4096 || strings.IndexByte(value, 0) >= 0 {
-			return nil, fmt.Errorf("Docker label source %s is missing, empty or invalid", source)
+			return nil, NewDockerLabelSourceError(source)
 		}
 		labels[label] = value
 	}
