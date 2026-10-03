@@ -165,7 +165,7 @@ func (s *LockService) Send(pkg *relay.Package) error {
 				switch ev.Kind {
 				case topology.Exit:
 					s.ReapPID(ev.From)
-				case topology.LinkDown:
+				case topology.MonitorDown:
 					s.monitored.Delete(ev.From.String())
 				}
 			}

@@ -29,7 +29,7 @@ func TestNodeExitNotificationCannotEraseLaterRegistration(t *testing.T) {
 		isExit := false
 		for _, msg := range pkg.Messages {
 			for _, pl := range msg.Payloads {
-				if event, ok := pl.Data().(*topapi.ExitEvent); ok && event.Kind == topapi.LinkDown {
+				if event, ok := pl.Data().(*topapi.ExitEvent); ok && event.Kind == topapi.MonitorDown {
 					isExit = true
 				}
 			}
@@ -38,7 +38,7 @@ func TestNodeExitNotificationCannotEraseLaterRegistration(t *testing.T) {
 			return nil
 		}
 		called = true
-		// A consumer reacts synchronously to LinkDown. No sleeps or scheduler
+		// A consumer reacts synchronously to MonitorDown. No sleeps or scheduler
 		// assumptions: this is the exact notification-to-cleanup boundary.
 		require.NoError(t, topo.Register(fresh))
 		require.NoError(t, topo.Monitor(observer, fresh))

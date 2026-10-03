@@ -47,7 +47,7 @@ func (s *Service) Send(pkg *relay.Package) error {
 				case topology.Exit:
 					s.monitored.Delete(ev.From.String())
 					_ = s.Remove(context.Background(), ev.From)
-				case topology.LinkDown:
+				case topology.MonitorDown:
 					s.monitored.Delete(ev.From.String())
 				}
 			}
