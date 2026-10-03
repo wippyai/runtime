@@ -6,16 +6,15 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	lua "github.com/wippyai/go-lua"
+	termtext "github.com/wippyai/runtime/internal/term/text"
 )
 
 // textPlain extracts display text without terminal instructions. Keep line
 // feeds and tabs; strip other control characters, including carriage returns.
 // Use textCut first when selecting a range of terminal cells.
 func textPlain(l *lua.LState) int {
-	plain := ansi.Strip(l.CheckString(1))
+	plain := termtext.Strip(l.CheckString(1))
 	plain = strings.Map(func(r rune) rune {
 		if r != '\n' && r != '\t' && unicode.IsControl(r) {
 			return -1
@@ -36,7 +35,7 @@ func textTruncate(l *lua.LState) int {
 		l.Push(lua.LString(""))
 		return 1
 	}
-	l.Push(lua.LString(ansi.Truncate(s, width, tail)))
+	l.Push(lua.LString(termtext.Truncate(s, width, tail)))
 	return 1
 }
 
@@ -54,28 +53,28 @@ func textCut(l *lua.LState) int {
 		l.Push(lua.LString(""))
 		return 1
 	}
-	l.Push(lua.LString(ansi.Cut(s, left, right)))
+	l.Push(lua.LString(termtext.Cut(s, left, right)))
 	return 1
 }
 
 // textWidth returns the printable width of a string (ANSI-aware).
 func textWidth(l *lua.LState) int {
 	s := l.CheckString(1)
-	l.Push(lua.LInteger(lipgloss.Width(s)))
+	l.Push(lua.LInteger(termtext.MaxWidth(s)))
 	return 1
 }
 
 // textHeight returns the number of lines in a string.
 func textHeight(l *lua.LState) int {
 	s := l.CheckString(1)
-	l.Push(lua.LInteger(lipgloss.Height(s)))
+	l.Push(lua.LInteger(termtext.Height(s)))
 	return 1
 }
 
 // textSize returns width and height of a string.
 func textSize(l *lua.LState) int {
 	s := l.CheckString(1)
-	w, h := lipgloss.Size(s)
+	w, h := termtext.Size(s)
 	l.Push(lua.LInteger(w))
 	l.Push(lua.LInteger(h))
 	return 2
@@ -83,18 +82,18 @@ func textSize(l *lua.LState) int {
 
 // textJoinHorizontal joins strings horizontally at a given vertical position.
 func textJoinHorizontal(l *lua.LState) int {
-	pos := lipgloss.Position(l.CheckNumber(1))
+	pos := termtext.Position(l.CheckNumber(1))
 	strs := collectStrings(l, 2)
-	result := lipgloss.JoinHorizontal(pos, strs...)
+	result := termtext.JoinHorizontal(pos, strs...)
 	l.Push(lua.LString(result))
 	return 1
 }
 
 // textJoinVertical joins strings vertically at a given horizontal position.
 func textJoinVertical(l *lua.LState) int {
-	pos := lipgloss.Position(l.CheckNumber(1))
+	pos := termtext.Position(l.CheckNumber(1))
 	strs := collectStrings(l, 2)
-	result := lipgloss.JoinVertical(pos, strs...)
+	result := termtext.JoinVertical(pos, strs...)
 	l.Push(lua.LString(result))
 	return 1
 }
@@ -105,7 +104,7 @@ func textMaxWidth(l *lua.LState) int {
 	max := 0
 	tbl.ForEach(func(_, v lua.LValue) {
 		if s, ok := v.(lua.LString); ok {
-			w := lipgloss.Width(string(s))
+			w := termtext.MaxWidth(string(s))
 			if w > max {
 				max = w
 			}
@@ -121,7 +120,7 @@ func textMaxHeight(l *lua.LState) int {
 	max := 0
 	tbl.ForEach(func(_, v lua.LValue) {
 		if s, ok := v.(lua.LString); ok {
-			h := lipgloss.Height(string(s))
+			h := termtext.Height(string(s))
 			if h > max {
 				max = h
 			}
@@ -136,10 +135,10 @@ func textMaxHeight(l *lua.LState) int {
 func textPlace(l *lua.LState) int {
 	width := l.CheckInt(1)
 	height := l.CheckInt(2)
-	hPos := lipgloss.Position(l.CheckNumber(3))
-	vPos := lipgloss.Position(l.CheckNumber(4))
+	hPos := termtext.Position(l.CheckNumber(3))
+	vPos := termtext.Position(l.CheckNumber(4))
 	str := l.CheckString(5)
-	result := lipgloss.Place(width, height, hPos, vPos, str)
+	result := termtext.Place(width, height, hPos, vPos, str)
 	l.Push(lua.LString(result))
 	return 1
 }
@@ -148,9 +147,9 @@ func textPlace(l *lua.LState) int {
 // place_horizontal(width, pos, str)
 func textPlaceHorizontal(l *lua.LState) int {
 	width := l.CheckInt(1)
-	pos := lipgloss.Position(l.CheckNumber(2))
+	pos := termtext.Position(l.CheckNumber(2))
 	str := l.CheckString(3)
-	result := lipgloss.PlaceHorizontal(width, pos, str)
+	result := termtext.PlaceHorizontal(width, pos, str)
 	l.Push(lua.LString(result))
 	return 1
 }
@@ -159,9 +158,9 @@ func textPlaceHorizontal(l *lua.LState) int {
 // place_vertical(height, pos, str)
 func textPlaceVertical(l *lua.LState) int {
 	height := l.CheckInt(1)
-	pos := lipgloss.Position(l.CheckNumber(2))
+	pos := termtext.Position(l.CheckNumber(2))
 	str := l.CheckString(3)
-	result := lipgloss.PlaceVertical(height, pos, str)
+	result := termtext.PlaceVertical(height, pos, str)
 	l.Push(lua.LString(result))
 	return 1
 }

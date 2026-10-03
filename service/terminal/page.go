@@ -3,56 +3,52 @@
 package terminal
 
 import (
-	"image/color"
-
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/internal/term/canvas"
+	"github.com/wippyai/runtime/internal/term/text"
 )
 
 // PageRenderer resolves default colors at the styled-cell boundary. One
 // bounded scratch row is reused; callers retain only rendered row strings.
 // It is confined to its owning viewport's presentation lock.
 type PageRenderer struct {
-	*uv.Buffer
-	foreground color.Color
-	background color.Color
+	row   *canvas.Buffer
+	blank canvas.Cell
 }
 
 func NewPageRenderer(width int, page ttyapi.Page) *PageRenderer {
 	fg, bg := page.Colors()
-	return &PageRenderer{Buffer: uv.NewBuffer(width, 1), foreground: fg, background: bg}
+	return &PageRenderer{
+		row: canvas.NewBuffer(width, 1),
+		blank: canvas.Cell{Content: " ", Width: 1, Style: text.Style{
+			Fg: text.ColorModel(fg), Bg: text.ColorModel(bg),
+		}},
+	}
 }
 
-func (r *PageRenderer) WidthMethod() uv.WidthMethod { return ansi.GraphemeWidth }
-
-func (r *PageRenderer) SetCell(x, y int, cell *uv.Cell) {
-	if y != 0 || x < 0 || x >= r.Width() || (cell != nil && cell.Width <= 0) {
-		return
-	}
-	c := uv.EmptyCell
-	if cell != nil {
-		c = *cell
-	}
-	if c.Style.Fg == nil {
-		c.Style.Fg = r.foreground
-	}
-	if c.Style.Bg == nil {
-		c.Style.Bg = r.background
-	}
-	if x+c.Width > r.Width() {
-		c.Empty()
-		for column := x; column < r.Width(); column++ {
-			r.Buffer.SetCell(column, y, &c)
-		}
-		return
-	}
-	r.Buffer.SetCell(x, y, &c)
-}
-
+// RenderRow decodes a styled row into cells, fills default colors and renders
+// the full viewport width. Control-only sequences produce no cells and a wide
+// cell that does not fit the last column becomes a styled blank.
 func (r *PageRenderer) RenderRow(row string) string {
-	// StyledString parses SGR, resets and hyperlinks into cells. Control-only
-	// decoder tails are rejected by SetCell, and wide cells clip to styled blanks.
-	uv.NewStyledString(row).Draw(r, r.Bounds())
-	return r.Render()
+	width := r.row.Width()
+	for x := range width {
+		r.row.Set(x, 0, &r.blank)
+	}
+	canvas.Decode(row, func(col int, cell canvas.Cell) bool {
+		if col >= width {
+			return false
+		}
+		if cell.Style.Fg.IsNone() {
+			cell.Style.Fg = r.blank.Style.Fg
+		}
+		if cell.Style.Bg.IsNone() {
+			cell.Style.Bg = r.blank.Style.Bg
+		}
+		r.row.Set(col, 0, &cell)
+		return true
+	})
+	return r.row.Render()
 }
+
+// Width returns the viewport width in cells.
+func (r *PageRenderer) Width() int { return r.row.Width() }

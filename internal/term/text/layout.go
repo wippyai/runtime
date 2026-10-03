@@ -20,7 +20,11 @@ const (
 	Right  Position = 1
 )
 
-func (p Position) value() float64 { return math.Min(1, math.Max(0, float64(p))) }
+// share returns how many of n cells lie before the content: none at 0, all at
+// 1, rounded in between.
+func (p Position) share(n int) int {
+	return int(math.Round(float64(n) * math.Min(1, math.Max(0, float64(p)))))
+}
 
 // lines splits s on newlines and returns the width of the widest line.
 func lines(s string) ([]string, int) {
@@ -62,7 +66,7 @@ func JoinHorizontal(pos Position, blocks ...string) string {
 		if extra == 0 {
 			continue
 		}
-		top := extra - int(math.Round(float64(extra)*pos.value()))
+		top := pos.share(extra)
 		bottom := extra - top
 		padded := make([]string, 0, maxHeight)
 		padded = append(padded, make([]string, top)...)
@@ -103,8 +107,8 @@ func JoinVertical(pos Position, blocks ...string) string {
 	for i, block := range rows {
 		for j, line := range block {
 			gap := maxWidth - Width(line)
-			right := gap - int(math.Round(float64(gap)*pos.value()))
-			left := gap - right
+			left := pos.share(gap)
+			right := gap - left
 			b.WriteString(spaces(left))
 			b.WriteString(line)
 			b.WriteString(spaces(right))
@@ -126,8 +130,8 @@ func PlaceHorizontal(width int, pos Position, s string) string {
 	var b strings.Builder
 	for i, line := range rows {
 		total := gap + max(0, contentWidth-Width(line))
-		right := total - (total - int(math.Round(float64(total)*pos.value())))
-		left := total - right
+		left := pos.share(total)
+		right := total - left
 		b.WriteString(spaces(left))
 		b.WriteString(line)
 		b.WriteString(spaces(right))
@@ -146,8 +150,8 @@ func PlaceVertical(height int, pos Position, s string) string {
 	}
 	_, width := lines(s)
 	empty := spaces(width)
-	bottom := int(math.Round(float64(gap) * pos.value()))
-	top := gap - bottom
+	top := pos.share(gap)
+	bottom := gap - top
 	var b strings.Builder
 	for i := 0; i < top; i++ {
 		b.WriteString(empty)

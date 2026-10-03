@@ -4,8 +4,6 @@
 package tty
 
 import (
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -23,9 +21,6 @@ var Module = &luaapi.ModuleDef{
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	// Force TrueColor so lipgloss renders properly in terminal processes
-	lipgloss.SetColorProfile(termenv.TrueColor)
-
 	mod := lua.CreateTable(0, 12)
 
 	// Input event functions
