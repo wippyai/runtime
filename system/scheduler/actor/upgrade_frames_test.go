@@ -37,8 +37,8 @@ func (p frameProbe) Close() error {
 // chainIncarnation holds a probe in its own frame and upgrades until
 // remaining runs out.
 type chainIncarnation struct {
-	probe     frameProbe
 	remaining *atomic.Int64
+	probe     frameProbe
 	// initial runs in the sealed execution frame, which holds no probe.
 	initial bool
 }

@@ -28,10 +28,10 @@ var (
 
 // countingCloser records how often the frame holding it is reclaimed.
 type countingCloser struct {
-	first  sync.Once
-	closed atomic.Int32
 	// reclaimed is closed by the first Close.
 	reclaimed chan struct{}
+	first     sync.Once
+	closed    atomic.Int32
 }
 
 func newCountingCloser() *countingCloser {
