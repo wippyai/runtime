@@ -69,7 +69,7 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.25.0
 	github.com/tree-sitter/tree-sitter-python v0.25.0
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/go-lua v1.6.4-0.20261003145456-1a12b5df98d5
+	github.com/wippyai/go-lua v1.6.4-0.20261003172345-af635159323f
 	github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f
 	github.com/wippyai/tree-sitter-markdown v0.0.3
 	github.com/wippyai/tree-sitter-sql v0.0.4
