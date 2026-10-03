@@ -446,3 +446,30 @@ func TestAdmitterSpawnHonorsCancellation(t *testing.T) {
 	}
 	require.Nil(t, starter.start, "no process starts for a cancelled caller")
 }
+
+type tracePropagator struct{}
+
+func (tracePropagator) PropagateValue() any { return "span-context" }
+
+func TestAdmitterSpawnCarriesOnlyCrossProcessCallerValues(t *testing.T) {
+	a, starter := newTestAdmitter(t)
+	ctx, _ := ownerContext(t)
+	fc := ctxapi.FrameFromContext(ctx)
+	traceKey := &ctxapi.Key{Name: "test.trace", Inherit: true}
+	deliveryKey := &ctxapi.Key{Name: "test.delivery", Inherit: true}
+	require.NoError(t, fc.SetMultiple(
+		ctxapi.Pair{Key: traceKey, Value: tracePropagator{}},
+		ctxapi.Pair{Key: deliveryKey, Value: "caller delivery"},
+	))
+
+	_, err := a.Spawn(ctx, apihost.EvalSpawnSpec{SourceCode: admitSource, Parent: admitParent})
+	require.NoError(t, err)
+	var trace any
+	for _, pair := range starter.start.Context {
+		require.NotSame(t, deliveryKey, pair.Key, "caller authority stays with the caller")
+		if pair.Key == traceKey {
+			trace = pair.Value
+		}
+	}
+	require.Equal(t, "span-context", trace, "the eval continues the caller's trace")
+}

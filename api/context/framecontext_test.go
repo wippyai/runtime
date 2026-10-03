@@ -1040,3 +1040,18 @@ func TestPropagatedPairs_ClonesCloner(t *testing.T) {
 		t.Error("the copy holds the parent's contents")
 	}
 }
+
+func TestPropagatorPairs_OnlyPropagators(t *testing.T) {
+	ctx, fc := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
+
+	traceKey := &Key{Name: "test.trace", Inherit: true}
+	plainKey := &Key{Name: "test.plain", Inherit: true}
+	_ = fc.Set(traceKey, &mockPropagator{propagateValue: "span"})
+	_ = fc.Set(plainKey, "authority")
+
+	pairs := PropagatorPairs(ctx)
+	if len(pairs) != 1 || pairs[0].Key != traceKey || pairs[0].Value != "span" {
+		t.Fatalf("only cross-process values propagate, got %v", pairs)
+	}
+}

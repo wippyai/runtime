@@ -464,6 +464,28 @@ func ExecutionFrame(ctx context.Context) FrameContext {
 	return fc
 }
 
+// PropagatorPairs returns the cross-process representation of the
+// inheritable values in ctx that implement Propagator: values meant to follow
+// work into another process, such as trace context. A process started from a
+// clean frame receives these and none of the caller's other values.
+func PropagatorPairs(ctx context.Context) []Pair {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	var pairs []Pair
+	for _, p := range fc.InheritablePairs() {
+		propagator, ok := p.Value.(Propagator)
+		if !ok {
+			continue
+		}
+		if transformed := propagator.PropagateValue(); transformed != nil {
+			pairs = append(pairs, Pair{Key: p.Key, Value: transformed})
+		}
+	}
+	return pairs
+}
+
 // CompleteFrame releases the Completer values of the execution frame of ctx;
 // process hosts call it when the process owning the frame completes.
 func CompleteFrame(ctx context.Context) {
