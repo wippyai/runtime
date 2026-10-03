@@ -311,6 +311,103 @@ func TestActorBurstRetainsTailAcrossSteps(t *testing.T) {
 	}
 }
 
+func TestActorBurstRestoresMailboxOnEarlyExit(t *testing.T) {
+	for _, exit := range []string{"error", "return", "upgrade"} {
+		t.Run(exit, func(t *testing.T) {
+			action := map[string]string{
+				"error":   `error("consumer failed")`,
+				"return":  `return 1`,
+				"upgrade": `coroutine.yield(upgrade_request)`,
+			}[exit]
+			p := newChurnProcess(t, `
+				local inbox = channel.new(0)
+				subscribe("work", inbox)
+				assert(inbox:receive() == 1)
+				`+action)
+			p.State().SetGlobal("upgrade_request", &UpgradeRequest{})
+			p.messageQueue = make([]queuedMessage, 0, 64)
+			base := p.messageQueue[:cap(p.messageQueue)]
+			events := make([]process.Event, 32)
+			for i := range events {
+				events[i] = churnMessage("work", payload.NewPayload(lua.LInteger(i+1), payload.Lua))
+			}
+			var out process.StepOutput
+			err := p.Step(events, &out)
+			if exit == "error" {
+				require.ErrorContains(t, err, "consumer failed")
+			} else {
+				require.NoError(t, err)
+			}
+			if exit == "upgrade" {
+				require.Equal(t, process.StepUpgrade, out.Status())
+			} else {
+				require.Equal(t, process.StepDone, out.Status())
+			}
+			require.Len(t, p.messageQueue, 31)
+			require.Equal(t, 64, cap(p.messageQueue), "early exit must restore the original capacity")
+			require.Same(t, &base[0], &p.messageQueue[0])
+			require.False(t, p.messageBatchActive)
+			require.Empty(t, p.messageBatchTopic)
+			for i, qm := range p.messageQueue {
+				require.Equal(t, "work", qm.Topic)
+				require.Equal(t, lua.LInteger(i+2), qm.Payloads[0].Data())
+			}
+			for _, qm := range base[len(p.messageQueue):] {
+				require.Equal(t, queuedMessage{}, qm, "vacated slots must not retain delivered values")
+			}
+		})
+	}
+}
+
+func TestActorBurstRechecksClosedChannel(t *testing.T) {
+	p := newChurnProcess(t, `
+		local inbox, gate = channel.new(0), channel.new(0)
+		subscribe("work", inbox)
+		subscribe("gate", gate)
+		assert(inbox:receive() == 1)
+		inbox:close()
+		gate:receive()
+		inbox = channel.new(0)
+		subscribe("work", inbox)
+		for i = 3, 32 do
+			assert(inbox:receive() == i, "retained suffix reordered or lost")
+		end
+		return 32
+	`)
+	p.messageQueue = make([]queuedMessage, 0, 64)
+	base := p.messageQueue[:cap(p.messageQueue)]
+	events := make([]process.Event, 32)
+	for i := range events {
+		events[i] = churnMessage("work", payload.NewPayload(lua.LInteger(i+1), payload.Lua))
+	}
+	var out process.StepOutput
+	require.NoError(t, p.Step(events, &out))
+	require.Equal(t, process.StepIdle, out.Status())
+	// General delivery consumes the first send to the closed channel and
+	// removes its subscription. Later unmatched messages remain available for
+	// a future subscriber; batching must preserve that existing behavior.
+	require.Len(t, p.messageQueue, 30)
+	require.Equal(t, 64, cap(p.messageQueue))
+	require.Same(t, &base[0], &p.messageQueue[0])
+	require.False(t, p.messageBatchActive)
+	require.Empty(t, p.messageBatchTopic)
+	_, subscribed := p.subs.match("work")
+	require.False(t, subscribed)
+	for i, qm := range p.messageQueue {
+		require.Equal(t, lua.LInteger(i+3), qm.Payloads[0].Data())
+	}
+	for _, qm := range base[len(p.messageQueue):] {
+		require.Equal(t, queuedMessage{}, qm)
+	}
+	out.Reset()
+	require.NoError(t, p.Step([]process.Event{churnMessage("gate", payload.NewPayload(lua.LTrue, payload.Lua))}, &out))
+	require.Equal(t, process.StepDone, out.Status())
+	require.Empty(t, p.messageQueue)
+	for _, qm := range base {
+		require.Equal(t, queuedMessage{}, qm)
+	}
+}
+
 func TestActorBurstKeepsComplexTrafficOnGeneralPath(t *testing.T) {
 	for _, kind := range []string{"mixed", "system", "handler", "items", "bytes", "frame", "terminal", "fallback"} {
 		t.Run(kind, func(t *testing.T) {
