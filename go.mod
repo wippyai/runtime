@@ -24,7 +24,6 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
-	github.com/gitpod-io/xterm-go v0.0.0-20260907130418-dae5128cb6b3
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/goccy/go-yaml v1.19.2
@@ -67,7 +66,7 @@ require (
 	github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f
 	github.com/wippyai/tree-sitter-markdown v0.0.3
 	github.com/wippyai/tree-sitter-sql v0.0.4
-	github.com/wippyai/tty v0.0.0-20261003164158-f5d0e055cc71
+	github.com/wippyai/tty v0.0.0-20261003165107-bf08248c5f14
 	github.com/wippyai/wapp v0.1.2
 	github.com/wippyai/wasm-runtime v0.0.0-20260918214155-6e832b201cf4
 	github.com/xuri/excelize/v2 v2.11.0

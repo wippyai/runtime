@@ -7,17 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	xterm "github.com/gitpod-io/xterm-go"
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 	"github.com/wippyai/tty/text"
+	"github.com/wippyai/tty/vt"
+	"github.com/wippyai/tty/vt/screen"
 )
 
-func screenCell(screen *xterm.Terminal, x, y int) *xterm.CellData {
-	cell := xterm.NewCellData()
-	buf := screen.Buffer()
-	buf.Lines.Get(buf.YBase+y).LoadCell(x, cell)
-	return cell
+func screenCell(term *vt.Terminal, x, y int) screen.Cell {
+	return term.Screen().Line(y)[x]
 }
 
 func TestPageSurvivesPhysicalPresentation(t *testing.T) {
@@ -27,7 +25,7 @@ func TestPageSurvivesPhysicalPresentation(t *testing.T) {
 			renderer := NewPageRenderer(6, page)
 			var output bytes.Buffer
 			surface := NewSurface(&output, ttyapi.SurfaceOptions{Synchronized: synchronized})
-			screen := xterm.New(xterm.WithCols(6), xterm.WithRows(2))
+			screen := vt.New(vt.Options{Cols: 6, Rows: 2})
 			paint := func(rows []string) {
 				output.Reset()
 				_, err := surface.Present(ttyapi.Frame{Rows: rows})
@@ -38,26 +36,25 @@ func TestPageSurvivesPhysicalPresentation(t *testing.T) {
 			rows := []string{renderer.RenderRow("abcdef"), renderer.RenderRow("世界 X")}
 			paint(rows)
 			_, bg := page.Colors()
+			wantBg := text.ColorModel(bg)
 			for y := range 2 {
 				for x := range 6 {
 					cell := screenCell(screen, x, y)
-					if cell.GetWidth() == 0 {
+					if x > 0 && screenCell(screen, x-1, y).Wide {
 						continue
 					}
-					require.True(t, cell.IsBgRGB(), "cell (%d,%d)", x, y)
-					wantR, wantG, wantB, _ := bg.RGBA()
-					require.Equal(t, int(wantR>>8)<<16|int(wantG>>8)<<8|int(wantB>>8), cell.GetBgColor(), "cell (%d,%d)", x, y)
+					require.Equal(t, wantBg, cell.Style.Bg, "cell (%d,%d)", x, y)
 				}
 			}
-			require.Equal(t, "f", screenCell(screen, 5, 0).GetChars())
-			require.Equal(t, "X", screenCell(screen, 5, 1).GetChars())
+			require.Equal(t, "f", screenCell(screen, 5, 0).Cluster)
+			require.Equal(t, "X", screenCell(screen, 5, 1).Cluster)
 			paint([]string{renderer.RenderRow("x")})
-			require.Equal(t, "x", screenCell(screen, 0, 0).GetChars())
+			require.Equal(t, "x", screenCell(screen, 0, 0).Cluster)
 			for x := range 6 {
-				require.Empty(t, strings.TrimSpace(screenCell(screen, x, 1).GetChars()))
+				require.Empty(t, strings.TrimSpace(screenCell(screen, x, 1).Cluster))
 			}
 			paint(rows)
-			require.Equal(t, "f", screenCell(screen, 5, 0).GetChars(), "full-width repaint must not scroll")
+			require.Equal(t, "f", screenCell(screen, 5, 0).Cluster, "full-width repaint must not scroll")
 		})
 	}
 }

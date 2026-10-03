@@ -58,7 +58,7 @@ func (p *Proxy) run(ctx context.Context, events <-chan ttyapi.Event, ready chan<
 		reportReady(err)
 		return Result{Err: err, TerminalError: err}
 	}
-	if err := p.process.Resize(p.screen.Cols(), p.screen.Rows()); err != nil {
+	if err := p.process.Resize(p.screenSize()); err != nil {
 		failure := stopStartedProcess(p.process, err, p.shutdownTimeout())
 		reportReady(failure)
 		return Result{Err: failure, TerminalError: failure}
@@ -363,8 +363,7 @@ func (p *Proxy) writeOutput(data []byte) (int, error) {
 	defer p.screenMu.Unlock()
 	before := p.historyLenLocked()
 	n, err := p.screen.Write(data)
-	p.syncModesLocked()
-	if added := p.historyLenLocked() - before; added > 0 && p.viewOffset > 0 && !p.input.altScreen.Load() {
+	if added := p.historyLenLocked() - before; added > 0 && p.viewOffset > 0 && !p.screen.Screen().Alternate() {
 		p.viewOffset = min(p.viewOffset+added, p.historyLenLocked())
 	}
 	return n, err
