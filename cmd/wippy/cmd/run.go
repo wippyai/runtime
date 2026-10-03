@@ -1233,15 +1233,9 @@ func handleShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *z
 }
 
 // handleCallerCancellation starts the graceful shutdown that a first signal
-// starts. The interrupt that ended the caller's context also reaches sigChan;
-// it is that same first signal and is consumed here, so only a later signal
-// forces exit.
+// starts; a signal after it forces exit.
 func handleCallerCancellation(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger) {
 	logger.Info("caller context canceled")
-	select {
-	case <-sigChan:
-	default:
-	}
 	armForceExit(ctx, sigChan, logger)
 }
 
