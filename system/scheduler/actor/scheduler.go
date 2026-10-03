@@ -347,6 +347,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		proc.queue.SetAdmission(admission.EventAdmission())
 	}
 	proc.gen.Store(proc.queue.Generation())
+	proc.completer = proc.queue.NewYieldCompleter(s)
 	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
@@ -480,6 +481,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
+	proc.completer = proc.queue.NewYieldCompleter(s)
 	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 

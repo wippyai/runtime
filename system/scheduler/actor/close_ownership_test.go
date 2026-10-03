@@ -5,6 +5,9 @@ package actor
 import (
 	"context"
 	"errors"
+	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/system/scheduler"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -108,3 +111,90 @@ func (p *upgradeFailure) Init(context.Context, string, payload.Payloads) error {
 	return errors.New("init failed")
 }
 func (p *upgradeFailure) Close() { p.closed.Add(1) }
+
+// waitingProcess yields once and then waits for the completion.
+type waitingProcess struct {
+	steps atomic.Int64
+}
+
+func (*waitingProcess) Init(context.Context, string, payload.Payloads) error { return nil }
+func (p *waitingProcess) Step(events []process.Event, out *process.StepOutput) error {
+	if p.steps.Add(1) == 1 {
+		out.Yield(YieldCmd{}, 7)
+		out.WaitForYields()
+		return nil
+	}
+	if len(events) > 0 {
+		out.Done(nil)
+		return nil
+	}
+	out.WaitForYields()
+	return nil
+}
+func (*waitingProcess) Send(*relay.Package) error { return nil }
+func (*waitingProcess) Close()                    {}
+
+// A completion that arrives after its actor ended is dropped, even when the
+// processor slot has been reused by another actor.
+func TestStaleYieldCompletionDoesNotWakeReusedProcessor(t *testing.T) {
+	received := make(chan dispatcher.ResultReceiver, 1)
+	reg := scheduler.NewRegistry()
+	reg.Register(CmdYield, dispatcher.HandlerFunc(func(_ context.Context, _ dispatcher.Command, _ uint64, r dispatcher.ResultReceiver) error {
+		select {
+		case received <- r:
+		default:
+		}
+		return nil
+	}))
+	reg.Register(CmdComplete, CompleteHandler())
+	done := make(chan struct{}, 64)
+	lc := &testLifecycle{onComplete: func(context.Context, pidapi.PID, *apiruntime.Result) { done <- struct{}{} }}
+	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
+	sched.Start()
+	defer testStopScheduler(sched)
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	a := &waitingProcess{}
+	procA, err := sched.Submit(ctxA, pidapi.PID{UniqID: "a"}, a, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stale dispatcher.ResultReceiver
+	select {
+	case stale = <-received:
+	case <-time.After(5 * time.Second):
+		t.Fatal("yield was not dispatched")
+	}
+	cancelA()
+	<-done
+
+	for i := 0; i < 1000; i++ {
+		ctxB, cancelB := context.WithCancel(context.Background())
+		b := &waitingProcess{}
+		procB, err := sched.Submit(ctxB, pidapi.PID{UniqID: "b"}, b, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for b.steps.Load() == 0 {
+			time.Sleep(time.Millisecond)
+		}
+		select {
+		case <-received:
+		case <-time.After(5 * time.Second):
+			t.Fatal("yield was not dispatched")
+		}
+		if procB == procA {
+			stale.CompleteYield(7, nil, nil)
+			time.Sleep(50 * time.Millisecond)
+			if got := b.steps.Load(); got != 1 {
+				t.Fatalf("stale completion woke the reused processor: %d steps", got)
+			}
+			cancelB()
+			<-done
+			return
+		}
+		cancelB()
+		<-done
+	}
+	t.Fatal("processor slot was never reused")
+}

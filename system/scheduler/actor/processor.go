@@ -76,14 +76,18 @@ const (
 //	- StateBlocked: no owner, CompleteYield can CAS to Ready and re-queue
 //	- Worker uses CAS loop to atomically check wakeup and transition state
 type Processor struct {
-	ctx        context.Context
-	Process    process.Process
-	stats      atomic.Pointer[attrs.Bag]
-	resultCh   chan *runtime.Result
-	scheduler  *Scheduler
-	cancel     context.CancelFunc
-	queue      *process.EventQueue
-	sig        atomic.Pointer[signalRef]
+	ctx       context.Context
+	Process   process.Process
+	stats     atomic.Pointer[attrs.Bag]
+	resultCh  chan *runtime.Result
+	scheduler *Scheduler
+	cancel    context.CancelFunc
+	queue     *process.EventQueue
+	sig       atomic.Pointer[signalRef]
+	// completer receives yield completions for the current incarnation. It is
+	// bound to the queue generation, so completions that outlive the
+	// incarnation do not reach a later user of this pooled processor.
+	completer  *process.YieldCompleter
 	inspector  atomic.Pointer[inspectorRef]
 	pid        pid.PID
 	output     process.StepOutput
@@ -188,36 +192,6 @@ func (p *Processor) finishDispatch() bool {
 	}
 }
 
-// CompleteYield implements dispatcher.ResultReceiver.
-// Called by handlers to deliver yield completion.
-// Thread-safe: can be called from any goroutine.
-func (p *Processor) CompleteYield(tag uint64, data any, err error) {
-	if !p.queue.Push(process.Event{
-		Type:  process.EventYieldComplete,
-		Tag:   tag,
-		Data:  data,
-		Error: err,
-	}, p.gen.Load()) {
-		return
-	}
-
-	// Try to transition Blocked→Ready and re-queue.
-	// If processor is Running (worker still owns it), set wakeup flag atomically.
-	// Worker will check wakeup after dispatch and re-queue if set.
-	if p.casState(StateBlocked, StateReady) {
-		sched := p.scheduler
-		if sched != nil {
-			sched.injectOrGlobal(p)
-		}
-		return
-	}
-
-	// Failed to transition - processor might be Running.
-	// Try to set wakeup flag atomically. If state changed, that's fine -
-	// either worker already moved on or another CompleteYield already woke it.
-	p.setWakeup(StateRunning)
-}
-
 // StateName returns a human-readable name for the process state.
 func StateName(s ProcessState) string {
 	switch s & stateMask {
@@ -264,6 +238,7 @@ func releaseProcessor(p *Processor) {
 	p.Process = nil
 	p.ctx = nil
 	p.cancel = nil
+	p.completer = nil
 	p.scheduler = nil
 	p.lastWorker.Store(noWorkerAffinity)
 	p.resultCh = nil

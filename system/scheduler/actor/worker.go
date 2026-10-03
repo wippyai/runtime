@@ -614,7 +614,7 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []p
 			})
 			continue
 		}
-		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc); err != nil {
+		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc.completer); err != nil {
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
