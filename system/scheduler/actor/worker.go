@@ -17,22 +17,21 @@ import (
 )
 
 type Worker struct {
-	batchBuf  [32]*Processor
-	local     *Deque
-	inject    *InjectQueue
-	scheduler *Scheduler
-	parkCond  *sync.Cond
-	done      chan struct{}
-	parkMu    sync.Mutex
-	routeMu   sync.Mutex
-	id        int
-	executed  atomic.Uint64
-	stolen    atomic.Uint64
-	notified  atomic.Bool
-	// parked is set while the worker is counted in Scheduler.parked.
-	parked              atomic.Bool
-	executing           bool // guarded by routeMu
+	batchBuf            [32]*Processor
+	local               *Deque
+	inject              *InjectQueue
+	scheduler           *Scheduler
+	parkCond            *sync.Cond
+	done                chan struct{}
+	parkMu              sync.Mutex
+	routeMu             sync.Mutex
+	id                  int
+	executed            atomic.Uint64
+	stolen              atomic.Uint64
+	notified            atomic.Bool
 	retiring            atomic.Bool
+	parked              atomic.Bool // set while counted in Scheduler.parked
+	executing           bool        // guarded by routeMu
 	dispatchesSinceFair uint8
 	fairSource          uint8
 }

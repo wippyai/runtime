@@ -100,6 +100,7 @@ type Scheduler struct {
 	registry        dispatcher.Registry
 	global          *Queue
 	drainCh         chan struct{}
+	admitIdle       *sync.Cond
 	byQueue         sync.Map
 	byPID           sync.Map
 	workers         atomic.Pointer[workerSet]
@@ -117,9 +118,8 @@ type Scheduler struct {
 	parked          atomic.Int32
 	// admitting counts Submit and CreateProcessor calls that have not
 	// finished publishing their processor; guarded by admitMu.
-	admitting        int
+	admitting        int32
 	admitMu          sync.Mutex
-	admitIdle        *sync.Cond
 	phase            atomic.Uint32
 	collectStats     atomic.Bool
 	started          bool
