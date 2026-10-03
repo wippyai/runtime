@@ -120,11 +120,11 @@ type leakEnv struct {
 	host      *Host
 	manager   *sysprocess.Manager
 	closer    *frameCloser
-	started   atomic.Int64
-	completed atomic.Int64
-	scopes    sync.Map
 	slots     *process.ChildSlots
 	resolvers *ctxapi.FrameResolvers
+	scopes    sync.Map
+	started   atomic.Int64
+	completed atomic.Int64
 }
 
 func newLeakEnv(t *testing.T) *leakEnv {

@@ -226,9 +226,9 @@ func TestManagerStartOwnedNeverAdoptsAnExistingProcess(t *testing.T) {
 type stoppingHost struct {
 	started    map[pid.PID]struct{}
 	terminated map[pid.PID]struct{}
-	mu         sync.Mutex
-	next       int
 	mockHost
+	mu   sync.Mutex
+	next int
 }
 
 func (h *stoppingHost) Run(_ context.Context, start *process.Start) (pid.PID, error) {
