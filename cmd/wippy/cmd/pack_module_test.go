@@ -302,3 +302,28 @@ func stringsSplitResourceID(value string) [2]string {
 	}
 	return result
 }
+
+func TestRootPackMetadataCarriesTheApplicationIdentity(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wippy.yaml"), []byte(
+		"organization: acme\nmodule: desk\ntype: application\nversion: 0.3.0\ndescription: desk app\n"), 0o644))
+
+	metadata, err := rootPackMetadata(root)
+	require.NoError(t, err)
+	require.Equal(t, "desk", metadata["name"])
+	require.Equal(t, "acme.desk", metadata["namespace"])
+	require.Equal(t, "0.3.0", metadata["version"])
+	require.Equal(t, "desk app", metadata["description"])
+}
+
+func TestRootPackMetadataIsEmptyWithoutAnIdentifiedManifest(t *testing.T) {
+	metadata, err := rootPackMetadata(t.TempDir())
+	require.NoError(t, err)
+	require.Empty(t, metadata)
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wippy.yaml"), []byte("description: unnamed\n"), 0o644))
+	metadata, err = rootPackMetadata(root)
+	require.NoError(t, err)
+	require.Empty(t, metadata)
+}

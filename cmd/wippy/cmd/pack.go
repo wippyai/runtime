@@ -517,6 +517,14 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 		metadata["wippy_date"] = version.Date
 		metadata["packed_at"] = time.Now().UTC().Format(time.RFC3339)
 		metadata["entry_count"] = len(loadedEntries)
+	} else {
+		rootMetadata, metadataErr := rootPackMetadata(filepath.Dir(lockPath))
+		if metadataErr != nil {
+			return NewPackConfigError(metadataErr)
+		}
+		for key, value := range rootMetadata {
+			metadata[key] = value
+		}
 	}
 
 	if description != "" {

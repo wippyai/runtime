@@ -327,3 +327,24 @@ func validateModulePackIdentityOverride(metadata, selected attrs.Bag) error {
 	}
 	return nil
 }
+
+// rootPackMetadata gives a pack of the root application the identity and
+// publication fields its own wippy.yaml declares, as a lock-selected module
+// pack carries them. A root without an identified manifest gets none.
+func rootPackMetadata(root string) (attrs.Bag, error) {
+	manifestPath := filepath.Join(root, moduleconfig.DefaultConfigFile)
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return attrs.Bag{}, nil
+		}
+		return nil, fmt.Errorf("inspect application manifest %s: %w", manifestPath, err)
+	}
+	cfg, err := moduleconfig.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("load application manifest %s: %w", manifestPath, err)
+	}
+	if cfg.Organization == "" || cfg.ModuleName == "" {
+		return attrs.Bag{}, nil
+	}
+	return modulePackMetadataFromConfig(cfg, root, cfg.FullName(), "")
+}
