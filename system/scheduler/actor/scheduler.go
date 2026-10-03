@@ -361,7 +361,6 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 			s.byQueue.Delete(proc.queue)
 			s.processorCount.Add(-1)
 			cancel()
-			p.Close()
 			releaseProcessor(proc)
 			return nil, err
 		}

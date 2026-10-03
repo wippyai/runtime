@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package actor
+
+import (
+	"context"
+	"errors"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	pidapi "github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	apiruntime "github.com/wippyai/runtime/api/runtime"
+)
+
+// closeCountingProcess counts Close calls.
+type closeCountingProcess struct {
+	upgradeSource
+	closed atomic.Int64
+}
+
+func (p *closeCountingProcess) Close() { p.closed.Add(1) }
+
+// A process whose admission fails stays owned by the submitter, which closes it.
+func TestSubmitRejectedByLifecycleDoesNotCloseProcess(t *testing.T) {
+	sched := newPreemptTestScheduler(1, &testLifecycle{})
+	sched.lifecycle = &rejectingLifecycle2{}
+	sched.Start()
+	defer testStopScheduler(sched)
+
+	p := &closeCountingProcess{}
+	if _, err := sched.Submit(context.Background(), pidapi.PID{UniqID: "r"}, p, "", nil); err == nil {
+		t.Fatal("expected rejection")
+	}
+	if got := p.closed.Load(); got != 0 {
+		t.Fatalf("scheduler closed a process it did not admit (%d)", got)
+	}
+}
+
+// Every failed upgrade closes the process exactly once.
+func TestFailedUpgradeClosesProcessOnce(t *testing.T) {
+	cases := map[string]func(*closeCountingProcess) (process.Factory, *upgradeFailure){
+		"create": func(*closeCountingProcess) (process.Factory, *upgradeFailure) {
+			return &mockFactory{createFunc: func(registry.ID) (process.Process, *process.Meta, error) {
+				return nil, nil, errors.New("create failed")
+			}}, nil
+		},
+		"init": func(*closeCountingProcess) (process.Factory, *upgradeFailure) {
+			target := &upgradeFailure{}
+			return &mockFactory{createFunc: func(registry.ID) (process.Process, *process.Meta, error) {
+				return target, &process.Meta{Method: "main"}, nil
+			}}, target
+		},
+	}
+	for name, setup := range cases {
+		t.Run(name, func(t *testing.T) {
+			done := make(chan struct{})
+			lc := &testLifecycle{onComplete: func(context.Context, pidapi.PID, *apiruntime.Result) { close(done) }}
+			sched := newPreemptTestScheduler(1, lc)
+			sched.Start()
+			defer testStopScheduler(sched)
+
+			source := &closeCountingProcess{upgradeSource: upgradeSource{UpgradeProcess: UpgradeProcess{
+				upgradeReq: &process.UpgradeRequest{Source: registry.NewID("app", "next")}}}}
+			factory, target := setup(source)
+			appCtx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+			process.WithFactory(appCtx, factory)
+			frameCtx, fc := ctxapi.OpenFrameContext(appCtx)
+			fc.Seal()
+			if _, err := sched.Submit(frameCtx, pidapi.PID{UniqID: "u"}, source, "", nil); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("actor did not complete")
+			}
+			time.Sleep(50 * time.Millisecond)
+			closes := source.closed.Load()
+			if target != nil {
+				closes += target.closed.Load()
+			}
+			wantTotal := int64(1)
+			if target != nil {
+				wantTotal = 2
+			}
+			if closes != wantTotal {
+				t.Fatalf("expected %d closes across incarnations, got %d", wantTotal, closes)
+			}
+			if target != nil && target.closed.Load() != 1 {
+				t.Fatalf("replacement closed %d times", target.closed.Load())
+			}
+		})
+	}
+}
+
+// upgradeFailure is a replacement whose Init fails.
+type upgradeFailure struct {
+	upgradeTarget
+	closed atomic.Int64
+}
+
+func (p *upgradeFailure) Init(context.Context, string, payload.Payloads) error {
+	return errors.New("init failed")
+}
+func (p *upgradeFailure) Close() { p.closed.Add(1) }

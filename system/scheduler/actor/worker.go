@@ -475,7 +475,6 @@ func (w *Worker) executeOne(proc *Processor) {
 	case process.StepUpgrade:
 		req := proc.output.Upgrade()
 		if req == nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -486,7 +485,6 @@ func (w *Worker) executeOne(proc *Processor) {
 
 		factory := process.GetFactory(proc.ctx)
 		if factory == nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -501,7 +499,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			var ok bool
 			source, ok = runtime.GetFrameID(proc.ctx)
 			if !ok {
-				proc.Process.Close()
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
@@ -514,7 +511,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Create new process
 		newProc, meta, err := factory.Create(source)
 		if err != nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -547,7 +543,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		// the process by its NEW definition (used by ListProcesses and OUTDATED
 		// notification), not the pre-upgrade source.
 		if err := runtime.SetFrameID(upgradeCtx, source); err != nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -559,7 +554,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		// current definition, so the replacement frame carries them over.
 		if opts := runtime.GetFrameLifecycleOptions(proc.ctx); opts != nil {
 			if err := runtime.SetFrameLifecycleOptions(upgradeCtx, opts); err != nil {
-				proc.Process.Close()
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
@@ -570,7 +564,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		}
 		if hasSelfPID {
 			if err := runtime.SetFramePID(upgradeCtx, selfPID); err != nil {
-				proc.Process.Close()
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
@@ -580,7 +573,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			}
 		}
 		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
