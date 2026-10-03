@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	xterm "github.com/gitpod-io/xterm-go"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/vt"
 )
 
 var (
@@ -26,6 +26,13 @@ const (
 	scrollbackCellBudget = 20_480
 	maxScrollbackLines   = 256
 
+	// reflowLineCapacity is the line capacity the emulator is created with.
+	// Narrowing the columns reflows history into more lines, and the emulator
+	// cannot reflow into a list with less room than the result needs; the
+	// result is at most half the cells of the largest PTY plus retained
+	// history. The retained history itself is bounded by boundHistoryLocked.
+	reflowLineCapacity = (execapi.MaxPTYCells+scrollbackCellBudget)/2 + maxScrollbackLines
+
 	// scrollLinesPerWheel matches the usual terminal wheel notch behavior.
 	scrollLinesPerWheel = 3
 )
@@ -37,7 +44,7 @@ type Proxy struct {
 	closeErr        error
 	closeCause      error
 	process         execapi.PTYProcess
-	screen          *vt.Terminal
+	screen          *xterm.Terminal
 	responses       responseQueue
 	capture         *strings.Builder
 	closeNotify     chan struct{}
@@ -133,13 +140,14 @@ func New(process execapi.PTYProcess, surface ttyapi.Surface, width, height int) 
 	}
 	p := &Proxy{
 		process: process, surface: surface,
-		screen:        vt.New(vt.WithCols(width), vt.WithRows(height), vt.WithScrollback(scrollbackSize(width))),
+		screen:        xterm.New(xterm.WithCols(width), xterm.WithRows(height), xterm.WithScrollback(reflowLineCapacity)),
 		shutdownGrace: defaultShutdownGrace, closeNotify: make(chan struct{}),
 	}
 	// A bounded primary-screen history serves nested surfaces. Physical
 	// terminals normally provide their own scrollback, but a virtual surface
 	// cannot.
 	p.responses.init()
+	p.boundHistoryLocked(width)
 	p.height.Store(int64(height))
 	p.input.init()
 	p.screen.OnData(p.reply)
@@ -178,7 +186,7 @@ func (p *Proxy) rowsLocked(height int) ([]string, bool) {
 	start := buffer.YBase - p.viewOffset
 	rows := make([]string, height)
 	for y := range rows {
-		rows[y] = buffer.RenderLine(start + y)
+		rows[y] = renderLine(buffer, start+y)
 	}
 	return rows, p.viewOffset > 0
 }
@@ -191,4 +199,24 @@ func (p *Proxy) historyLenLocked() int {
 
 func scrollbackSize(width int) int {
 	return min(maxScrollbackLines, max(scrollbackCellBudget/max(width, 1), 1))
+}
+
+// boundHistoryLocked limits primary-screen history to scrollbackSize(width)
+// lines by discarding the oldest, and bounds later growth to the same size.
+// screenMu must be held by the caller.
+func (p *Proxy) boundHistoryLocked(width int) {
+	buffer := p.screen.NormalBuffer()
+	target := p.screen.Rows() + scrollbackSize(width)
+	if trim := buffer.Lines.Length() - target; trim > 0 {
+		buffer.Lines.TrimStart(trim)
+		buffer.YBase = max(buffer.YBase-trim, 0)
+		buffer.YDisp = max(buffer.YDisp-trim, 0)
+		buffer.SavedState.Y = max(buffer.SavedState.Y-trim, 0)
+	}
+	buffer.Lines.SetMaxLength(target)
+}
+
+// historyLimitLocked is the current maximum number of history lines.
+func (p *Proxy) historyLimitLocked() int {
+	return p.screen.NormalBuffer().Lines.MaxLength() - p.screen.Rows()
 }

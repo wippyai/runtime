@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"image/color"
 
+	xterm "github.com/gitpod-io/xterm-go"
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/vt"
 )
 
 // Default palette answered to OSC 10/11/12 queries when the surface supplies
@@ -23,7 +23,7 @@ var (
 func (p *Proxy) installPageHandlers() {
 	provider, _ := p.surface.(ttyapi.PageProvider)
 	for _, command := range []int{10, 11, 12} {
-		p.screen.RegisterOscHandler(command, vt.NewOscStringHandler(func(data string) bool {
+		p.screen.RegisterOscHandler(command, xterm.NewOscStringHandler(func(data string) bool {
 			if data != "?" {
 				return false
 			}

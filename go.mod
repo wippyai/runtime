@@ -30,6 +30,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
+	github.com/gitpod-io/xterm-go v0.0.0-20260907130418-dae5128cb6b3
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/goccy/go-yaml v1.19.2

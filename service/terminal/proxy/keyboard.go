@@ -7,8 +7,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	xterm "github.com/gitpod-io/xterm-go"
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/vt"
 )
 
 // Kitty keyboard protocol enhancement flags.
@@ -202,7 +202,7 @@ var kittyKeyCodes = map[string]int{
 }
 
 // param returns parameter i, or def when it is absent or omitted.
-func param(params *vt.Params, i, def int) int {
+func param(params *xterm.Params, i, def int) int {
 	if i >= params.Length || params.Params[i] < 0 {
 		return def
 	}
@@ -210,23 +210,23 @@ func param(params *vt.Params, i, def int) int {
 }
 
 func (p *Proxy) installKeyboardHandlers() {
-	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '?', Final: 'u'}, func(*vt.Params) bool {
+	p.screen.RegisterCsiHandler(xterm.FunctionIdentifier{Prefix: '?', Final: 'u'}, func(*xterm.Params) bool {
 		p.reply("\x1b[?" + strconv.Itoa(p.input.keyboard.flags()) + "u")
 		return true
 	})
-	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '>', Final: 'u'}, func(params *vt.Params) bool {
+	p.screen.RegisterCsiHandler(xterm.FunctionIdentifier{Prefix: '>', Final: 'u'}, func(params *xterm.Params) bool {
 		p.input.keyboard.push(param(params, 0, 0))
 		return true
 	})
-	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '<', Final: 'u'}, func(params *vt.Params) bool {
+	p.screen.RegisterCsiHandler(xterm.FunctionIdentifier{Prefix: '<', Final: 'u'}, func(params *xterm.Params) bool {
 		p.input.keyboard.pop(param(params, 0, 1))
 		return true
 	})
-	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '=', Final: 'u'}, func(params *vt.Params) bool {
+	p.screen.RegisterCsiHandler(xterm.FunctionIdentifier{Prefix: '=', Final: 'u'}, func(params *xterm.Params) bool {
 		p.input.keyboard.set(param(params, 0, 0), param(params, 1, 1))
 		return true
 	})
-	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '>', Final: 'm'}, func(params *vt.Params) bool {
+	p.screen.RegisterCsiHandler(xterm.FunctionIdentifier{Prefix: '>', Final: 'm'}, func(params *xterm.Params) bool {
 		if param(params, 0, 0) != 4 {
 			return false
 		}
