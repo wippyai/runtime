@@ -21,6 +21,19 @@ func TestConsoleKeyText(t *testing.T) {
 		d.Key(KeyRecord{VirtualKey: 'A', Char: 'a', RepeatCount: 1}))
 }
 
+func TestConsoleShiftedLetterReportsBaseKey(t *testing.T) {
+	var d ConsoleDecoder
+	assert.Equal(t,
+		[]Event{KeyPressEvent{Code: 'a', ShiftedCode: 'A', BaseCode: 'a', Text: "A", Mod: ModShift}},
+		d.Key(KeyRecord{KeyDown: true, VirtualKey: 'A', Char: 'A', ControlKeyState: shiftPressed, RepeatCount: 1}))
+	assert.Equal(t,
+		[]Event{KeyPressEvent{Code: 'a', ShiftedCode: 'A', BaseCode: 'a', Text: "A", Mod: ModShift}},
+		d.Key(KeyRecord{KeyDown: true, VirtualKey: 'A', Char: 'a', ControlKeyState: shiftPressed, RepeatCount: 1}))
+	assert.Equal(t,
+		[]Event{KeyPressEvent{Code: 'a', ShiftedCode: 'A', BaseCode: 'a', Text: "A", Mod: ModCapsLock}},
+		d.Key(KeyRecord{KeyDown: true, VirtualKey: 'A', Char: 'A', ControlKeyState: capsLockOn, RepeatCount: 1}))
+}
+
 func TestConsoleKeyModifiersSuppressText(t *testing.T) {
 	var d ConsoleDecoder
 	assert.Equal(t,

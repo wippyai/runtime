@@ -92,7 +92,7 @@ func (p *Parser) consumePaste(b []byte, emit func(Event)) (int, bool) {
 }
 
 // ResolveEscape reports a pending bare ESC as the Escape key, ESC ESC as
-// Alt+Escape, and ESC followed by a string introducer (P ] _ ^ X) as Alt plus
+// Alt+Escape, and ESC followed by O or a string introducer (P ] _ ^ X) as Alt plus
 // that key. Other partial sequences stay pending.
 func (p *Parser) ResolveEscape(emit func(Event)) {
 	if p.inPaste {
@@ -105,14 +105,14 @@ func (p *Parser) ResolveEscape(emit func(Event)) {
 	case len(p.buf) == 2 && p.buf[0] == esc && p.buf[1] == esc:
 		p.buf = p.buf[:0]
 		emit(KeyPressEvent{Code: KeyEscape, Mod: ModAlt})
-	case len(p.buf) == 2 && p.buf[0] == esc && bytes.IndexByte([]byte("]P_^X"), p.buf[1]) >= 0:
-		// String introducers never arrive split from their body, so a read
-		// ending after one is Alt plus that key. ESC [ and ESC O are excluded:
-		// terminals split cursor and function key sequences after them.
+	case len(p.buf) == 2 && p.buf[0] == esc && bytes.IndexByte([]byte("]P_^XO"), p.buf[1]) >= 0:
+		// A terminal writes a SS3 or string sequence whole, so a read ending
+		// right after its introducer is Alt plus that key. ESC [ is excluded
+		// because a CSI split after the introducer is still in use.
 		k := p.buf[1]
 		p.buf = p.buf[:0]
 		switch k {
-		case 'P', 'X':
+		case 'P', 'X', 'O':
 			emit(KeyPressEvent{Code: rune(k) + 32, ShiftedCode: rune(k), Mod: ModShift | ModAlt})
 		default:
 			emit(KeyPressEvent{Code: rune(k), Mod: ModAlt})
@@ -191,11 +191,16 @@ func parseUTF8(b []byte) (int, Event, bool) {
 		return 1, UnknownEvent(b[:1]), true
 	}
 	cluster, _, _, _ := uniseg.FirstGraphemeCluster(b, -1)
-	code := r
-	if len(cluster) > w {
-		code = KeyExtended
+	k := Key{Code: r, Text: string(cluster)}
+	switch {
+	case len(cluster) > w:
+		k.Code = KeyExtended
+	case unicode.IsUpper(r):
+		k.Code = unicode.ToLower(r)
+		k.ShiftedCode = r
+		k.Mod = ModShift
 	}
-	return len(cluster), KeyPressEvent{Code: code, Text: string(cluster)}, true
+	return len(cluster), KeyPressEvent(k), true
 }
 
 func parseEscape(b []byte) (int, Event, bool) {
