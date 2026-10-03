@@ -84,3 +84,27 @@ func (list *initializerList) advance(l *lua.LState) int {
 	l.Push(list.items[list.done].Fn)
 	return 1
 }
+
+// runSync runs the incomplete initializers to completion on l's main thread,
+// in order. It is the synchronous counterpart of the bootstrap loop for
+// callers that execute without the scheduler; the code it runs is not
+// preemptible.
+func (list *initializerList) runSync(l *lua.LState) error {
+	if !list.pending() {
+		return nil
+	}
+	list.begin()
+	for list.done < len(list.items) {
+		item := list.items[list.done]
+		if err := l.CallByParam(lua.P{Fn: item.Fn, NRet: 1, Protect: true}); err != nil {
+			return err
+		}
+		result := l.Get(-1)
+		l.Pop(1)
+		list.done++
+		if item.Done != nil {
+			item.Done(result)
+		}
+	}
+	return nil
+}

@@ -409,3 +409,44 @@ func compileTestProto(t *testing.T, source string) *lua.FunctionProto {
 	require.NoError(t, err)
 	return fn.Proto
 }
+
+// SyncExecute initializes the process's libraries before it runs the chunk.
+func TestSyncExecuteRunsPendingInitializers(t *testing.T) {
+	id := registry.NewID("test", "c")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID:  mainID,
+		Imports: map[registry.ID][]code.Import{mainID: {{ID: id, Alias: "c"}}},
+		Dependencies: []code.CompiledProto{{Name: "c", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`_G.runs = (_G.runs or 0) + 1 return { v = 42 }`)}},
+	}
+	binder := NewProcessFactory(nil).isolationBinder(compiled, newProcessConfig(), nil, nil, nil, nil)
+	proc := mustNewProcess(t, WithModuleBinder(binder), WithProto(compileTestProto(t, `return c.v + runs`)))
+	t.Cleanup(proc.Close)
+	for i := 0; i < 2; i++ {
+		got, err := proc.SyncExecute(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lua.LVAsNumber(got) != 43 {
+			t.Fatalf("run %d: expected 43, got %v", i, got)
+		}
+	}
+}
+
+func TestSyncExecuteInitializerErrorKeepsKind(t *testing.T) {
+	id := registry.NewID("test", "c")
+	compiled := &code.CompiledMain{
+		Dependencies: []code.CompiledProto{{Name: "c", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`error(errors.new({message="bad dependency", kind=errors.INVALID, retryable=false}))`)}},
+	}
+	binder := NewProcessFactory(nil).isolationBinder(compiled, newProcessConfig(), nil, nil, nil, nil)
+	proc := mustNewProcess(t,
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })),
+		WithModuleBinder(binder), WithProto(compileTestProto(t, `return 1`)))
+	t.Cleanup(proc.Close)
+	_, err := proc.SyncExecute(context.Background())
+	if err == nil || apierror.BuildChain(err).Root().Kind != string(apierror.Invalid) {
+		t.Fatalf("expected an Invalid error from the library, got %v", err)
+	}
+}

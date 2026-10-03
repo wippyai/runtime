@@ -2087,6 +2087,10 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 
 	p.state.SetContext(ctx)
 
+	if err := initializersOf(p.state).runSync(p.state); err != nil {
+		return lua.LNil, toAPIError(err)
+	}
+
 	// Load function from proto
 	fn := p.state.LoadProto(p.proto)
 
