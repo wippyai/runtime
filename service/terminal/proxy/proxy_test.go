@@ -265,7 +265,7 @@ func BenchmarkProxyOutputScrollback(b *testing.B) {
 			proxy, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, 80, 24)
 			require.NoError(b, err)
 			proxy.screenMu.Lock()
-			proxy.screen.NormalBuffer().Lines.SetMaxLength(proxy.screen.Rows() + limit.lines)
+			proxy.screen.SetScrollbackLimit(limit.lines)
 			proxy.screenMu.Unlock()
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -467,8 +467,9 @@ func TestProxyRendersAndResizes(t *testing.T) {
 	require.Equal(t, 4, process.height)
 	require.Len(t, surface.rows, 4)
 	require.ErrorIs(t, proxy.handle(ttyapi.Event{Type: "resize", Width: execapi.MaxPTYCells, Height: 2}), execapi.ErrInvalidPTYSize)
-	require.Equal(t, 20, proxy.screen.Cols())
-	require.Equal(t, 4, proxy.screen.Rows())
+	width, height := proxy.screenSize()
+	require.Equal(t, 20, width)
+	require.Equal(t, 4, height)
 }
 
 func TestProxyEncodesTerminalKeys(t *testing.T) {
@@ -488,7 +489,7 @@ func TestProxyEncodesApplicationCursorKey(t *testing.T) {
 	process := &testProcess{stdout: io.NopCloser(strings.NewReader("")), input: make(chan []byte, 1)}
 	proxy, err := New(process, &testSurface{}, 10, 2)
 	require.NoError(t, err)
-	proxy.input.appCursor.Store(true)
+	proxy.feed(t, setApplicationCursor)
 	require.NoError(t, proxy.handle(ttyapi.Event{Type: "key", KeyType: "down", Key: "down", Action: "press"}))
 	require.Equal(t, "\x1bOB", string(<-process.input))
 }
@@ -885,7 +886,7 @@ func (p *Proxy) historyLen() int {
 func (p *Proxy) historyLimit() int {
 	p.screenMu.Lock()
 	defer p.screenMu.Unlock()
-	return p.historyLimitLocked()
+	return p.screen.Screen().ScrollbackLimit()
 }
 
 func TestProxyNarrowResizeWithFullHistoryReflowsWithinBounds(t *testing.T) {
@@ -921,4 +922,21 @@ func TestProxyNarrowResizeOfFullPTYKeepsEmulatorConsistent(t *testing.T) {
 		require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 2, Height: 256}))
 	})
 	require.LessOrEqual(t, proxy.historyLen(), scrollbackSize(2))
+}
+
+func TestProxyNarrowingFullScrollbackReflowsWithoutPanic(t *testing.T) {
+	proxy, err := New(&testProcess{input: make(chan []byte, 1)}, &testSurface{}, 80, 2)
+	require.NoError(t, err)
+	proxy.screenMu.Lock()
+	proxy.screen.SetScrollbackLimit(5)
+	proxy.screenMu.Unlock()
+	for range 20 {
+		_, err = proxy.writeOutput([]byte(strings.Repeat("x", 80) + "\r\n"))
+		require.NoError(t, err)
+	}
+	require.Equal(t, 5, proxy.historyLen())
+	require.NotPanics(t, func() {
+		require.NoError(t, proxy.handle(ttyapi.Event{Type: "resize", Width: 10, Height: 2}))
+	})
+	require.LessOrEqual(t, proxy.historyLen(), proxy.historyLimit())
 }

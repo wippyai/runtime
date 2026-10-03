@@ -11,9 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	xterm "github.com/gitpod-io/xterm-go"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/tty/text"
+	"github.com/wippyai/tty/vt"
 )
 
 var (
@@ -26,15 +27,8 @@ const (
 	scrollbackCellBudget = 20_480
 	maxScrollbackLines   = 256
 
-	// reflowLineCapacity is the line capacity the emulator is created with.
-	// Narrowing the columns reflows history into more lines, and the emulator
-	// cannot reflow into a list with less room than the result needs; the
-	// result is at most half the cells of the largest PTY plus retained
-	// history. The retained history itself is bounded by boundHistoryLocked.
-	reflowLineCapacity = (execapi.MaxPTYCells+scrollbackCellBudget)/2 + maxScrollbackLines
-
 	// scrollLinesPerWheel matches the usual terminal wheel notch behavior.
-	scrollLinesPerWheel = 3
+	scrollLinesPerWheel = 3 // also the cursor key presses sent per wheel notch under alternate scroll
 )
 
 // Proxy owns the process/VT/surface pipeline. A native Wippy process, plugin,
@@ -44,11 +38,10 @@ type Proxy struct {
 	closeErr        error
 	closeCause      error
 	process         execapi.PTYProcess
-	screen          *xterm.Terminal
+	screen          *vt.Terminal
 	responses       responseQueue
 	capture         *strings.Builder
 	closeNotify     chan struct{}
-	input           inputState
 	shutdownGrace   time.Duration
 	height          atomic.Int64
 	viewOffset      int
@@ -140,35 +133,50 @@ func New(process execapi.PTYProcess, surface ttyapi.Surface, width, height int) 
 	}
 	p := &Proxy{
 		process: process, surface: surface,
-		screen:        xterm.New(xterm.WithCols(width), xterm.WithRows(height), xterm.WithScrollback(reflowLineCapacity)),
 		shutdownGrace: defaultShutdownGrace, closeNotify: make(chan struct{}),
 	}
+	p.responses.init()
 	// A bounded primary-screen history serves nested surfaces. Physical
 	// terminals normally provide their own scrollback, but a virtual surface
 	// cannot.
-	p.responses.init()
-	p.boundHistoryLocked(width)
+	p.screen = vt.New(vt.Options{
+		Cols: width, Rows: height, ScrollbackLines: scrollbackSize(width),
+		Reply: p.reply, Colors: p.pageColors,
+	})
+	// Alternate scroll is on at power-on, as in the terminals this proxy
+	// stands in for.
+	_, _ = p.screen.Write([]byte("\x1b[?1007h"))
 	p.height.Store(int64(height))
-	p.input.init()
-	p.screen.OnData(p.reply)
-	p.installModeHandlers()
-	p.installKeyboardHandlers()
-	p.installPageHandlers()
 	return p, nil
+}
+
+// pageColors supplies the surface page to color queries at reply time, so a
+// reply never carries a superseded page.
+func (p *Proxy) pageColors() (fg, bg, cursor text.Color) {
+	provider, ok := p.surface.(ttyapi.PageProvider)
+	if !ok {
+		return fg, bg, cursor
+	}
+	page, present := provider.Page()
+	if !present {
+		return fg, bg, cursor
+	}
+	pageFg, pageBg := page.Colors()
+	return text.ColorModel(pageFg), text.ColorModel(pageBg), cursor
 }
 
 func (p *Proxy) present() error {
 	p.screenMu.Lock()
 	height := int(p.height.Load())
 	rows, scrolled := p.rowsLocked(height)
-	buffer := p.screen.Buffer()
-	width := p.screen.Cols()
-	visible := !p.screen.IsCursorHidden() && !scrolled
-	column, row := buffer.X, buffer.Y
+	screen := p.screen.Screen()
+	width, _ := screen.Size()
+	cursor := screen.Cursor()
+	visible := cursor.Visible && !scrolled
 	p.screenMu.Unlock()
 	frame := ttyapi.Frame{Rows: rows, Cursor: &ttyapi.Cursor{
-		Column:  min(max(column, 0), width-1),
-		Row:     min(max(row, 0), height-1),
+		Column:  min(max(cursor.X, 0), width-1),
+		Row:     min(max(cursor.Y, 0), height-1),
 		Visible: visible,
 	}}
 	_, err := p.surface.Present(frame)
@@ -178,15 +186,22 @@ func (p *Proxy) present() error {
 // rowsLocked renders the live screen unless the primary-screen viewport has
 // been moved into scrollback. screenMu must be held by the caller.
 func (p *Proxy) rowsLocked(height int) ([]string, bool) {
-	buffer := p.screen.Buffer()
-	if p.screen.IsAltBufferActive() {
+	screen := p.screen.Screen()
+	if screen.Alternate() {
 		p.viewOffset = 0
 	}
-	p.viewOffset = min(p.viewOffset, buffer.YBase)
-	start := buffer.YBase - p.viewOffset
+	history := screen.ScrollbackLen()
+	p.viewOffset = min(p.viewOffset, history)
+	_, live := screen.Size()
+	start := history - p.viewOffset
 	rows := make([]string, height)
 	for y := range rows {
-		rows[y] = renderLine(buffer, start+y)
+		switch i := start + y; {
+		case i < history:
+			rows[y] = vt.RenderLine(vt.TrimLine(screen.ScrollbackLine(i)))
+		case i-history < live:
+			rows[y] = vt.RenderLine(vt.TrimLine(screen.Line(i - history)))
+		}
 	}
 	return rows, p.viewOffset > 0
 }
@@ -194,29 +209,25 @@ func (p *Proxy) rowsLocked(height int) ([]string, bool) {
 // historyLenLocked is the number of primary-screen history lines. screenMu
 // must be held by the caller.
 func (p *Proxy) historyLenLocked() int {
-	return p.screen.NormalBuffer().YBase
+	return p.screen.Screen().ScrollbackLen()
 }
 
 func scrollbackSize(width int) int {
 	return min(maxScrollbackLines, max(scrollbackCellBudget/max(width, 1), 1))
 }
 
-// boundHistoryLocked limits primary-screen history to scrollbackSize(width)
-// lines by discarding the oldest, and bounds later growth to the same size.
-// screenMu must be held by the caller.
-func (p *Proxy) boundHistoryLocked(width int) {
-	buffer := p.screen.NormalBuffer()
-	target := p.screen.Rows() + scrollbackSize(width)
-	if trim := buffer.Lines.Length() - target; trim > 0 {
-		buffer.Lines.TrimStart(trim)
-		buffer.YBase = max(buffer.YBase-trim, 0)
-		buffer.YDisp = max(buffer.YDisp-trim, 0)
-		buffer.SavedState.Y = max(buffer.SavedState.Y-trim, 0)
+// reply routes emulator output to the child. While an input event is being
+// encoded the output is the encoded event itself.
+func (p *Proxy) reply(data []byte) {
+	if p.capture != nil {
+		p.capture.Write(data)
+		return
 	}
-	buffer.Lines.SetMaxLength(target)
+	p.responses.push(append([]byte(nil), data...))
 }
 
-// historyLimitLocked is the current maximum number of history lines.
-func (p *Proxy) historyLimitLocked() int {
-	return p.screen.NormalBuffer().Lines.MaxLength() - p.screen.Rows()
+func (p *Proxy) screenSize() (int, int) {
+	p.screenMu.Lock()
+	defer p.screenMu.Unlock()
+	return p.screen.Screen().Size()
 }

@@ -5,16 +5,35 @@ package terminal
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
-	xterm "github.com/gitpod-io/xterm-go"
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/tty/vt"
 )
+
+// screenText returns the visible rows of term as plain text.
+func screenText(term *vt.Terminal) string {
+	_, height := term.Screen().Size()
+	rows := make([]string, height)
+	for y := range rows {
+		var row strings.Builder
+		for _, cell := range term.Screen().Line(y) {
+			if cell.Cluster == "" {
+				row.WriteByte(' ')
+				continue
+			}
+			row.WriteString(cell.Cluster)
+		}
+		rows[y] = row.String()
+	}
+	return strings.Join(rows, "\n")
+}
 
 func TestSurfaceShrinkPreservesBottomRow(t *testing.T) {
 	for _, invalidate := range []bool{false, true} {
-		screen := xterm.New(xterm.WithCols(8), xterm.WithRows(4))
+		screen := vt.New(vt.Options{Cols: 8, Rows: 4})
 		surface := NewSurface(screen, ttyapi.SurfaceOptions{})
 		_, err := surface.Present(ttyapi.Frame{Rows: []string{"content", "taskbar", "old", "tail"}})
 		require.NoError(t, err)
@@ -24,12 +43,12 @@ func TestSurfaceShrinkPreservesBottomRow(t *testing.T) {
 		}
 		_, err = surface.Present(ttyapi.Frame{Rows: []string{"content", "taskbar"}})
 		require.NoError(t, err)
-		require.Contains(t, screen.String(), "taskbar")
+		require.Contains(t, screenText(screen), "taskbar")
 	}
 }
 
 func TestSurfacePreservesFullWidthRows(t *testing.T) {
-	screen := xterm.New(xterm.WithCols(8), xterm.WithRows(2))
+	screen := vt.New(vt.Options{Cols: 8, Rows: 2})
 	surface := NewSurface(screen, ttyapi.SurfaceOptions{})
 	for _, rows := range [][]string{
 		{"12345678", "abcdefgh"},
@@ -38,7 +57,7 @@ func TestSurfacePreservesFullWidthRows(t *testing.T) {
 		_, err := surface.Present(ttyapi.Frame{Rows: rows})
 		require.NoError(t, err)
 		for _, row := range rows {
-			require.Contains(t, screen.String(), row)
+			require.Contains(t, screenText(screen), row)
 		}
 	}
 }

@@ -69,10 +69,14 @@ func TestAlternateScrollUsesApplicationCursorKeys(t *testing.T) {
 }
 
 func TestAlternateScrollIgnoresWheelOnMainScreen(t *testing.T) {
-	state := &inputState{}
-	state.init()
-	require.Empty(t, state.alternateScroll(wheel("wheel_up")))
-	require.Empty(t, state.alternateScroll(wheel("wheel_down")))
+	proxy, process := newModeProxy(t)
+	require.NoError(t, proxy.handle(wheel("wheel_up")))
+	require.NoError(t, proxy.handle(wheel("wheel_down")))
+	select {
+	case unexpected := <-process.input:
+		t.Fatalf("wheel reached child on the main screen: %q", unexpected)
+	default:
+	}
 }
 
 func TestAlternateScrollDisabledIgnoresWheel(t *testing.T) {
