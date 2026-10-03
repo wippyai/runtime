@@ -276,3 +276,25 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: spin_launcher
+    kind: process.lua
+    meta:
+      comment: Unowned process that detaches a spinning eval
+    source: file://spin_launcher.lua
+    method: main
+    modules:
+      - eval
+
+  - name: detached_spinner
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: the detached eval lifetime stops a spinning detached eval
+    source: file://detached_spinner.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert: app.lib:assert

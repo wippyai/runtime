@@ -70,6 +70,7 @@ lua:
   proto_cache_size: 60000     # Lua proto cache size
   eval:
     spawn_host: app:processes # Process host for eval.spawn from function callers
+    detached_lifetime: 2s
   main_cache_size: 10000      # Lua main cache size
   type_system:
     enabled: true             # Enable type checking during compilation
