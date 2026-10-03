@@ -555,9 +555,9 @@ func runLuaChaos(t *testing.T, seed int64) {
 			deadline := time.Now().Add(20 * time.Second)
 			killAt := time.Now().Add(time.Duration(r.Intn(40)) * time.Millisecond)
 			kill := rec.blocker || r.Intn(8) == 0
-			// Unconsumed messages stay queued in the actor, so the supply is bounded.
+			// Unconsumed messages stay queued in the actor, so the send rate backs off.
 			sent := 0
-			for rec.completes.Load() == 0 && time.Now().Before(deadline) && sent < 1500 {
+			for rec.completes.Load() == 0 && time.Now().Before(deadline) {
 				sent++
 				if rec.wantsMsgs {
 					pkg := relay.NewPackage(pidapi.PID{}, rec.pid, "msg", payload.NewPayload(lua.LString("x"), payload.Lua))
@@ -578,7 +578,7 @@ func runLuaChaos(t *testing.T, seed int64) {
 					}
 					return
 				}
-				time.Sleep(time.Duration(300+r.Intn(700)) * time.Microsecond)
+				time.Sleep(time.Duration(300+r.Intn(700)) * time.Microsecond * time.Duration(1+min(sent/50, 30)))
 			}
 		}()
 	}
