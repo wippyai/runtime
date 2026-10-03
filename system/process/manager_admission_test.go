@@ -4,6 +4,8 @@ package process
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -216,5 +218,87 @@ func TestManagerStartOwnedNeverAdoptsAnExistingProcess(t *testing.T) {
 		require.False(t, host.terminateCalled, "the existing process belongs to someone else")
 		scope.Complete()
 		require.Empty(t, term.terminated, "nothing was started for the owner")
+	}
+}
+
+// stoppingHost hands out unique PIDs and records the processes the manager
+// terminates itself.
+type stoppingHost struct {
+	started    map[pid.PID]struct{}
+	terminated map[pid.PID]struct{}
+	mu         sync.Mutex
+	next       int
+	mockHost
+}
+
+func (h *stoppingHost) Run(_ context.Context, start *process.Start) (pid.PID, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.next++
+	p := pid.PID{Host: start.HostID, UniqID: fmt.Sprintf("p%d", h.next)}
+	h.started[p] = struct{}{}
+	return p, nil
+}
+
+func (h *stoppingHost) Terminate(_ context.Context, p pid.PID) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.terminated[p] = struct{}{}
+	return nil
+}
+
+type syncTerminator struct {
+	terminated map[pid.PID]struct{}
+	mu         sync.Mutex
+}
+
+func (s *syncTerminator) Terminate(_ context.Context, p pid.PID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.terminated[p] = struct{}{}
+	return nil
+}
+
+// An owner can end while its children start: every process the host started
+// is stopped by the scope or by the manager, and no registration remains.
+func TestManagerStartOwnedWhileOwnerEnds(t *testing.T) {
+	for round := 0; round < 200; round++ {
+		node := newMockNode()
+		host := &stoppingHost{
+			mockHost:   mockHost{acceptsAttachments: true},
+			started:    map[pid.PID]struct{}{},
+			terminated: map[pid.PID]struct{}{},
+		}
+		_ = node.RegisterHost("host", host)
+		ctx, fc := ctxapi.OpenFrameContext(context.Background())
+		term := &syncTerminator{terminated: map[pid.PID]struct{}{}}
+		scope := process.NewExecutionScope(ctx, process.ExecutionProcess, term)
+		require.NoError(t, fc.SetMultiple(process.ExecutionScopePair(scope)))
+		manager := NewManager(node, zap.NewNop())
+
+		var wg sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 20; j++ {
+					_, _ = manager.Start(ctx, ownedStart())
+				}
+			}()
+		}
+		scope.Complete()
+		wg.Wait()
+
+		host.mu.Lock()
+		term.mu.Lock()
+		for p := range host.started {
+			_, byScope := term.terminated[p]
+			_, byManager := host.terminated[p]
+			require.True(t, byScope || byManager, "process %s outlives its owner", p)
+		}
+		term.mu.Unlock()
+		host.mu.Unlock()
+		require.Zero(t, scope.Owned())
+		ctxapi.ReleaseFrameContext(fc)
 	}
 }
