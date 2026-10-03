@@ -66,27 +66,32 @@ func (r *PolicyRegistry) Stop() error {
 }
 
 func (r *PolicyRegistry) handleEvent(e event.Event) {
+	var err error
 	switch e.Kind {
 	case security.PolicyRegister:
-		r.registerPolicy(e)
+		err = r.registerPolicy(e)
 	case security.PolicyUpdate:
-		r.updatePolicy(e)
+		err = r.updatePolicy(e)
 	case security.PolicyDelete:
-		r.deletePolicy(e)
+		err = r.deletePolicy(e)
 	default:
-		r.logger.Warn("unknown policy event kind",
-			zap.String("kind", e.Kind),
-			zap.String("path", e.Path))
+		err = fmt.Errorf("unknown policy event kind: %s", e.Kind)
+	}
+	if entry, ok := e.Data.(*security.PolicyEntry); ok && entry.Applied != nil {
+		entry.Applied <- err
+	}
+	if err != nil {
+		r.logger.Error("policy mutation failed", zap.String("policy", e.Path), zap.Error(err))
 	}
 }
 
-func (r *PolicyRegistry) registerPolicy(e event.Event) {
+func (r *PolicyRegistry) registerPolicy(e event.Event) error {
 	entry, ok := e.Data.(*security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy payload",
 			zap.String("policy", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
-		return
+		return fmt.Errorf("invalid policy payload: %s", e.Path)
 	}
 
 	policyID := entry.Policy.ID()
@@ -100,15 +105,16 @@ func (r *PolicyRegistry) registerPolicy(e event.Event) {
 	r.logger.Debug("policy registered",
 		zap.String("policy", policyID.String()),
 		zap.Int("groups", len(entry.Groups)))
+	return nil
 }
 
-func (r *PolicyRegistry) updatePolicy(e event.Event) {
+func (r *PolicyRegistry) updatePolicy(e event.Event) error {
 	entry, ok := e.Data.(*security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy update payload",
 			zap.String("policy", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
-		return
+		return fmt.Errorf("invalid policy update payload: %s", e.Path)
 	}
 
 	policyID := entry.Policy.ID()
@@ -117,14 +123,14 @@ func (r *PolicyRegistry) updatePolicy(e event.Event) {
 	if !exists {
 		r.logger.Error("policy not found for update",
 			zap.String("policy", policyID.String()))
-		return
+		return fmt.Errorf("policy not found for update: %s", e.Path)
 	}
 
 	existing, ok := existingVal.(*security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy type in registry",
 			zap.String("policy", policyID.String()))
-		return
+		return fmt.Errorf("invalid policy type in registry: %s", e.Path)
 	}
 
 	for _, oldGroup := range existing.Groups {
@@ -158,23 +164,24 @@ func (r *PolicyRegistry) updatePolicy(e event.Event) {
 	r.logger.Debug("policy updated",
 		zap.String("policy", policyID.String()),
 		zap.Int("groups", len(entry.Groups)))
+	return nil
 }
 
-func (r *PolicyRegistry) deletePolicy(e event.Event) {
+func (r *PolicyRegistry) deletePolicy(e event.Event) error {
 	policyID := registry.ParseID(e.Path)
 
 	existingVal, exists := r.policies.Load(policyID)
 	if !exists {
 		r.logger.Warn("policy not found for deletion",
 			zap.String("policy", policyID.String()))
-		return
+		return fmt.Errorf("policy not found for deletion: %s", e.Path)
 	}
 
 	existing, ok := existingVal.(*security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy type in registry",
 			zap.String("policy", policyID.String()))
-		return
+		return fmt.Errorf("invalid policy type in registry: %s", e.Path)
 	}
 
 	for _, groupID := range existing.Groups {
@@ -185,6 +192,7 @@ func (r *PolicyRegistry) deletePolicy(e event.Event) {
 
 	r.logger.Debug("policy deleted",
 		zap.String("policy", policyID.String()))
+	return nil
 }
 
 func (r *PolicyRegistry) addPolicyToGroup(groupID, policyID registry.ID) {

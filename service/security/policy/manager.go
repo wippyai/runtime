@@ -4,6 +4,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 
@@ -52,11 +53,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
-	m.bus.Send(ctx, event.Event{
-		System: security.System,
-		Kind:   security.PolicyDelete,
-		Path:   entry.ID.String(),
-	})
+	if err := m.applyPolicy(ctx, entry.ID, security.PolicyDelete, &security.PolicyEntry{}); err != nil {
+		return err
+	}
 
 	m.log.Info("security policy removed", zap.String("id", entry.ID.String()))
 
@@ -74,12 +73,9 @@ func (m *Manager) processPolicy(ctx context.Context, entry registry.Entry, event
 		return NewCreatePolicyEntryError(err)
 	}
 
-	m.bus.Send(ctx, event.Event{
-		System: security.System,
-		Kind:   eventKind,
-		Path:   entry.ID.String(),
-		Data:   policyEntry,
-	})
+	if err := m.applyPolicy(ctx, entry.ID, eventKind, policyEntry); err != nil {
+		return err
+	}
 
 	m.log.Info("security policy "+action,
 		zap.String("id", entry.ID.String()),
@@ -91,4 +87,24 @@ func (m *Manager) processPolicy(ctx context.Context, entry registry.Entry, event
 // isSupportedKind checks if the entry kind is a supported policy kind
 func (m *Manager) isSupportedKind(kind registry.Kind) bool {
 	return kind == policyapi.Policy || kind == policyapi.ExprKind
+}
+
+// applyPolicy waits for the policy owner, not merely event publication. The
+// registry entry acknowledgement therefore includes downstream visibility.
+func (m *Manager) applyPolicy(ctx context.Context, id registry.ID, kind event.Kind, entry *security.PolicyEntry) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !m.bus.HasSubscribers(security.System, kind) {
+		return errors.New("security policy registry is not subscribed")
+	}
+	applied := make(chan error, 1)
+	entry.Applied = applied
+	m.bus.Send(ctx, event.Event{System: security.System, Kind: kind, Path: id.String(), Data: entry})
+	select {
+	case err := <-applied:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

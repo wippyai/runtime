@@ -89,6 +89,8 @@ type (
 	PolicyEntry struct {
 		Policy Policy
 		Groups []registry.ID
+		// Applied receives the owning registry result after the mutation is visible.
+		Applied chan<- error `json:"-" yaml:"-"`
 	}
 
 	// Registry defines the core interface for accessing security policies.
