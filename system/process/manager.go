@@ -110,6 +110,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		start.Context = start.Context[:contextBase]
 		return procPID, err
 	}
+	start.Context = withoutAttachments(start.Context, contextBase)
 	if owned != nil {
 		if err := owned.Bind(procPID); err != nil {
 			if errors.Is(err, api.ErrOwnedNotStarted) {
@@ -155,6 +156,19 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	}
 
 	return procPID, nil
+}
+
+// withoutAttachments drops the attachments after base: the host owns them
+// once Run returns, so a later call that reuses the start must not roll them
+// back.
+func withoutAttachments(pairs []ctxapi.Pair, base int) []ctxapi.Pair {
+	kept := pairs[:base]
+	for _, pair := range pairs[base:] {
+		if _, ok := pair.Value.(ctxapi.FrameAttachment); !ok {
+			kept = append(kept, pair)
+		}
+	}
+	return kept
 }
 
 func hasFrameAttachments(pairs []ctxapi.Pair) bool {

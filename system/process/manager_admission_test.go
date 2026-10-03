@@ -75,11 +75,14 @@ func TestManagerStartForwardsAdmissionToAcceptingHost(t *testing.T) {
 // ownedHost accepts frame attachments and records the start it ran.
 type ownedHost struct {
 	start *process.Start
+	// carried is the start's context as the host received it.
+	carried []ctxapi.Pair
 	mockHost
 }
 
 func (h *ownedHost) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	h.start = start
+	h.carried = append([]ctxapi.Pair(nil), start.Context...)
 	return h.mockHost.Run(ctx, start)
 }
 
@@ -114,7 +117,7 @@ func TestManagerStartOwnedChildIsTerminatedWithItsOwner(t *testing.T) {
 
 	child, err := NewManager(node, zap.NewNop()).Start(ctx, ownedStart())
 	require.NoError(t, err)
-	require.True(t, hasFrameAttachments(host.start.Context), "the child carries its ownership registration")
+	require.True(t, hasFrameAttachments(host.carried), "the child carries its ownership registration")
 
 	scope.Complete()
 	require.Equal(t, []pid.PID{child}, term.terminated)
@@ -301,4 +304,26 @@ func TestManagerStartOwnedWhileOwnerEnds(t *testing.T) {
 		require.Zero(t, scope.Owned())
 		ctxapi.ReleaseFrameContext(fc)
 	}
+}
+
+// A started child's attachments belong to its frame: reusing the start for a
+// later call must not leave them rollback-able by that call.
+func TestManagerStartLeavesNoConsumedAttachmentsOnTheStart(t *testing.T) {
+	node := newMockNode()
+	ctx, scope, term := scopedContext(t)
+	host := &ownedHost{mockHost: mockHost{acceptsAttachments: true}}
+	_ = node.RegisterHost("host", host)
+	manager := NewManager(node, zap.NewNop())
+
+	start := ownedStart()
+	child, err := manager.Start(ctx, start)
+	require.NoError(t, err)
+	require.False(t, hasFrameAttachments(start.Context), "the started child's attachments left the start")
+
+	// A later call that rolls back whatever the start carries, as host
+	// spawn-or-signal does, leaves the running child registered.
+	_ = rollbackFrameAttachments(start.Context)
+	require.Equal(t, 1, scope.Owned())
+	scope.Complete()
+	require.Equal(t, []pid.PID{child}, term.terminated)
 }
