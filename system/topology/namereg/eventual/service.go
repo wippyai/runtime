@@ -97,13 +97,18 @@ type Service struct {
 	// Key: peer node string. Value: unix-nanos of the last request emitted.
 	// Reads/writes are guarded by lastShardRequestMu.
 	lastShardRequest map[string]int64
-	nodeLeftSub      *eventbus.Subscriber
-	tracker          *TombstoneTracker
-	gc               *GCRunner
-	tel              *telemetry
-	logger           *zap.Logger
-	state            *State
-	queue            *BroadcastQueue
+	// held keeps the shard response frames for a requester that was not a live
+	// member when its request arrived, as when a node rejoins under a name its
+	// peers still list as departed. They are sent when membership reports the
+	// node joined and dropped when it leaves. Guarded by heldMu.
+	held          map[string]heldResponse
+	membershipSub *eventbus.Subscriber
+	tracker       *TombstoneTracker
+	gc            *GCRunner
+	tel           *telemetry
+	logger        *zap.Logger
+	state         *State
+	queue         *BroadcastQueue
 	// owned holds names this node registered live and still intends to keep, with
 	// the pid/priority to re-assert them. Guarded by ownedMu.
 	owned    map[string]ownedReg
@@ -114,6 +119,7 @@ type Service struct {
 	ownedMutations     [ShardCount]sync.Mutex
 	ownedMu            sync.Mutex
 	lastShardRequestMu sync.Mutex
+	heldMu             sync.Mutex
 	stopped            atomic.Bool
 }
 
@@ -183,11 +189,12 @@ func NewService(cfg Config) *Service {
 func (s *Service) Start(ctx context.Context) error {
 	s.gc.Start()
 	if s.cfg.Bus != nil {
-		sub, err := eventbus.NewSubscriber(ctx, s.cfg.Bus, cluster.System, cluster.NodeLeft, s.onNodeLeftEvent)
+		// One subscription keeps NodeLeft and NodeJoined in membership order.
+		sub, err := eventbus.NewSubscriber(ctx, s.cfg.Bus, cluster.System, "", s.onMembershipEvent)
 		if err != nil {
 			return err
 		}
-		s.nodeLeftSub = sub
+		s.membershipSub = sub
 	}
 	s.logger.Info("eventualreg started",
 		zap.String("node", s.cfg.LocalNodeID),
@@ -200,8 +207,8 @@ func (s *Service) Start(ctx context.Context) error {
 func (s *Service) Stop() error {
 	s.stopOnce.Do(func() {
 		s.stopped.Store(true)
-		if s.nodeLeftSub != nil {
-			s.nodeLeftSub.Close()
+		if s.membershipSub != nil {
+			s.membershipSub.Close()
 		}
 		s.gc.Stop()
 	})
@@ -454,14 +461,74 @@ func (s *Service) handleShardRequestFrame(body []byte) {
 	if len(frames) == 0 {
 		return
 	}
-	for _, frame := range frames {
+	for i, frame := range frames {
 		if err := s.cfg.Sender.Send(sender, frame); err != nil {
-			s.logger.Debug("eventualreg: send shard response failed",
+			s.logger.Debug("eventualreg: shard response held until the requester joins",
 				zap.String("to", sender), zap.Error(err))
+			s.hold(sender, heldResponse{frames: frames[i:], payloads: sent})
 			return
 		}
 	}
 	s.tel.recordShardResponse("tx", sent)
+}
+
+// heldResponse is an unsent shard response and the payload count it carries.
+type heldResponse struct {
+	frames   [][]byte
+	payloads int
+}
+
+// hold keeps the newest unsent response for node, replacing an older one.
+func (s *Service) hold(node string, response heldResponse) {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	if s.held == nil {
+		s.held = make(map[string]heldResponse)
+	}
+	s.held[node] = response
+}
+
+// takeHeld removes and returns the response held for node.
+func (s *Service) takeHeld(node string) heldResponse {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	response := s.held[node]
+	delete(s.held, node)
+	return response
+}
+
+// onMembershipEvent dispatches membership changes in the order membership
+// reported them.
+func (s *Service) onMembershipEvent(e event.Event) {
+	switch e.Kind {
+	case cluster.NodeLeft:
+		s.onNodeLeftEvent(e)
+	case cluster.NodeJoined:
+		s.onNodeJoinedEvent(e)
+	}
+}
+
+// onNodeJoinedEvent sends the shard response held for a requester that was
+// not yet a live member when it asked.
+func (s *Service) onNodeJoinedEvent(e event.Event) {
+	if s.stopped.Load() || s.cfg.Sender == nil {
+		return
+	}
+	ne, ok := e.Data.(cluster.NodeEvent)
+	if !ok {
+		return
+	}
+	response := s.takeHeld(ne.Node.ID)
+	for _, frame := range response.frames {
+		if err := s.cfg.Sender.Send(ne.Node.ID, frame); err != nil {
+			s.logger.Debug("eventualreg: send held shard response failed",
+				zap.String("to", ne.Node.ID), zap.Error(err))
+			return
+		}
+	}
+	if len(response.frames) > 0 {
+		s.tel.recordShardResponse("tx", response.payloads)
+	}
 }
 
 func (s *Service) handleShardResponseFrame(body []byte) {
@@ -611,6 +678,7 @@ func (s *Service) onNodeLeftEvent(e event.Event) {
 	if node == "" || node == s.cfg.LocalNodeID {
 		return
 	}
+	s.takeHeld(node)
 	s.handleNodeLeft(node)
 }
 
