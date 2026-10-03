@@ -295,7 +295,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 	var moduleSource lock.ModuleLoadPath
 	rootModulePack := false
 	if moduleName != "" {
-		moduleSource, err = resolvePackModule(moduleName, modulePaths, lockObj.GetRootModules())
+		rootModules, rootErr := packRootModules(lockObj.GetRootModules(), folderPath)
+		if rootErr != nil {
+			return NewPackConfigError(rootErr)
+		}
+		moduleSource, err = resolvePackModule(moduleName, modulePaths, rootModules)
 		if err != nil {
 			return NewPackConfigError(err)
 		}
@@ -517,6 +521,14 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 		metadata["wippy_date"] = version.Date
 		metadata["packed_at"] = time.Now().UTC().Format(time.RFC3339)
 		metadata["entry_count"] = len(loadedEntries)
+	} else {
+		rootMetadata, metadataErr := rootPackMetadata(filepath.Dir(lockPath))
+		if metadataErr != nil {
+			return NewPackConfigError(metadataErr)
+		}
+		for key, value := range rootMetadata {
+			metadata[key] = value
+		}
 	}
 
 	if description != "" {
