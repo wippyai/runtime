@@ -196,7 +196,7 @@ func isParent(ctx context.Context, p pidapi.PID) bool {
 		return false
 	}
 	parentPID, ok := parent.(pidapi.PID)
-	return ok && parentPID.Node == p.Node && parentPID.Host == p.Host && parentPID.UniqID == p.UniqID
+	return ok && parentPID.Equal(p)
 }
 
 // pushAcquiredPID pushes a PID the runtime hands to the process, granting it
