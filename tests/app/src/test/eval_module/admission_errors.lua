@@ -32,6 +32,15 @@ local function main()
 	r, err = eval.compile(source, { modules = { "sql" } })
 	expect_error(r, err, "sql", "storage module")
 
+	for _, name in ipairs({ "eval", "exec", "env", "system", "registry", "fs", "store", "http_client", "websocket" }) do
+		r, err = eval.compile(source, { modules = { name } })
+		expect_error(r, err, name, "module " .. name .. " is not admissible")
+	end
+	for _, class in ipairs({ "process", "network" }) do
+		r, err = eval.compile(source, { allow_classes = { class } })
+		expect_error(r, err, "eval policy unsupported", "class " .. class .. " cannot be allowed")
+	end
+
 	r, err = eval.compile("", {})
 	expect_error(r, err, "eval source required", "empty source")
 

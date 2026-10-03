@@ -201,3 +201,64 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: stubborn_child
+    kind: process.lua
+    meta:
+      comment: Child that traps links and ignores every event
+    source: file://stubborn_child.lua
+    method: main
+    modules:
+      - process
+
+  - name: spawn_stubborn
+    kind: function.lua
+    meta:
+      comment: Spawns an eval that resists ending, then returns at once
+    source: file://spawn_stubborn.lua
+    method: main
+    modules:
+      - eval
+
+  - name: stubborn_lifetime
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: an eval that resists ending still ends with its owner
+    source: file://stubborn_lifetime.lua
+    method: main
+    modules:
+      - eval
+      - funcs
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: privileged_child
+    kind: process.lua
+    meta:
+      comment: Child with an allow-all policy configured on its entry
+    source: file://privileged_child.lua
+    method: main
+    modules:
+      - funcs
+      - registry
+      - env
+    security:
+      policies:
+        - app.test.security:allow_all
+
+  - name: sandbox_surface
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval code reaches no ambient surface and cannot alter shared state
+    source: file://sandbox_surface.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
