@@ -95,7 +95,7 @@ func validatePolicy(policy apihost.EvalPolicy) error {
 		}
 	}
 	if policy.CompileMode > apihost.EvalCompileTyped {
-		return unsupported("unknown compile mode")
+		return apihost.ErrEvalPolicyUnsupported
 	}
 	if policy.TickBudget == 0 || policy.TickBudget > maxEvalTickBudget ||
 		policy.MaxSteps == 0 || policy.MaxSteps > maxEvalMaxSteps ||
@@ -120,10 +120,8 @@ func validatePolicy(policy apihost.EvalPolicy) error {
 				return unsupported("command spawn requires max_children")
 			}
 		case apihost.EvalCommandLookup:
-		case apihost.EvalCommandUpgrade:
-			return unsupported("command upgrade is not supported by this runtime")
 		default:
-			return unsupported("unknown command")
+			return apihost.ErrEvalPolicyUnsupported
 		}
 	}
 	if policy.MaxChildren != 0 && !hasSpawn {

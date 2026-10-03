@@ -77,7 +77,7 @@ func parseLimitFields(tbl *lua.LTable, nested bool, limits *limitSet) error {
 }
 
 func limitValue(raw lua.LValue, spec limitSpec, name string) (uint64, error) {
-	n, ok := integerValue(raw)
+	n, ok := raw.(lua.LInteger)
 	if !ok || n < 0 {
 		return 0, fmt.Errorf("eval %s must be non-negative integer", name)
 	}

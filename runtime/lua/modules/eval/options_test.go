@@ -142,8 +142,9 @@ func TestOptions_CompileMode(t *testing.T) {
 
 	_, err := compile(t, `{compile = "fast"}`)
 	assert.EqualError(t, err, `unknown eval compile mode "fast"`)
-	_, err = compile(t, `{compile = "jit"}`)
-	assert.EqualError(t, err, `unknown eval compile mode "jit"`)
+	c, err := compile(t, `{compile = "jit"}`)
+	require.NoError(t, err)
+	assert.Equal(t, apihost.EvalCompileJIT, c.Policy.CompileMode, "jit parses and admission reports it unsupported")
 	_, err = compile(t, `{compile = 1}`)
 	assert.EqualError(t, err, "eval compile mode must be string")
 }
@@ -347,6 +348,9 @@ func TestOptions_Commands(t *testing.T) {
 	}{
 		{`{commands = {"spawn"}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn}},
 		{`{commands = {"upgrade"}}`, []apihost.EvalCommand{apihost.EvalCommandUpgrade}},
+		{`{commands = {2}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn}},
+		{`{commands = {10}}`, []apihost.EvalCommand{apihost.EvalCommandUpgrade}},
+		{`{commands = {"exec", "terminate"}}`, []apihost.EvalCommand{9, 3}},
 		{`{commands = {"process.lookup"}}`, []apihost.EvalCommand{apihost.EvalCommandLookup}},
 		{`{commands = {"process.spawn", "process.upgrade"}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn, apihost.EvalCommandUpgrade}},
 		{`{commands = {"SPAWN", "Process.Upgrade"}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn, apihost.EvalCommandUpgrade}},
@@ -363,11 +367,10 @@ func TestOptions_Commands(t *testing.T) {
 	errs := []struct{ src, err string }{
 		{`{commands = {"spawn"}, allow_commands = {"upgrade"}}`, "eval allow_commands conflicts with commands"},
 		{`{commands = {"spawn"}, allow_commands = {}}`, "eval allow_commands conflicts with commands"},
-		{`{commands = {"exec"}}`, `eval commands[1]: unknown command "exec"`},
 		{`{commands = {"spawn", "bogus"}}`, `eval commands[2]: unknown command "bogus"`},
-		{`{allow_commands = {"process.exec"}}`, `eval allow_commands[1]: unknown command "process.exec"`},
-		{`{commands = {1}}`, "eval commands[1]: unknown command 1"},
-		{`{commands = {2.0}}`, "eval commands[1]: unknown command 2"},
+		{`{allow_commands = {"process.send"}}`, `eval allow_commands[1]: unknown command "process.send"`},
+		{`{commands = {2.0}}`, "eval commands[1]: command must be string or integer"},
+		{`{commands = {300}}`, "eval commands[1]: unknown command 300"},
 		{`{commands = {1.5}}`, "eval commands[1]: command must be string or integer"},
 		{`{commands = {true}}`, "eval commands[1]: command must be string or integer"},
 		{`{commands = {{}}}`, "eval commands[1]: command must be string or integer"},
@@ -487,6 +490,8 @@ func TestOptions_LimitRanges(t *testing.T) {
 		{"memory_bytes", "-1", "eval memory_bytes must be non-negative integer"},
 		{"heap_reserve_bytes", "-1", "eval heap_reserve_bytes must be non-negative integer"},
 		{"tick_budget", "-1", "eval tick_budget must be non-negative integer"},
+		{"tick_budget", "2.0", "eval tick_budget must be non-negative integer"},
+		{"max_steps", "3.0", "eval max_steps must be non-negative integer"},
 		{"max_steps", "-1", "eval max_steps must be non-negative integer"},
 		{"mailbox_capacity", "-1", "eval mailbox_capacity must be non-negative integer"},
 		{"max_children", "-1", "eval max_children must be non-negative integer"},
@@ -522,7 +527,6 @@ func TestOptions_LimitRanges(t *testing.T) {
 		{"mailbox_capacity", "4294967295"},
 		{"max_steps", "4294967296"},
 		{"memory_limit_bytes", "8589934592"},
-		{"max_steps", "3.0"},
 	}
 	for _, tt := range ok {
 		_, err := compile(t, fmt.Sprintf("{%s = %s}", tt.key, tt.src))

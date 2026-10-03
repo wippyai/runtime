@@ -25,6 +25,8 @@ const (
 	// EvalCompileTyped additionally requires the source to pass strict type
 	// checking.
 	EvalCompileTyped
+	// EvalCompileJIT is reserved; admission rejects it as unsupported.
+	EvalCompileJIT
 )
 
 // EvalLinkMode controls the parent relationship at spawn admission.
@@ -56,18 +58,21 @@ const (
 	EvalSendPolicy
 )
 
-// EvalCommand is a process command an eval policy may grant.
+// EvalCommand is a process command an eval policy may grant. Values of the
+// process control commands are their command IDs; admission accepts only the
+// ones this runtime supports and reports the rest as unsupported.
 type EvalCommand uint8
 
 const (
 	// EvalCommandSpawn allows the eval process to spawn child processes,
 	// bounded by EvalPolicy.MaxChildren.
-	EvalCommandSpawn EvalCommand = iota + 1
-	// EvalCommandUpgrade allows the eval process to upgrade itself.
-	EvalCommandUpgrade
+	EvalCommandSpawn EvalCommand = 2
+	// EvalCommandUpgrade is reserved for a granted self-upgrade; this runtime
+	// does not support it and admission rejects it.
+	EvalCommandUpgrade EvalCommand = 10
 	// EvalCommandLookup allows the eval process to resolve registered process
 	// names; a resolved PID is then addressable under the policy's send mode.
-	EvalCommandLookup
+	EvalCommandLookup EvalCommand = 11
 )
 
 // EvalImport binds a registry library into eval source under an alias.

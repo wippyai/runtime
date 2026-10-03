@@ -91,6 +91,8 @@ func TestAdmitterPolicyValidation(t *testing.T) {
 		"children without spawn":    {MaxChildren: 1},
 		"too many children":         {AllowCommands: []apihost.EvalCommand{apihost.EvalCommandSpawn}, MaxChildren: maxEvalMaxChildren + 1},
 		"upgrade":                   {AllowCommands: []apihost.EvalCommand{apihost.EvalCommandUpgrade}},
+		"jit":                       {CompileMode: apihost.EvalCompileJIT},
+		"exec command":              {AllowCommands: []apihost.EvalCommand{9}},
 		"send policy":               {SendMode: apihost.EvalSendPolicy},
 		"targets without explicit":  {SendTargets: []pid.PID{admitParent}},
 		"import without loader":     {Imports: []apihost.EvalImport{{Alias: "lib", Source: registry.NewID("app", "lib")}}},
@@ -558,4 +560,15 @@ func TestAdmitterCacheKeepsProgramsOfRunningEvals(t *testing.T) {
 	compile(7)
 	err := spawn()
 	require.ErrorIs(t, err, apihost.ErrEvalProgramNotFound, "once its evals end the program is evictable again")
+}
+
+func TestAdmitterUnsupportedCommandsReportThePolicyError(t *testing.T) {
+	a, _ := newTestAdmitter(t)
+	for name, policy := range map[string]apihost.EvalPolicy{
+		"upgrade": {AllowCommands: []apihost.EvalCommand{apihost.EvalCommandUpgrade}},
+		"jit":     {CompileMode: apihost.EvalCompileJIT},
+	} {
+		_, err := a.Compile(context.Background(), apihost.EvalCompileSpec{SourceCode: admitSource, Policy: policy})
+		require.Equal(t, apihost.ErrEvalPolicyUnsupported, err, name)
+	}
 }

@@ -15,7 +15,13 @@ local function main()
 	expect_error(r, err, "unknown or non-string field", "unknown option")
 
 	r, err = eval.compile(source, { compile = ("jit" :: any) })
-	expect_error(r, err, 'unknown eval compile mode "jit"', "jit is not a compile mode")
+	expect_error(r, err, "eval policy unsupported", "jit is unsupported")
+
+	r, err = eval.compile(source, { limits = { tick_budget = (2.0 :: any) } })
+	expect_error(r, err, "tick_budget must be non-negative integer", "floats are not integers")
+
+	r, err = eval.compile(source, { commands = ({ 2 } :: any) })
+	expect_error(r, err, "eval policy unsupported", "command IDs are accepted; spawn needs max_children")
 
 	r, err = eval.compile(source, { commands = { "upgrade" } })
 	expect_error(r, err, "eval policy unsupported", "upgrade command")

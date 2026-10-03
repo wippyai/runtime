@@ -172,25 +172,38 @@ func commandSetEqual(a, b []apihost.EvalCommand) bool {
 	return len(set) == len(other)
 }
 
+// commandNames maps command names to command IDs: the process control
+// commands, and lookup. Admission decides which of them are supported.
+var commandNames = map[string]apihost.EvalCommand{
+	"spawn":     apihost.EvalCommandSpawn,
+	"terminate": 3,
+	"cancel":    4,
+	"monitor":   5,
+	"unmonitor": 6,
+	"link":      7,
+	"unlink":    8,
+	"exec":      9,
+	"upgrade":   apihost.EvalCommandUpgrade,
+	"lookup":    apihost.EvalCommandLookup,
+}
+
+// commandFromValue reads a command name or command ID.
 func commandFromValue(v lua.LValue) (apihost.EvalCommand, error) {
-	if n, ok := integerValue(v); ok {
-		return 0, fmt.Errorf("unknown command %d", n)
+	if n, ok := v.(lua.LInteger); ok {
+		if n < 0 || n > math.MaxUint8 {
+			return 0, fmt.Errorf("unknown command %d", int64(n))
+		}
+		return apihost.EvalCommand(n), nil
 	}
 	s, ok := v.(lua.LString)
 	if !ok {
 		return 0, errors.New("command must be string or integer")
 	}
 	name := strings.TrimPrefix(strings.ToLower(string(s)), "process.")
-	switch name {
-	case "spawn":
-		return apihost.EvalCommandSpawn, nil
-	case "upgrade":
-		return apihost.EvalCommandUpgrade, nil
-	case "lookup":
-		return apihost.EvalCommandLookup, nil
-	default:
-		return 0, fmt.Errorf("unknown command %q", string(s))
+	if command, ok := commandNames[name]; ok {
+		return command, nil
 	}
+	return 0, fmt.Errorf("unknown command %q", string(s))
 }
 
 func importsValue(raw lua.LValue, name string) ([]apihost.EvalImport, error) {
@@ -416,6 +429,8 @@ func parseCompileMode(raw lua.LValue) (apihost.EvalCompileMode, error) {
 		return apihost.EvalCompileLite, nil
 	case "typed":
 		return apihost.EvalCompileTyped, nil
+	case "jit":
+		return apihost.EvalCompileJIT, nil
 	default:
 		return apihost.EvalCompileLite, fmt.Errorf("unknown eval compile mode %q", string(s))
 	}
