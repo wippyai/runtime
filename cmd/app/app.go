@@ -20,6 +20,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -53,6 +54,14 @@ type Executable struct {
 	Bundle       Bundle
 	LuaCacheSeed *LuaCacheSeed
 	Components   []boot.Component
+	// State is the default state directory when the invocation names none. A
+	// relative path resolves against the working directory, so each folder
+	// holds its own state. Empty selects the user configuration directory.
+	State string
+	// OwnedCommand, when set, runs that application command in a transient
+	// state when the selected state is already owned by a live invocation,
+	// instead of refusing with ErrOwned. It applies to the run operation only.
+	OwnedCommand string
 }
 
 var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -111,6 +120,16 @@ func Run(ctx context.Context, e Executable, args []string) error {
 			return operateTransient(ctx, e, launch, prepare)
 		}
 	}
+	if e.OwnedCommand != "" && launch.Op == OpRun {
+		owned, err := Owned(launch.State)
+		if err != nil {
+			return err
+		}
+		if owned {
+			launch.Command = e.OwnedCommand
+			return operateTransient(ctx, e, launch, prepare)
+		}
+	}
 	return operate(ctx, e, launch, prepare)
 }
 
@@ -123,6 +142,9 @@ func (e Executable) validate() error {
 	}
 	if e.Command == "" {
 		return NewMissingApplicationCommandError()
+	}
+	if strings.ContainsRune(e.State, 0) {
+		return NewApplicationStateError("declare default state directory", e.Name, errors.New("state directory contains NUL"))
 	}
 	for _, name := range slices.Sorted(maps.Keys(e.Data)) {
 		path := e.Data[name]
