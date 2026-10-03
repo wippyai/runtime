@@ -95,26 +95,31 @@ func WithMaxProcesses(maxProcs int64) Option {
 }
 
 type Scheduler struct {
-	lifecycle        process.Lifecycle
-	topology         topology.Topology
-	registry         dispatcher.Registry
-	global           *Queue
-	drainCh          chan struct{}
-	byQueue          sync.Map
-	byPID            sync.Map
-	workers          atomic.Pointer[workerSet]
-	pinSet           affinity.Set
-	wg               sync.WaitGroup
-	controlMu        sync.Mutex
-	initialWorkers   int
-	maxProcesses     int64
-	localQueueSize   int
-	processorCount   atomic.Int64
-	retiredExecuted  atomic.Uint64
-	retiredStolen    atomic.Uint64
-	queueSize        int
-	nextID           atomic.Uint64
-	parked           atomic.Int32
+	lifecycle       process.Lifecycle
+	topology        topology.Topology
+	registry        dispatcher.Registry
+	global          *Queue
+	drainCh         chan struct{}
+	byQueue         sync.Map
+	byPID           sync.Map
+	workers         atomic.Pointer[workerSet]
+	pinSet          affinity.Set
+	wg              sync.WaitGroup
+	controlMu       sync.Mutex
+	initialWorkers  int
+	maxProcesses    int64
+	localQueueSize  int
+	processorCount  atomic.Int64
+	retiredExecuted atomic.Uint64
+	retiredStolen   atomic.Uint64
+	queueSize       int
+	nextID          atomic.Uint64
+	parked          atomic.Int32
+	// admitting counts Submit and CreateProcessor calls that have not
+	// finished publishing their processor; guarded by admitMu.
+	admitting        int
+	admitMu          sync.Mutex
+	admitIdle        *sync.Cond
 	phase            atomic.Uint32
 	collectStats     atomic.Bool
 	started          bool
@@ -122,6 +127,39 @@ type Scheduler struct {
 }
 
 func (s *Scheduler) isStopping() bool { return s.phase.Load() != phaseRunning }
+
+// beginAdmission registers an admission and reports false once the scheduler
+// is stopping. The check and the registration are one step, so Stop's
+// awaitAdmissions sees every admission that was allowed to begin.
+func (s *Scheduler) beginAdmission() bool {
+	s.admitMu.Lock()
+	defer s.admitMu.Unlock()
+	if s.isStopping() {
+		return false
+	}
+	s.admitting++
+	return true
+}
+
+func (s *Scheduler) endAdmission() {
+	s.admitMu.Lock()
+	s.admitting--
+	if s.admitting == 0 {
+		s.admitIdle.Broadcast()
+	}
+	s.admitMu.Unlock()
+}
+
+// awaitAdmissions blocks until every admission that began before the
+// scheduler started stopping has published its processor or failed, so Stop
+// only acts on fully admitted processors.
+func (s *Scheduler) awaitAdmissions() {
+	s.admitMu.Lock()
+	for s.admitting > 0 {
+		s.admitIdle.Wait()
+	}
+	s.admitMu.Unlock()
+}
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
@@ -137,6 +175,7 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 
 	s.global = NewQueue(s.queueSize)
 	s.drainCh = make(chan struct{}, 1)
+	s.admitIdle = sync.NewCond(&s.admitMu)
 	workers := make([]*Worker, s.initialWorkers)
 	for i := range workers {
 		workers[i] = newWorker(i, s)
@@ -161,6 +200,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 		return
 	}
 	s.controlMu.Unlock()
+	s.awaitAdmissions()
 
 	// Push cancel event directly to each processor's queue.
 	// Safe because draining prevents pool release.
@@ -293,9 +333,10 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 }
 
 func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, method string, input payload.Payloads) (*Processor, error) {
-	if s.isStopping() {
+	if !s.beginAdmission() {
 		return nil, process.ErrSchedulerStopping
 	}
+	defer s.endAdmission()
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
 		return nil, process.ErrMaxProcessesExceeded
 	}
@@ -448,9 +489,10 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 }
 
 func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.Process) (*Processor, error) {
-	if s.isStopping() {
+	if !s.beginAdmission() {
 		return nil, process.ErrSchedulerStopping
 	}
+	defer s.endAdmission()
 	if s.maxProcesses > 0 && s.processorCount.Load() >= s.maxProcesses {
 		return nil, process.ErrMaxProcessesExceeded
 	}
