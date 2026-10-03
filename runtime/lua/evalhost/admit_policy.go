@@ -119,6 +119,7 @@ func validatePolicy(policy apihost.EvalPolicy) error {
 			if policy.MaxChildren == 0 {
 				return unsupported("command spawn requires max_children")
 			}
+		case apihost.EvalCommandLookup:
 		case apihost.EvalCommandUpgrade:
 			return unsupported("command upgrade is not supported by this runtime")
 		default:

@@ -65,6 +65,9 @@ const (
 	EvalCommandSpawn EvalCommand = iota + 1
 	// EvalCommandUpgrade allows the eval process to upgrade itself.
 	EvalCommandUpgrade
+	// EvalCommandLookup allows the eval process to resolve registered process
+	// names; a resolved PID is then addressable under the policy's send mode.
+	EvalCommandLookup
 )
 
 // EvalImport binds a registry library into eval source under an alias.

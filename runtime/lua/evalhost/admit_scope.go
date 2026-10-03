@@ -18,6 +18,7 @@ type evalPolicy struct {
 	id      registry.ID
 	send    apihost.EvalSendMode
 	spawn   bool
+	lookup  bool
 }
 
 var _ secapi.Policy = (*evalPolicy)(nil)
@@ -28,8 +29,11 @@ func newEvalPolicy(name string, policy apihost.EvalPolicy) *evalPolicy {
 		send: policy.SendMode,
 	}
 	for _, command := range policy.AllowCommands {
-		if command == apihost.EvalCommandSpawn {
+		switch command {
+		case apihost.EvalCommandSpawn:
 			p.spawn = true
+		case apihost.EvalCommandLookup:
+			p.lookup = true
 		}
 	}
 	if policy.SendMode == apihost.EvalSendExplicitGrant {
@@ -56,6 +60,10 @@ func (p *evalPolicy) Evaluate(_ secapi.Actor, action, resource string, _ attrs.B
 			}
 		}
 		return secapi.Deny
+	case "process.registry.lookup":
+		if p.lookup {
+			return secapi.Allow
+		}
 	case "process.spawn", "process.spawn.linked", "process.spawn.monitored", "process.host":
 		if p.spawn {
 			return secapi.Allow

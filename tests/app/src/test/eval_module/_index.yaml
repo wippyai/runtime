@@ -262,3 +262,17 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: registry_lookup
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval resolves registered names only when its policy allows lookup
+    source: file://registry_lookup.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert

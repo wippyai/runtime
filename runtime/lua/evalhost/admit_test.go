@@ -488,3 +488,23 @@ func TestAdmitterDetachedEvalOwnsWhatItStarts(t *testing.T) {
 	require.NoError(t, fc.SetMultiple(starter.start.Context...))
 	require.True(t, process.IsOwned(frameCtx), "processes a detached eval starts end with it, so its lifetime bounds them")
 }
+
+func TestEvalPolicyRegistryLookupIsOptIn(t *testing.T) {
+	actor := secapi.Actor{ID: "eval:x"}
+	closed := newEvalPolicy("x", apihost.EvalPolicy{SendMode: apihost.EvalSendObjectCapability})
+	require.Equal(t, secapi.Deny, closed.Evaluate(actor, "process.registry.lookup", "name", nil))
+
+	open := newEvalPolicy("x", apihost.EvalPolicy{
+		SendMode:      apihost.EvalSendObjectCapability,
+		AllowCommands: []apihost.EvalCommand{apihost.EvalCommandLookup},
+	})
+	require.Equal(t, secapi.Allow, open.Evaluate(actor, "process.registry.lookup", "name", nil))
+	require.Equal(t, secapi.Deny, open.Evaluate(actor, "process.spawn", "app:worker", nil), "lookup grants nothing else")
+
+	a, _ := newTestAdmitter(t)
+	_, err := a.Compile(context.Background(), apihost.EvalCompileSpec{
+		SourceCode: admitSource,
+		Policy:     apihost.EvalPolicy{AllowCommands: []apihost.EvalCommand{apihost.EvalCommandLookup}},
+	})
+	require.NoError(t, err, "lookup needs no child limit")
+}

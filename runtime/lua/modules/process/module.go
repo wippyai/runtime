@@ -814,6 +814,11 @@ func registryLookup(l *lua.LState) int {
 	}
 
 	name := l.CheckString(1)
+	// Resolving a name hands the process a PID it may address, so a policy
+	// may forbid it; scopes with no opinion leave lookups open.
+	if secapi.IsDenied(ctx, "process.registry.lookup", name, nil) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to look up name: %s", name)))
+	}
 	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
 		number, ok := l.Get(2).(lua.LNumber)
 		if !ok || (number != lua.LNumber(topology.Local) && number != lua.LNumber(topology.Eventual) &&

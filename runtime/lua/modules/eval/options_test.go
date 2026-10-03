@@ -347,6 +347,7 @@ func TestOptions_Commands(t *testing.T) {
 	}{
 		{`{commands = {"spawn"}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn}},
 		{`{commands = {"upgrade"}}`, []apihost.EvalCommand{apihost.EvalCommandUpgrade}},
+		{`{commands = {"process.lookup"}}`, []apihost.EvalCommand{apihost.EvalCommandLookup}},
 		{`{commands = {"process.spawn", "process.upgrade"}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn, apihost.EvalCommandUpgrade}},
 		{`{commands = {"SPAWN", "Process.Upgrade"}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn, apihost.EvalCommandUpgrade}},
 		{`{allow_commands = {"spawn"}}`, []apihost.EvalCommand{apihost.EvalCommandSpawn}},

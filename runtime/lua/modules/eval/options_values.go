@@ -186,6 +186,8 @@ func commandFromValue(v lua.LValue) (apihost.EvalCommand, error) {
 		return apihost.EvalCommandSpawn, nil
 	case "upgrade":
 		return apihost.EvalCommandUpgrade, nil
+	case "lookup":
+		return apihost.EvalCommandLookup, nil
 	default:
 		return 0, fmt.Errorf("unknown command %q", string(s))
 	}
