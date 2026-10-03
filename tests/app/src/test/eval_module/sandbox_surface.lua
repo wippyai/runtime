@@ -136,6 +136,7 @@ local function main()
 		end }
 	]], {
 		modules = { "process" },
+		commands = { "lookup" },
 		send = "explicit",
 		send_targets = { process.pid() },
 		input = { target = process.pid() },
