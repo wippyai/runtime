@@ -4,8 +4,8 @@ package terminal
 
 import (
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/canvas"
-	"github.com/wippyai/runtime/internal/term/text"
+	"github.com/wippyai/tty/canvas"
+	"github.com/wippyai/tty/text"
 )
 
 // PageRenderer resolves default colors at the styled-cell boundary. One

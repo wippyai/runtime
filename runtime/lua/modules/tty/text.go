@@ -7,7 +7,7 @@ import (
 	"unicode"
 
 	lua "github.com/wippyai/go-lua"
-	termtext "github.com/wippyai/runtime/internal/term/text"
+	termtext "github.com/wippyai/tty/text"
 )
 
 // textPlain extracts display text without terminal instructions. Keep line

@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/internal/term/canvas"
-	termtext "github.com/wippyai/runtime/internal/term/text"
+	"github.com/wippyai/tty/canvas"
+	termtext "github.com/wippyai/tty/text"
 )
 
 func TestCanvasRowControlsCannotEscapePlacement(t *testing.T) {

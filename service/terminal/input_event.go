@@ -4,7 +4,7 @@ package terminal
 
 import (
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/input"
+	"github.com/wippyai/tty/input"
 )
 
 // TopicTTYEvents is the relay topic for terminal input events.
