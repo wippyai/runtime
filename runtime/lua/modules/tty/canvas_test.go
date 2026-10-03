@@ -6,44 +6,44 @@ import (
 	"strings"
 	"testing"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/internal/term/canvas"
+	termtext "github.com/wippyai/runtime/internal/term/text"
 )
 
 func TestCanvasClipsANSIAsCellsWithoutControlSequenceAmplification(t *testing.T) {
 	canvas := &canvasWrapper{
 		width: 12, height: 1,
-		screen: &canvasBuffer{Buffer: uv.NewBuffer(12, 1)},
+		screen: canvas.NewBuffer(12, 1),
 	}
 	canvas.put(0, 0, strings.Repeat(".", 12), 12)
 	denseTail := "\x1b[31mabcdefghij" + strings.Repeat("\x1b[38;2;1;2;3m", 1000)
 	canvas.put(3, 0, denseTail, 4)
 	rendered := canvas.screen.Render()
 
-	require.Equal(t, 12, ansi.StringWidth(rendered))
-	require.Contains(t, ansi.Strip(rendered), "...abcd.....")
+	require.Equal(t, 12, termtext.Width(rendered))
+	require.Contains(t, termtext.Strip(rendered), "...abcd.....")
 	require.Less(t, len(rendered), 128, "discarded ANSI state must not survive composition")
 }
 
 func TestCanvasClipsNegativeOrigin(t *testing.T) {
 	canvas := &canvasWrapper{
 		width: 4, height: 1,
-		screen: &canvasBuffer{Buffer: uv.NewBuffer(4, 1)},
+		screen: canvas.NewBuffer(4, 1),
 	}
 	canvas.put(-2, 0, "abcdef", 6)
-	require.Equal(t, "cdef", ansi.Strip(canvas.screen.Render()))
+	require.Equal(t, "cdef", termtext.Strip(canvas.screen.Render()))
 }
 
 func TestCanvasNegativeOriginConsumesExplicitWidth(t *testing.T) {
 	canvas := &canvasWrapper{
 		width: 6, height: 1,
-		screen: &canvasBuffer{Buffer: uv.NewBuffer(6, 1)},
+		screen: canvas.NewBuffer(6, 1),
 	}
 	canvas.put(0, 0, "......", 6)
 	canvas.put(-2, 0, "abcdef", 4)
-	require.Equal(t, "cd....", ansi.Strip(canvas.screen.Render()))
+	require.Equal(t, "cd....", termtext.Strip(canvas.screen.Render()))
 }
 
 func TestCanvasRejectsExcessiveAreaBeforeAllocation(t *testing.T) {
