@@ -325,6 +325,7 @@ func (m *Manager) loadWATModule(ctx context.Context, cfg *api.WATFunctionConfig)
 		return nil, runtimewasm.NewLoadWATError(err)
 	}
 	if err := module.Compile(ctx); err != nil {
+		m.releaseModule(module)
 		return nil, runtimewasm.NewCompileModuleError(err)
 	}
 	return module, nil
@@ -359,6 +360,7 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 	loaded := time.Now()
 
 	if err := module.Compile(ctx); err != nil {
+		m.releaseModule(module)
 		return nil, false, runtimewasm.NewCompileModuleError(err)
 	}
 	m.log.Info("wasm module compiled",
