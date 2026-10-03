@@ -1518,6 +1518,14 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 			return false
 		}
 	} else {
+		// Ordinary queued messages retry until a receiver or buffer slot is
+		// available. Do not construct and discard the same Lua tree on every
+		// blocked retry. Handlers still run above (they may consume messages),
+		// and routed frames retain their existing drop/terminal handling below.
+		if !hasFrame && !sub.channel.IsClosed() && !sub.channel.CanSend() {
+			p.markStalled(sub.channel)
+			return true
+		}
 		value = PayloadsToLua(p.ctx, p.state, payloads)
 	}
 

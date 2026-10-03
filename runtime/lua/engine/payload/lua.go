@@ -5,18 +5,13 @@ package payload
 import (
 	jsongo "encoding/json"
 	"fmt"
-	"reflect"
-	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pid"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	jsonlua "github.com/wippyai/runtime/runtime/lua/modules/json"
 )
-
-// can be optimized
 
 // Register registers the Lua transcoders.
 func Register(transcoder payload.TranscoderRegister) {
@@ -86,144 +81,13 @@ func (t *FromGolang) TranscodeWith(tc *payload.TranscodeContext, p payload.Paylo
 		return nil, runtimelua.NewInvalidFormatError(fmt.Sprintf("Golang=>Lua can only transcode from Golang format, got %s", p.Format()))
 	}
 
-	normalized, err := normalizeForLua(tc, p.Data())
-	if err != nil {
-		return nil, err
-	}
-
-	lv, err := GoToLua(normalized)
+	converter := goToLuaConverter{context: tc, normalize: true}
+	lv, err := converter.convert(p.Data())
 	if err != nil {
 		return nil, err
 	}
 
 	return payload.NewPayload(lv, payload.Lua), nil
-}
-
-func normalizeForLua(tc *payload.TranscodeContext, v any) (any, error) {
-	if v == nil {
-		return nil, nil
-	}
-
-	switch val := v.(type) {
-	case payload.Payload:
-		return normalizeNestedPayload(tc, val)
-	case lua.LValue:
-		return val, nil
-	case pid.PID:
-		return val.String(), nil
-	case *pid.PID:
-		if val == nil {
-			return nil, nil
-		}
-		return val.String(), nil
-	case time.Time:
-		return val, nil
-	case *time.Time:
-		if val == nil {
-			return nil, nil
-		}
-		return *val, nil
-	case time.Duration:
-		return int64(val), nil
-	case *time.Duration:
-		if val == nil {
-			return nil, nil
-		}
-		return int64(*val), nil
-	case error:
-		return val, nil
-	}
-
-	rv := reflect.ValueOf(v)
-	if !rv.IsValid() {
-		return nil, nil
-	}
-
-	switch rv.Kind() {
-	case reflect.Pointer:
-		if rv.IsNil() {
-			return nil, nil
-		}
-		return normalizeForLua(tc, rv.Elem().Interface())
-
-	case reflect.Interface:
-		if rv.IsNil() {
-			return nil, nil
-		}
-		return normalizeForLua(tc, rv.Elem().Interface())
-
-	case reflect.Map:
-		if rv.IsNil() {
-			return map[string]any{}, nil
-		}
-		out := make(map[string]any, rv.Len())
-		iter := rv.MapRange()
-		for iter.Next() {
-			normalized, err := normalizeForLua(tc, iter.Value().Interface())
-			if err != nil {
-				return nil, err
-			}
-			out[fmt.Sprint(iter.Key().Interface())] = normalized
-		}
-		return out, nil
-
-	case reflect.Slice:
-		// Keep []byte behavior as Lua string.
-		if rv.Type().Elem().Kind() == reflect.Uint8 {
-			return v, nil
-		}
-		if rv.IsNil() {
-			return nil, nil
-		}
-		out := make([]any, rv.Len())
-		for i := 0; i < rv.Len(); i++ {
-			normalized, err := normalizeForLua(tc, rv.Index(i).Interface())
-			if err != nil {
-				return nil, err
-			}
-			out[i] = normalized
-		}
-		return out, nil
-
-	case reflect.Array:
-		out := make([]any, rv.Len())
-		for i := 0; i < rv.Len(); i++ {
-			normalized, err := normalizeForLua(tc, rv.Index(i).Interface())
-			if err != nil {
-				return nil, err
-			}
-			out[i] = normalized
-		}
-		return out, nil
-
-	case reflect.Struct:
-		fields := getStructFields(rv.Type())
-		out := make(map[string]any, len(fields))
-		for _, field := range fields {
-			fieldValue := rv.Field(field.index)
-			switch fieldValue.Kind() {
-			case reflect.Map:
-				if fieldValue.IsNil() {
-					out[field.name] = map[string]any{}
-					continue
-				}
-			case reflect.Pointer, reflect.Slice, reflect.Interface:
-				if fieldValue.IsNil() {
-					out[field.name] = nil
-					continue
-				}
-			}
-
-			normalized, err := normalizeForLua(tc, fieldValue.Interface())
-			if err != nil {
-				return nil, err
-			}
-			out[field.name] = normalized
-		}
-		return out, nil
-	}
-
-	return v, nil
 }
 
 func normalizeNestedPayload(tc *payload.TranscodeContext, pl payload.Payload) (any, error) {
