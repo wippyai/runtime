@@ -55,6 +55,12 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	if !ok {
 		return pid.PID{}, NewInvalidHostError(start.HostID)
 	}
+	if start.Admission != nil {
+		acceptor, ok := host.(api.AdmissionHost)
+		if !ok || !acceptor.AcceptsAdmission() {
+			return pid.PID{}, ErrAdmissionUnsupported
+		}
+	}
 
 	// Apply the registered frame-context resolvers (e.g. the network overlay)
 	// generically; the manager stays agnostic of any specific subsystem.
@@ -64,6 +70,25 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		return pid.PID{}, err
 	}
 	start.Context = resolvedContext
+
+	var owned *api.OwnedChild
+	if (start.Options != nil && start.Options.GetBool(api.ProcessOwnedKey, false)) || api.IsOwned(ctx) {
+		scope := api.GetExecutionScope(ctx)
+		if scope == nil {
+			err = errors.Join(api.ErrOwnerRequired, rollbackFrameAttachments(start.Context[contextBase:]))
+			start.Context = start.Context[:contextBase]
+			return pid.PID{}, err
+		}
+		pairs, child, reserveErr := scope.Reserve()
+		if reserveErr != nil {
+			err = errors.Join(reserveErr, rollbackFrameAttachments(start.Context[contextBase:]))
+			start.Context = start.Context[:contextBase]
+			return pid.PID{}, err
+		}
+		start.Context = append(start.Context, pairs...)
+		owned = child
+	}
+
 	if hasFrameAttachments(start.Context[contextBase:]) {
 		acceptor, ok := host.(api.FrameAttachmentHost)
 		if !ok || !acceptor.AcceptsFrameAttachments() {
@@ -84,6 +109,17 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		err = errors.Join(err, rollbackFrameAttachments(start.Context[contextBase:]))
 		start.Context = start.Context[:contextBase]
 		return procPID, err
+	}
+	start.Context = withoutAttachments(start.Context, contextBase)
+	if owned != nil {
+		if err := owned.Bind(procPID); err != nil {
+			if errors.Is(err, api.ErrOwnedNotStarted) {
+				// The name belongs to a process the owner did not start.
+				return pid.PID{}, errors.Join(topology.NameAlreadyRegisteredError(procPID), err)
+			}
+			// The owner ended while the child was starting.
+			return pid.PID{}, errors.Join(err, host.Terminate(api.WithTerminationCause(context.WithoutCancel(ctx), api.ErrOwnerEnded), procPID))
+		}
 	}
 
 	if start.Options != nil && m.node != nil {
@@ -120,6 +156,19 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	}
 
 	return procPID, nil
+}
+
+// withoutAttachments drops the attachments after base: the host owns them
+// once Run returns, so a later call that reuses the start must not roll them
+// back.
+func withoutAttachments(pairs []ctxapi.Pair, base int) []ctxapi.Pair {
+	kept := pairs[:base]
+	for _, pair := range pairs[base:] {
+		if _, ok := pair.Value.(ctxapi.FrameAttachment); !ok {
+			kept = append(kept, pair)
+		}
+	}
+	return kept
 }
 
 func hasFrameAttachments(pairs []ctxapi.Pair) bool {

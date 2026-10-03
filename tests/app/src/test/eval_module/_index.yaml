@@ -1,0 +1,321 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.eval_module
+
+entries:
+  - name: sleeper
+    kind: process.lua
+    meta:
+      comment: Child process an eval spawns; exits after a short sleep
+    source: file://sleeper.lua
+    method: main
+    modules:
+      - time
+
+  - name: spawn_result
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval.spawn runs source as a process and reports its result
+    source: file://spawn_result.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: program_lifecycle
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval.compile, Program:spawn, Program:evict
+    source: file://program_lifecycle.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: send_capabilities
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval code addresses only PIDs handed to it
+    source: file://send_capabilities.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: limits
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval limits max_steps and tick_budget
+    source: file://limits.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: child_limit
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval max_children bounds running children and frees slots on exit
+    source: file://child_limit.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: admission_errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval rejects invalid options and policies
+    source: file://admission_errors.lua
+    method: main
+    modules:
+      - eval
+    imports:
+      assert: app.lib:assert
+
+  - name: long_sleeper
+    kind: process.lua
+    meta:
+      comment: Child an eval spawns that would run for 10s
+    source: file://long_sleeper.lua
+    method: main
+    modules:
+      - time
+
+  - name: spawn_and_return
+    kind: function.lua
+    meta:
+      comment: Spawns an eval with a long-running child, then returns at once
+    source: file://spawn_and_return.lua
+    method: main
+    modules:
+      - eval
+
+  - name: function_lifetime
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: a linked eval does not outlive the function call that spawned it
+    source: file://function_lifetime.lua
+    method: main
+    modules:
+      - eval
+      - funcs
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: upgrade_denied
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval code cannot upgrade into a registry process
+    source: file://upgrade_denied.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: fanout
+    kind: process.lua
+    meta:
+      comment: Child an eval spawns; starts sleepers until refused
+    source: file://fanout.lua
+    method: main
+    modules:
+      - process
+
+  - name: descendant_limit
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: max_children bounds the processes an eval's descendants start
+    source: file://descendant_limit.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: detach_launcher
+    kind: process.lua
+    meta:
+      comment: Unowned process that detaches an eval which starts a long-running child
+    source: file://detach_launcher.lua
+    method: main
+    modules:
+      - eval
+
+  - name: detached_lifetime
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: processes a detached eval starts end with the eval
+    source: file://detached_lifetime.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: ungated_modules
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: modules without their own permission check obey an eval's explicit deny
+    source: file://ungated_modules.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: stubborn_child
+    kind: process.lua
+    meta:
+      comment: Child that traps links and ignores every event
+    source: file://stubborn_child.lua
+    method: main
+    modules:
+      - process
+
+  - name: spawn_stubborn
+    kind: function.lua
+    meta:
+      comment: Spawns an eval that resists ending, then returns at once
+    source: file://spawn_stubborn.lua
+    method: main
+    modules:
+      - eval
+
+  - name: stubborn_lifetime
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: an eval that resists ending still ends with its owner
+    source: file://stubborn_lifetime.lua
+    method: main
+    modules:
+      - eval
+      - funcs
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: privileged_child
+    kind: process.lua
+    meta:
+      comment: Child with an allow-all policy configured on its entry
+    source: file://privileged_child.lua
+    method: main
+    modules:
+      - funcs
+      - registry
+      - env
+    security:
+      policies:
+        - app.test.security:allow_all
+
+  - name: sandbox_surface
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval code reaches no ambient surface and cannot alter shared state
+    source: file://sandbox_surface.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: registry_lookup
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: eval resolves registered names only when its policy allows lookup
+    source: file://registry_lookup.lua
+    method: main
+    modules:
+      - eval
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: spin_launcher
+    kind: process.lua
+    meta:
+      comment: Unowned process that detaches a spinning eval
+    source: file://spin_launcher.lua
+    method: main
+    modules:
+      - eval
+
+  - name: detached_spinner
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: the detached eval lifetime stops a spinning detached eval
+    source: file://detached_spinner.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert: app.lib:assert
+
+  - name: owner_wait
+    kind: function.lua
+    source: file://owner_wait.lua
+    method: main
+    modules:
+      - eval
+
+  - name: owner_ended
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: an eval EXIT result identifies owner completion
+    source: file://owner_ended.lua
+    method: main
+    modules:
+      - funcs
+      - time
+    imports:
+      assert: app.lib:assert

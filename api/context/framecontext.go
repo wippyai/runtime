@@ -5,6 +5,7 @@ package context
 import (
 	"context"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -56,6 +57,12 @@ type frameContext struct {
 	refcount   atomic.Int32
 	sealed     atomic.Bool
 	writers    atomic.Int32
+	// execution is set on the frame of a later code incarnation: the
+	// execution's own frame, which owns and closes the Execution values.
+	execution FrameContext
+	// borrowed holds the keys whose values the continuation shares with the
+	// execution frame; that frame closes them.
+	borrowed []any
 }
 
 type frameContextRef struct {
@@ -371,6 +378,8 @@ func FrameFromContext(ctx context.Context) FrameContext {
 // It extracts all inheritable pairs from the frame context and applies the
 // Propagator interface for values that need transformation before crossing process boundaries.
 // Values where PropagateValue() returns nil are excluded from propagation.
+// Cloner values are copied, as on a frame fork, so a spawned process shares
+// no mutable state with its spawner.
 func PropagatedPairs(ctx context.Context) []Pair {
 	fc := FrameFromContext(ctx)
 	if fc == nil {
@@ -392,9 +401,103 @@ func PropagatedPairs(ctx context.Context) []Pair {
 			}
 			continue
 		}
+		if cloner, ok := p.Value.(Cloner); ok {
+			pairs = append(pairs, Pair{Key: p.Key, Value: cloner.Clone()})
+			continue
+		}
 		pairs = append(pairs, p)
 	}
 	return pairs
+}
+
+// ContinueFrameContext opens the frame of the next code incarnation of the
+// execution running in ctx, as when a process upgrades: a fork of the
+// execution's frame that also carries its Execution values, holding a
+// reference on that frame until it is released. The values stay owned by the
+// execution's frame: releasing the continuation does not close them. An
+// execution without a frame has no values to carry and continues in a new
+// root frame.
+func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, error) {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		next, nfc := OpenFrameContext(ctx)
+		return next, nfc, nil
+	}
+	// The previous incarnation has finished with the execution's frame; it
+	// is sealed so the continuation is always a fork, never the frame itself.
+	fc.Seal()
+	var carried []Pair
+	fc.Iterate(func(key, value any) {
+		if k, ok := key.(*Key); ok && k.Execution {
+			carried = append(carried, Pair{Key: key, Value: value})
+		}
+	})
+	next, nfc := OpenFrameContext(ctx)
+	if ref, ok := nfc.(*frameContextRef); ok {
+		if frame := ref.resolveFrame(); frame != nil {
+			frame.execution = ExecutionFrame(ctx)
+			frame.borrowed = make([]any, len(carried))
+			for i, pair := range carried {
+				frame.borrowed[i] = pair.Key
+			}
+		}
+	}
+	if len(carried) > 0 {
+		if err := nfc.SetMultiple(carried...); err != nil {
+			ReleaseFrameContext(nfc)
+			return ctx, nil, err
+		}
+	}
+	return next, nfc, nil
+}
+
+// ExecutionFrame returns the frame of the execution running in ctx: the
+// frame its host created, also when ctx belongs to a later code incarnation
+// (see ContinueFrameContext). It is nil when ctx has no frame.
+func ExecutionFrame(ctx context.Context) FrameContext {
+	fc := FrameFromContext(ctx)
+	if ref, ok := fc.(*frameContextRef); ok {
+		if frame := ref.resolveFrame(); frame != nil && frame.execution != nil {
+			return frame.execution
+		}
+	}
+	return fc
+}
+
+// PropagatorPairs returns the cross-process representation of the
+// inheritable values in ctx that implement Propagator: values meant to follow
+// work into another process, such as trace context. A process started from a
+// clean frame receives these and none of the caller's other values.
+func PropagatorPairs(ctx context.Context) []Pair {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		return nil
+	}
+	var pairs []Pair
+	for _, p := range fc.InheritablePairs() {
+		propagator, ok := p.Value.(Propagator)
+		if !ok {
+			continue
+		}
+		if transformed := propagator.PropagateValue(); transformed != nil {
+			pairs = append(pairs, Pair{Key: p.Key, Value: transformed})
+		}
+	}
+	return pairs
+}
+
+// CompleteFrame releases the Completer values of the execution frame of ctx;
+// process hosts call it when the process owning the frame completes.
+func CompleteFrame(ctx context.Context) {
+	fc := ExecutionFrame(ctx)
+	if fc == nil {
+		return
+	}
+	fc.Iterate(func(_ any, value any) {
+		if completer, ok := value.(Completer); ok {
+			completer.Complete()
+		}
+	})
 }
 
 // ReleaseFrameContext decrements refcount and triggers chain collapse when zero.
@@ -454,11 +557,18 @@ func releaseFrame(f *frameContext, expectedGeneration uint64) {
 
 	// refcount == 0 means exclusive access, no lock needed
 	var closers []Closer
-	for _, v := range f.valuesSnapshot() {
-		if closer, ok := v.(Closer); ok {
-			closers = append(closers, closer)
+	for k, v := range f.valuesSnapshot() {
+		closer, ok := v.(Closer)
+		if !ok {
+			continue
 		}
+		if slices.Contains(f.borrowed, k) {
+			continue
+		}
+		closers = append(closers, closer)
 	}
+	f.execution = nil
+	f.borrowed = nil
 	values := make(frameValues, 8)
 	f.values.Store(&values)
 	parent := f.parent

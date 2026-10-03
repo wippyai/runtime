@@ -5,6 +5,7 @@ package actor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -281,5 +282,61 @@ func TestTerminateDuringStepReportsTermination(t *testing.T) {
 		require.ErrorIs(t, res.Error, sysprocess.ErrTerminated)
 	case <-time.After(5 * time.Second):
 		t.Fatal("terminated process did not complete")
+	}
+}
+
+func TestCancelledActorReportsCause(t *testing.T) {
+	for _, cause := range []error{process.ErrOwnerEnded, context.DeadlineExceeded, fmt.Errorf("interrupted: %w", context.Canceled)} {
+		for _, pooled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/pooled=%t", cause, pooled), func(t *testing.T) {
+				completed := make(chan *runtime.Result, 1)
+				sched := newTestSchedulerWithLifecycle(1, &testLifecycle{onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) { completed <- res }})
+				sched.Start()
+				defer testStopScheduler(sched)
+				ctx, cancel := context.WithCancelCause(context.Background())
+				defer cancel(nil)
+				p := &terminateDuringStepProcess{entered: make(chan struct{})}
+				id := pidapi.PID{UniqID: "cancel-cause"}
+				if pooled {
+					proc, err := sched.CreateProcessor(ctx, id, p)
+					require.NoError(t, err)
+					defer sched.ReleaseProcessor(proc)
+					require.NoError(t, p.Init(proc.ctx, "", nil))
+					sched.global.Push(proc)
+					sched.wakeAny()
+				} else {
+					_, err := sched.Submit(ctx, id, p, "", nil)
+					require.NoError(t, err)
+				}
+				select {
+				case <-p.entered:
+				case <-time.After(5 * time.Second):
+					t.Fatal("process did not enter its step")
+				}
+				cancel(cause)
+				select {
+				case res := <-completed:
+					require.ErrorIs(t, res.Error, cause)
+				case <-time.After(5 * time.Second):
+					t.Fatal("cancelled process did not complete")
+				}
+			})
+		}
+	}
+}
+
+func TestActorDeadlineReportsDeadlineExceeded(t *testing.T) {
+	completed := make(chan *runtime.Result, 1)
+	sched := newTestSchedulerWithLifecycle(1, &testLifecycle{onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) { completed <- res }})
+	sched.Start()
+	defer testStopScheduler(sched)
+	p := &deadlineTestProcess{timeout: 30 * time.Millisecond, idleOnStep: true}
+	_, err := sched.Submit(context.Background(), pidapi.PID{UniqID: "deadline-result"}, p, "", nil)
+	require.NoError(t, err)
+	select {
+	case res := <-completed:
+		require.ErrorIs(t, res.Error, context.DeadlineExceeded)
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadline did not complete process")
 	}
 }

@@ -214,12 +214,19 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	pid := gen.Generate(task.ID.String())
 
 	// Build pairs slice with capacity for base pairs + task context.
-	pairs := make([]ctxapi.Pair, 0, 2+len(task.Context))
+	pairs := make([]ctxapi.Pair, 0, 3+len(task.Context))
 	pairs = append(pairs,
 		ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID},
 		ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid},
 	)
 	pairs = append(pairs, task.Context...)
+
+	// The call's execution scope ends when the call returns: processes it
+	// owns never outlive it.
+	if scope := process.NewExecutionScopeFor(ctx, process.ExecutionFunction); scope != nil {
+		pairs = append(pairs, process.ExecutionScopePair(scope))
+		defer scope.Complete()
+	}
 
 	// Apply the registered frame-context resolvers (e.g. the network overlay)
 	// generically, so this dispatcher stays agnostic of any specific subsystem.

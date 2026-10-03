@@ -4,6 +4,7 @@ package engine
 
 import (
 	"fmt"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/process"
@@ -424,6 +425,9 @@ type FactoryConfig struct {
 	ScriptName    string
 	ModuleBinders []ModuleBinder
 	Budgets       luaapi.ExecutionBudgets
+	// Lifetime bounds how long each process may run in total; zero leaves
+	// it unbounded.
+	Lifetime time.Duration
 }
 
 // Factory creates Lua processes with shared configuration.
@@ -435,6 +439,7 @@ type Factory struct {
 	scriptName    string
 	moduleBinders []ModuleBinder
 	budgets       luaapi.ExecutionBudgets
+	lifetime      time.Duration
 }
 
 // NewFactory creates a ProcessFactory for Lua processes.
@@ -447,6 +452,7 @@ func NewFactory(cfg FactoryConfig) process.FactoryFunc {
 		moduleBinders: cfg.ModuleBinders,
 		stateOpts:     cfg.StateOptions,
 		budgets:       cfg.Budgets,
+		lifetime:      cfg.Lifetime,
 	}
 	return f.Create
 }
@@ -465,6 +471,7 @@ func (f *Factory) Create() (process.Process, error) {
 		factory:      f,
 		state:        state,
 		entryBudgets: f.budgets,
+		lifetime:     f.lifetime,
 	}
 
 	if f.proto != nil {

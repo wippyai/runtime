@@ -25,8 +25,11 @@ type Store struct {
 	// Nodes are appended at tail; Close walks tail->head for LIFO order.
 	head, tail *cleanupNode
 	count      int
-	mu         sync.Mutex
-	closed     bool
+	// epoch counts closes: a lease belongs to the epoch of the store use it
+	// was acquired in, and is inert once the store is closed and pooled.
+	epoch  uint64
+	mu     sync.Mutex
+	closed bool
 }
 
 var storePool = sync.Pool{
@@ -43,8 +46,15 @@ var storePool = sync.Pool{
 // NewStore creates a new resource store from the pool.
 func NewStore() *Store {
 	s := storePool.Get().(*Store)
-	s.closed = false
+	s.reopen()
 	return s
+}
+
+// reopen readies a closed store for its next user.
+func (s *Store) reopen() {
+	s.mu.Lock()
+	s.closed = false
+	s.mu.Unlock()
 }
 
 // Table returns the underlying resource table for handle-based access.
@@ -108,13 +118,36 @@ func (s *Store) unlink(node *cleanupNode) {
 
 // Close runs all live cleanup functions in LIFO order and returns store to pool.
 func (s *Store) Close() error {
+	closed, err := s.shutdown()
+	if closed {
+		storePool.Put(s)
+	}
+	return err
+}
+
+// shutdown closes the store and resets it for reuse. It reports whether this
+// call closed it.
+func (s *Store) shutdown() (bool, error) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return nil
+		return false, nil
 	}
 	s.closed = true
-	node := s.tail
+	s.epoch++
+	// Detach every cleanup under the lock, newest first, so a concurrent
+	// remover sees detached nodes and the cleanups run without the lock.
+	cleanups := make([]func() error, 0, s.count)
+	for n := s.tail; n != nil; {
+		next := n.prev
+		if n.fn != nil {
+			cleanups = append(cleanups, n.fn)
+		}
+		n.prev = nil
+		n.next = nil
+		n.fn = nil
+		n = next
+	}
 	s.head = nil
 	s.tail = nil
 	s.count = 0
@@ -124,24 +157,14 @@ func (s *Store) Close() error {
 	s.mu.Unlock()
 
 	var firstErr error
-	for n := node; n != nil; {
-		fn := n.fn
-		next := n.prev
-		n.prev = nil
-		n.next = nil
-		n.fn = nil
-		if fn != nil {
-			if err := fn(); err != nil && firstErr == nil {
-				firstErr = err
-			}
+	for _, fn := range cleanups {
+		if err := fn(); err != nil && firstErr == nil {
+			firstErr = err
 		}
-		n = next
 	}
 
 	s.table.Reset()
-	storePool.Put(s)
-
-	return firstErr
+	return true, firstErr
 }
 
 // IsClosed returns true if the store has been closed.

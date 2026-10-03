@@ -98,7 +98,7 @@ type Binding interface {
 	Close() error
 }
 
-var portKey = &ctxapi.Key{Name: "tty.port"} // deliberately non-inheritable
+var portKey = &ctxapi.Key{Name: "tty.port", Execution: true} // deliberately non-inheritable
 
 func PortKey() *ctxapi.Key { return portKey }
 

@@ -45,3 +45,42 @@ func TestEvalMaxSteps(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveEvalSettings(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		got, err := resolveEvalSettings(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.programCacheSize != evalhost.DefaultEvalProgramCacheSize || got.detachedLifetime != evalhost.DefaultDetachedEvalLifetime {
+			t.Fatalf("unexpected defaults: %+v", got)
+		}
+	})
+
+	t.Run("configured", func(t *testing.T) {
+		cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{
+			"eval.program_cache_size": 7,
+			"eval.spawn_host":         "app:eval",
+		})).Sub("lua")
+		got, err := resolveEvalSettings(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.programCacheSize != 7 || got.spawnHost != "app:eval" {
+			t.Fatalf("unexpected settings: %+v", got)
+		}
+	})
+
+	rejected := map[string][]any{
+		"eval.program_cache_size": {0, -1},
+		"eval.detached_lifetime":  {"0s", "-1s"},
+	}
+	for key, values := range rejected {
+		for _, value := range values {
+			cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{key: value})).Sub("lua")
+			if _, err := resolveEvalSettings(cfg); err == nil {
+				t.Fatalf("%s = %v is accepted", key, value)
+			}
+		}
+	}
+}

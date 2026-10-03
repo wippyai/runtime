@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package process
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/pid"
+)
+
+func childSpawnOptions() attrs.Bag {
+	return attrs.Bag{ProcessParentKey: pid.PID{Host: "h", UniqID: "parent"}}
+}
+
+func limitedContext(t *testing.T, slots *ChildSlots) context.Context {
+	t.Helper()
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+	require.NoError(t, fc.SetMultiple(ChildSlotsPair(slots)))
+	return ctx
+}
+
+func TestChildSlotResolverReservesUntilRelease(t *testing.T) {
+	slots := NewChildSlots(2)
+	ctx := limitedContext(t, slots)
+
+	first, err := ChildSlotResolver(ctx, childSpawnOptions())
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	second, err := ChildSlotResolver(ctx, childSpawnOptions())
+	require.NoError(t, err)
+	require.Equal(t, 2, slots.InUse())
+
+	_, err = ChildSlotResolver(ctx, childSpawnOptions())
+	require.ErrorIs(t, err, ErrChildLimitExceeded)
+
+	// A child exits: its frame closes the slot.
+	require.NoError(t, first[0].Value.(ctxapi.FrameAttachment).Close())
+	require.Equal(t, 1, slots.InUse())
+	_, err = ChildSlotResolver(ctx, childSpawnOptions())
+	require.NoError(t, err)
+
+	// A failed spawn rolls its slot back; release is idempotent.
+	attachment := second[0].Value.(ctxapi.FrameAttachment)
+	require.NoError(t, attachment.Rollback())
+	require.NoError(t, attachment.Close())
+	require.Equal(t, 1, slots.InUse())
+}
+
+func TestChildSlotResolverIgnoresUnlimitedAndNonSpawnFrames(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	pairs, err := ChildSlotResolver(ctx, childSpawnOptions())
+	require.NoError(t, err)
+	require.Empty(t, pairs, "processes without a limit reserve nothing")
+
+	slots := NewChildSlots(1)
+	limited := limitedContext(t, slots)
+	pairs, err = ChildSlotResolver(limited, attrs.Bag{})
+	require.NoError(t, err)
+	require.Empty(t, pairs, "frames that are not child processes reserve nothing")
+	require.Zero(t, slots.InUse())
+}
+
+func TestChildSlotsAreSharedByDescendants(t *testing.T) {
+	slots := NewChildSlots(1)
+	forked, fc := ctxapi.ForkFrameContext(limitedContext(t, slots))
+	defer ctxapi.ReleaseFrameContext(fc)
+	pairs, err := ChildSlotResolver(forked, childSpawnOptions())
+	require.NoError(t, err)
+	require.Len(t, pairs, 1, "a forked frame draws on its ancestor's limit")
+	require.Equal(t, 1, slots.InUse())
+	_, err = ChildSlotResolver(forked, childSpawnOptions())
+	require.ErrorIs(t, err, ErrChildLimitExceeded)
+}
+
+func TestChildSlotReleasedWhenChildCompletes(t *testing.T) {
+	slots := NewChildSlots(1)
+	pairs, err := ChildSlotResolver(limitedContext(t, slots), childSpawnOptions())
+	require.NoError(t, err)
+
+	// The child's frame outlives the child while its own children run; the
+	// slot is released at completion, not at frame release.
+	child, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, fc.SetMultiple(pairs...))
+	require.Equal(t, 1, slots.InUse())
+	ctxapi.CompleteFrame(child)
+	require.Zero(t, slots.InUse())
+	ctxapi.CompleteFrame(child)
+	require.Zero(t, slots.InUse(), "completion is idempotent")
+}

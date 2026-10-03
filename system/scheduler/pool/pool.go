@@ -179,7 +179,7 @@ func (e *Executor) cancelResult(ctx context.Context, proc process.Process) *runt
 	if a, ok := proc.(aborter); ok {
 		a.Abort()
 	}
-	result := &runtime.Result{Error: ctx.Err()}
+	result := &runtime.Result{Error: context.Cause(ctx)}
 	if e.hooks.OnComplete != nil {
 		e.hooks.OnComplete(ctx, result)
 	}
@@ -205,6 +205,9 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 	}()
 
 	if err := proc.Init(ctx, method, input); err != nil {
+		if context.Cause(ctx) != nil {
+			return e.cancelResult(ctx, proc)
+		}
 		result := &runtime.Result{Error: err}
 		if e.hooks.OnComplete != nil {
 			e.hooks.OnComplete(ctx, result)
@@ -222,6 +225,9 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 		// Step the process
 		err := proc.Step(events, &e.output)
 		if err != nil {
+			if context.Cause(ctx) != nil {
+				return e.cancelResult(ctx, proc)
+			}
 			if errors.Is(err, process.ErrProcessReplacementRequested) && e.output.Status() == process.StepDone {
 				ret := runtime.Result{Value: e.output.Result()}
 				if e.hooks.OnComplete != nil {

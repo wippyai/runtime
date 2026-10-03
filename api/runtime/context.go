@@ -17,10 +17,10 @@ var (
 	FrameIDKey = &ctxapi.Key{Name: "runtime.frame_id"}
 
 	// FramePIDKey stores the full PID (pid.PID)
-	FramePIDKey = &ctxapi.Key{Name: "runtime.frame_pid"}
+	FramePIDKey = &ctxapi.Key{Name: "runtime.frame_pid", Execution: true}
 
 	// FrameLifecycleOptionsKey stores lifecycle options (attrs.Attributes)
-	FrameLifecycleOptionsKey = &ctxapi.Key{Name: "runtime.frame_lifecycle_options"}
+	FrameLifecycleOptionsKey = &ctxapi.Key{Name: "runtime.frame_lifecycle_options", Execution: true}
 )
 
 // SetFrameID sets the registry ID in the FrameContext.
@@ -71,16 +71,6 @@ func GetFramePID(ctx context.Context) (pid.PID, bool) {
 		}
 	}
 	return pid.PID{}, false
-}
-
-// SetFrameLifecycleOptions sets the lifecycle options (attrs.Attributes) in
-// the FrameContext. Returns error if no frame context or frame is sealed.
-func SetFrameLifecycleOptions(ctx context.Context, opts any) error {
-	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		return ctxapi.ErrNoFrameContext
-	}
-	return fc.Set(FrameLifecycleOptionsKey, opts)
 }
 
 // GetFrameLifecycleOptions retrieves lifecycle options from the FrameContext.

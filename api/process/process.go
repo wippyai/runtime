@@ -34,6 +34,10 @@ const (
 	ProcessMonitorKey = "process.monitor"
 	ProcessLinkKey    = "process.link"
 	ProcessNameKey    = "process.name"
+	// ProcessOwnedKey makes the started process owned by the spawning
+	// execution: it is terminated when that execution ends. Processes spawned
+	// by an owned process are always owned.
+	ProcessOwnedKey = "process.owned"
 )
 
 type (
@@ -48,12 +52,25 @@ type (
 
 	// Start contains the configuration needed to start a new process.
 	Start struct {
-		HostID   pid.HostID
-		Source   registry.ID
-		Input    payload.Payloads
-		Context  []ctxapi.Pair
-		Options  attrs.Attributes
-		Messages []*relay.Message // optional: initial messages for spawn-or-signal
+		// Admission starts the process from an in-memory factory instead of
+		// the registry entry named by Source, which then only identifies the
+		// process frame. Only Go callers can set it, and only hosts that
+		// implement AdmissionHost run it. The process frame inherits nothing from
+		// the starter's frame: Context is its whole configuration.
+		Admission *Admission
+		HostID    pid.HostID
+		Source    registry.ID
+		Input     payload.Payloads
+		Context   []ctxapi.Pair
+		Options   attrs.Attributes
+		Messages  []*relay.Message // optional: initial messages for spawn-or-signal
+	}
+
+	// Admission is a process definition that is not a registry entry, such
+	// as a compiled eval program.
+	Admission struct {
+		Factory FactoryFunc
+		Meta    Meta
 	}
 
 	// FactoryEntry is sent via event bus to register a factory.
@@ -122,6 +139,14 @@ type (
 	FrameAttachmentHost interface {
 		Host
 		AcceptsFrameAttachments() bool
+	}
+
+	// AdmissionHost is implemented by local hosts that run admitted process
+	// definitions (Start.Admission). Remote hosts cannot: the factory is an
+	// in-memory value.
+	AdmissionHost interface {
+		Host
+		AcceptsAdmission() bool
 	}
 
 	// Manager defines the interface for process lifecycle management.

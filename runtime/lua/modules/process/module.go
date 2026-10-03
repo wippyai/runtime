@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/api/topology/namereg/global"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
@@ -173,7 +174,36 @@ func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pi
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
+	// A capability-restricted process may only address its parent and PIDs
+	// the runtime handed to it; a PID string it made up is refused.
+	if grants := secapi.GetProcessSendGrants(l.Context()); grants != nil &&
+		!grants.Holds(resolved.PID) && !isParent(l.Context(), resolved.PID) {
+		return sysprocess.ResolvedDestination{}, runtimelua.NewNotAllowedError(
+			strings.TrimPrefix(permission, "process."), pidOrName)
+	}
+
 	return resolved, nil
+}
+
+// isParent reports whether p spawned the process in ctx.
+func isParent(ctx context.Context, p pidapi.PID) bool {
+	options, ok := runtime.GetFrameLifecycleOptions(ctx).(attrs.Attributes)
+	if !ok || options == nil {
+		return false
+	}
+	parent, ok := options.Get(process.ProcessParentKey)
+	if !ok {
+		return false
+	}
+	parentPID, ok := parent.(pidapi.PID)
+	return ok && parentPID.Equal(p)
+}
+
+// pushAcquiredPID pushes a PID the runtime hands to the process, granting it
+// to a capability-restricted process.
+func pushAcquiredPID(l *lua.LState, p pidapi.PID) {
+	secapi.GrantProcessSend(l.Context(), p)
+	l.Push(lua.LString(p.String()))
 }
 
 func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
@@ -189,7 +219,7 @@ func processPID(l *lua.LState) int {
 	if !ok {
 		return 2
 	}
-	l.Push(lua.LString(pid.String()))
+	pushAcquiredPID(l, pid)
 	return 1
 }
 
@@ -784,6 +814,11 @@ func registryLookup(l *lua.LState) int {
 	}
 
 	name := l.CheckString(1)
+	// Resolving a name hands the process a PID it may address, so a policy
+	// may forbid it; scopes with no opinion leave lookups open.
+	if secapi.IsDenied(ctx, "process.registry.lookup", name, nil) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to look up name: %s", name)))
+	}
 	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
 		number, ok := l.Get(2).(lua.LNumber)
 		if !ok || (number != lua.LNumber(topology.Local) && number != lua.LNumber(topology.Eventual) &&
@@ -801,7 +836,7 @@ func registryLookup(l *lua.LState) int {
 		if !found {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
 		}
-		l.Push(lua.LString(p.String()))
+		pushAcquiredPID(l, p)
 		return 1
 	}
 	checked := false
@@ -818,7 +853,7 @@ func registryLookup(l *lua.LState) int {
 			if ctx.Err() != nil {
 				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
 			}
-			l.Push(lua.LString(res.PID.String()))
+			pushAcquiredPID(l, res.PID)
 			return 1
 		}
 	}
@@ -836,7 +871,7 @@ func registryLookup(l *lua.LState) int {
 			if ctx.Err() != nil {
 				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
 			}
-			l.Push(lua.LString(res.PID.String()))
+			pushAcquiredPID(l, res.PID)
 			return 1
 		}
 	}
@@ -856,7 +891,7 @@ func registryLookup(l *lua.LState) int {
 			if ctx.Err() != nil {
 				return pushProcessError(l, lua.LNil, wrapProcessError(l, ctx.Err(), "", lua.Internal))
 			}
-			l.Push(lua.LString(p.String()))
+			pushAcquiredPID(l, p)
 			return 1
 		}
 	}
@@ -1020,6 +1055,16 @@ func upgrade(l *lua.LState) int {
 	// arg 1: optional registry ID string (nil or empty = same definition)
 	if l.GetTop() >= 1 && l.Get(1).Type() == lua.LTString {
 		req.Source = registry.ParseID(l.CheckString(1))
+	}
+
+	// Upgrading replaces the process's code; a policy may forbid it. Without
+	// a source the process reloads its current definition.
+	target := req.Source
+	if target.Name == "" {
+		target, _ = runtime.GetFrameID(l.Context())
+	}
+	if secapi.IsDenied(l.Context(), "process.upgrade", target.String(), nil) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to upgrade process: %s", target)))
 	}
 
 	// args 2+: payloads for new process

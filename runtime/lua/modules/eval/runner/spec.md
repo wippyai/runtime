@@ -4,6 +4,10 @@
 
 Execute untrusted Lua code via dispatcher with security checks. Process, nondeterministic.
 
+> **Deprecated:** use the `eval` module, which compiles source under an eval
+> policy and runs it as a supervised process (`eval.compile`, `eval.spawn`,
+> `eval.evict`). `eval_runner` keeps working unchanged during the transition.
+
 ## Loading
 
 ```lua

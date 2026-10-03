@@ -40,6 +40,7 @@ type Lease struct {
 	store    *Store
 	key      registryLeaseKey
 	handle   Handle
+	epoch    uint64
 	released atomic.Bool
 }
 
@@ -94,8 +95,9 @@ func (s *Store) acquireRegistryResource(ctx context.Context, reg apiresource.Reg
 	if handle, ok := s.leases[key]; ok {
 		value, borrowed := s.borrowRegistryLeaseLocked(key, handle)
 		if borrowed {
+			epoch := s.epoch
 			s.mu.Unlock()
-			return &Lease{store: s, key: key, handle: handle}, value, nil
+			return &Lease{store: s, key: key, handle: handle, epoch: epoch}, value, nil
 		}
 		delete(s.leases, key)
 	}
@@ -120,9 +122,10 @@ func (s *Store) acquireRegistryResource(ctx context.Context, reg apiresource.Reg
 	}
 
 	s.leases[key] = handle
+	epoch := s.epoch
 	s.mu.Unlock()
 
-	return &Lease{store: s, key: key, handle: handle}, value, nil
+	return &Lease{store: s, key: key, handle: handle, epoch: epoch}, value, nil
 }
 
 func (s *Store) borrowRegistryLeaseLocked(key registryLeaseKey, handle Handle) (any, bool) {
@@ -140,11 +143,11 @@ func (s *Store) borrowRegistryLeaseLocked(key registryLeaseKey, handle Handle) (
 	return entry.value, true
 }
 
-func (s *Store) releaseRegistryLease(key registryLeaseKey, handle Handle) {
+func (s *Store) releaseRegistryLease(key registryLeaseKey, handle Handle, epoch uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.closed {
+	if s.epoch != epoch {
 		return
 	}
 	if !s.table.ReturnBorrow(handle) {
@@ -164,6 +167,11 @@ func (l *Lease) Get() (any, error) {
 		return nil, apiresource.ErrReleased
 	}
 
+	l.store.mu.Lock()
+	defer l.store.mu.Unlock()
+	if l.store.epoch != l.epoch {
+		return nil, apiresource.ErrReleased
+	}
 	raw, ok := l.store.table.GetTyped(l.handle, TypeRegistryLease)
 	if !ok {
 		return nil, apiresource.ErrReleased
@@ -182,5 +190,5 @@ func (l *Lease) Release() {
 	if l == nil || !l.released.CompareAndSwap(false, true) || l.store == nil {
 		return
 	}
-	l.store.releaseRegistryLease(l.key, l.handle)
+	l.store.releaseRegistryLease(l.key, l.handle, l.epoch)
 }

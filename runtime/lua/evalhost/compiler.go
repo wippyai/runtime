@@ -4,11 +4,13 @@
 package evalhost
 
 import (
+	"fmt"
 	"strings"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
+	"github.com/wippyai/go-lua/types/diag"
 	typeio "github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -100,7 +102,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 
 	// Determine modules to use
 	modules := cmd.Modules
-	if len(modules) == 0 {
+	if len(modules) == 0 && !cmd.ExplicitModules {
 		modules = c.getDefaultModules(available, cmd.AllowClasses)
 	}
 
@@ -111,6 +113,9 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 			return nil, NewModuleNotAvailableErrorWithContext(name, availableNames)
 		}
 
+		if containsString(cmd.AllowModules, name) {
+			continue
+		}
 		if err := c.validateModuleClasses(name, m.Class, cmd.AllowClasses); err != nil {
 			return nil, err
 		}
@@ -121,7 +126,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 		return nil, NewParseError(err)
 	}
 
-	compileOpts, err := compileOptionsForSourceAndModules(chunk, modules, available)
+	compileOpts, err := compileOptionsForSourceAndModules(chunk, modules, available, cmd.Globals, cmd.Strict)
 	if err != nil {
 		return nil, NewCompileScriptError(err)
 	}
@@ -138,7 +143,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 	}, nil
 }
 
-func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef) (lua.CompileOptions, error) {
+func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef, globals map[string]typ.Type, strict bool) (lua.CompileOptions, error) {
 	manifest := typeio.NewManifest("eval")
 	conflicts := make(map[string]struct{})
 	for _, name := range modules {
@@ -171,9 +176,16 @@ func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, avail
 
 	typeCfg := luacode.DefaultTypeCheckConfig()
 	typeCfg.Enabled = true
-	typeCfg.Strict = false
-	checker := luacode.NewTypeChecker(typeCfg, modulesForNames(modules, available))
-	sourceManifest, _ := checker.CheckParsed(chunk, "eval", nil)
+	typeCfg.Strict = strict
+	checker := luacode.NewTypeChecker(typeCfg, append(modulesForNames(modules, available), globalDefs(globals)...))
+	sourceManifest, diagnostics := checker.CheckParsed(chunk, "eval", nil)
+	if strict {
+		for _, d := range diagnostics {
+			if d.Severity == diag.SeverityError {
+				return lua.CompileOptions{}, fmt.Errorf("type error at line %d: %s", d.Position.Line, d.Message)
+			}
+		}
+	}
 	if sourceManifest != nil {
 		for typeName, t := range sourceManifest.Types {
 			if typeName == "" || t == nil {
@@ -206,6 +218,21 @@ func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, avail
 		typeNames[name] = struct{}{}
 	}
 	return lua.CompileOptions{TypeInfo: data, TypeNames: typeNames}, nil
+}
+
+// globalDefs declares typed globals to the type checker as module manifests
+// exporting the global's type.
+func globalDefs(globals map[string]typ.Type) []*luaapi.ModuleDef {
+	if len(globals) == 0 {
+		return nil
+	}
+	defs := make([]*luaapi.ModuleDef, 0, len(globals))
+	for name, t := range globals {
+		manifest := typeio.NewManifest(name)
+		manifest.SetExport(t)
+		defs = append(defs, &luaapi.ModuleDef{Name: name, Types: func() *typeio.Manifest { return manifest }})
+	}
+	return defs
 }
 
 func modulesForNames(names []string, available map[string]*luaapi.ModuleDef) []*luaapi.ModuleDef {

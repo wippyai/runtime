@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
@@ -144,6 +145,8 @@ type Process struct {
 	entryBudgets luaapi.ExecutionBudgets
 	budgets      luaapi.ExecutionBudgets
 	steps        uint64
+	// lifetime bounds the process's total run time; zero is unbounded.
+	lifetime time.Duration
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -823,7 +826,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		if err != nil {
 			p.clearExecution()
 			out.Done(nil)
-			return toAPIError(err)
+			return toExecutionError(p.ctx, err)
 		}
 
 		// Process subscribe yields (outer layer) - may add tasks to queue
@@ -832,7 +835,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		if err != nil {
 			p.clearExecution()
 			out.Done(nil)
-			return toAPIError(err)
+			return toExecutionError(p.ctx, err)
 		}
 
 		// Sync p.externalTasks with local externalTasks after processSubscribeYields
@@ -896,7 +899,10 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		execErr := p.execErr
 		p.clearExecution()
 		out.Done(result)
-		return toAPIError(execErr)
+		if execErr != nil {
+			return toExecutionError(p.ctx, execErr)
+		}
+		return nil
 	}
 
 	// Initialize pendingYields map if needed
@@ -951,6 +957,12 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	}
 
 	return nil
+}
+
+// ExecutionTimeout implements process.ExecutionTimeoutProvider; zero means
+// the process may run indefinitely.
+func (p *Process) ExecutionTimeout() time.Duration {
+	return p.lifetime
 }
 
 // EnablePreemption implements process.Preemptible. Each step may then run
@@ -2052,6 +2064,7 @@ func (p *Process) Close() {
 	p.pendingOutdated = nil
 	p.linkDownError = nil
 	p.entryBudgets = luaapi.ExecutionBudgets{}
+	p.lifetime = 0
 	p.budgets = luaapi.ExecutionBudgets{}
 	p.steps = 0
 	p.preemptive = false
@@ -2086,7 +2099,7 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 	p.state.SetContext(ctx)
 
 	if err := initializersOf(p.state).runSync(p.state); err != nil {
-		return lua.LNil, toAPIError(err)
+		return lua.LNil, toExecutionError(ctx, err)
 	}
 
 	// Load function from proto
@@ -2098,7 +2111,7 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 		NRet:    1,
 		Protect: true,
 	}, args...); err != nil {
-		return lua.LNil, toAPIError(err)
+		return lua.LNil, toExecutionError(ctx, err)
 	}
 
 	// Get result
@@ -2330,4 +2343,14 @@ func toAPIError(err error) error {
 		return builder.WithCause(toAPIError(inner))
 	}
 	return builder
+}
+
+// toExecutionError preserves cancellation causes that the Lua VM reports as text.
+func toExecutionError(ctx context.Context, err error) error {
+	if err != nil && ctx != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+	}
+	return toAPIError(err)
 }

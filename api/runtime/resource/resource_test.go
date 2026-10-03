@@ -911,3 +911,70 @@ func TestReaderProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 }
+
+// Cleanup removal may race with Close; every cleanup still registered when
+// Close starts runs exactly once and removal never corrupts the traversal.
+func TestStoreCloseRacesWithCleanupRemoval(t *testing.T) {
+	for round := 0; round < 200; round++ {
+		s := NewStore()
+		var ran atomic.Int64
+		removers := make([]func(), 64)
+		for i := range removers {
+			removers[i] = s.AddCleanup(func() error {
+				ran.Add(1)
+				return nil
+			})
+		}
+		var wg sync.WaitGroup
+		for _, remove := range removers {
+			wg.Add(1)
+			go func(remove func()) {
+				defer wg.Done()
+				remove()
+			}(remove)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		wg.Wait()
+		if ran.Load() > int64(len(removers)) {
+			t.Fatalf("cleanups ran %d times for %d registrations", ran.Load(), len(removers))
+		}
+	}
+}
+
+func TestAcquireRegistryResource_StaleLeaseIsInertAfterStoreReuse(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	id := registry.ParseID("test:resource")
+
+	store := NewStore()
+	oldCtx, ofc := ctxapi.OpenFrameContext(ctx)
+	require.NoError(t, SetStore(oldCtx, store))
+	oldReg := &leaseTestRegistry{value: "old"}
+	stale, _, err := AcquireRegistryResource(oldCtx, oldReg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	// Close and reuse the same store, as the pool does.
+	closed, err := store.shutdown()
+	require.NoError(t, err)
+	require.True(t, closed)
+	ctxapi.ReleaseFrameContext(ofc)
+	store.reopen()
+
+	newCtx, nfc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(nfc)
+	require.NoError(t, SetStore(newCtx, store))
+	newReg := &leaseTestRegistry{value: "new"}
+	current, _, err := AcquireRegistryResource(newCtx, newReg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+
+	_, err = stale.Get()
+	assert.ErrorIs(t, err, apiresource.ErrReleased, "a lease of a closed store never reaches the store's next user")
+	stale.Release()
+	assert.Equal(t, int64(0), newReg.releases.Load(), "releasing a stale lease leaves the next user's resource alone")
+	got, err := current.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "new", got)
+	current.Release()
+	require.NoError(t, store.Close())
+}
