@@ -88,3 +88,36 @@ func TestExecutionBudgetsFromNilOptionsIsEmpty(t *testing.T) {
 		t.Fatalf("expected empty budgets, got %+v %v", b, err)
 	}
 }
+
+func TestEntryExecutionBudgetsRejectsUnknownOptionFields(t *testing.T) {
+	_, err := EntryExecutionBudgets(attrs.Bag{"options": attrs.Bag{"max_step": 5}})
+	if err == nil || err.Error() != `process entry meta.options has unknown field "max_step"` {
+		t.Fatalf("unexpected error %v", err)
+	}
+}
+
+func TestEntryExecutionBudgetsAcceptsProcessEntryOptionKeys(t *testing.T) {
+	options := attrs.Bag{}
+	for _, key := range []string{"mailbox_capacity", "memory_limit_bytes", "heap_reserve_bytes", "hot_policy_id", "network", "default_host"} {
+		options[key] = "x"
+	}
+	if _, err := EntryExecutionBudgets(attrs.Bag{"options": options}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExecutionBudgetsMaxStepsSpansUint64(t *testing.T) {
+	const max = ^uint64(0)
+	for _, raw := range []any{max, uint(max), uintptr(max), json.Number("18446744073709551615")} {
+		b, err := ExecutionBudgetsFromOptions(attrs.Bag{ProcessOptionMaxSteps: raw}, "test")
+		if err != nil || !b.MaxStepsSet || b.MaxSteps != max {
+			t.Fatalf("max_steps %#v: got %+v %v", raw, b, err)
+		}
+	}
+	if _, err := ExecutionBudgetsFromOptions(attrs.Bag{ProcessOptionTickBudget: uint64(1) << 63}, "test"); err == nil {
+		t.Fatal("tick_budget above int64 must be rejected")
+	}
+	if b, err := ExecutionBudgetsFromOptions(attrs.Bag{ProcessOptionTickBudget: uintptr(9)}, "test"); err != nil || b.TickBudget != 9 {
+		t.Fatalf("uintptr tick_budget: %+v %v", b, err)
+	}
+}
