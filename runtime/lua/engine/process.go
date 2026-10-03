@@ -818,8 +818,13 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		p.externalTasks = externalTasks
 
 		// An exhausted tick budget ends the step; tasks still queued run in
-		// the next one.
+		// the next one. Messages held back for a receiver that parked in this
+		// step are delivered first, so the step does not report idle while a
+		// queued message matches a parked receiver.
 		if p.state.TickBudget() == 0 {
+			if p.subs != nil {
+				p.flushMessageQueue(p.subs)
+			}
 			break
 		}
 
