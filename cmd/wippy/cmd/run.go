@@ -233,9 +233,14 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		return err
 	}
 
-	parent := context.Background()
+	caller := context.Background()
 	if cmd != nil {
-		parent = cmd.Context()
+		caller = cmd.Context()
+	}
+	parent, err := detachFromCaller(caller)
+	if err != nil {
+		logger.Error("failed to initialize bootstrap context", zap.Error(err))
+		return NewInitializeBootstrapContextError(err)
 	}
 	parent, cancelRuntime := context.WithCancel(parent)
 	defer cancelRuntime()
@@ -1086,6 +1091,11 @@ func launchExecUntilShutdown(ctx context.Context, sigChan chan os.Signal, logger
 		<-done
 		handleShutdownSignal(ctx, sigChan, logger, sig, nil)
 		return true, nil
+	case <-callerCancellation(ctx):
+		stopExecSignals()
+		<-done
+		handleCallerCancellation(ctx, sigChan, logger)
+		return true, nil
 	}
 }
 
@@ -1206,6 +1216,9 @@ func waitForShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *
 	select {
 	case <-ctx.Done():
 		return
+	case <-callerCancellation(ctx):
+		handleCallerCancellation(ctx, sigChan, logger)
+		return
 	case sig = <-sigChan:
 	}
 	handleShutdownSignal(ctx, sigChan, logger, sig, onFirstSignal)
@@ -1216,7 +1229,25 @@ func handleShutdownSignal(ctx context.Context, sigChan chan os.Signal, logger *z
 	if onFirstSignal != nil {
 		onFirstSignal()
 	}
+	armForceExit(ctx, sigChan, logger)
+}
 
+// handleCallerCancellation starts the graceful shutdown that a first signal
+// starts. The interrupt that ended the caller's context also reaches sigChan;
+// it is that same first signal and is consumed here, so only a later signal
+// forces exit.
+func handleCallerCancellation(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger) {
+	logger.Info("caller context canceled")
+	select {
+	case <-sigChan:
+	default:
+	}
+	armForceExit(ctx, sigChan, logger)
+}
+
+// armForceExit makes the next signal terminate the process while the graceful
+// shutdown proceeds.
+func armForceExit(ctx context.Context, sigChan chan os.Signal, logger *zap.Logger) {
 	go func() {
 		select {
 		case <-ctx.Done():
