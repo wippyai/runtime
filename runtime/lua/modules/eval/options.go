@@ -88,19 +88,17 @@ func newKeySet(keys ...string) map[string]struct{} {
 }
 
 type compileOptions struct {
-	Method    string
-	Policy    apihost.EvalPolicy
-	PolicySet bool
+	Method string
+	Policy apihost.EvalPolicy
 }
 
 type spawnOptions struct {
-	Method    string
-	Name      string
-	Network   string
-	Input     payload.Payloads
-	Policy    apihost.EvalPolicy
-	PolicySet bool
-	LinkMode  apihost.EvalLinkMode
+	Method   string
+	Name     string
+	Network  string
+	Input    payload.Payloads
+	Policy   apihost.EvalPolicy
+	LinkMode apihost.EvalLinkMode
 }
 
 // optionsTable returns the options table at idx, or nil when absent.
@@ -125,7 +123,7 @@ func parseCompileOptions(l *lua.LState, idx int) (compileOptions, error) {
 	if err := checkClosedKeys(opts, compileKeys, "options"); err != nil {
 		return out, err
 	}
-	if out.Policy, out.PolicySet, err = parsePolicyFromOptions(opts); err != nil {
+	if out.Policy, err = parsePolicyFromOptions(opts); err != nil {
 		return compileOptions{}, err
 	}
 	if out.Method, err = optionalStringValue(opts.RawGetString(evalOptionMethod), evalOptionMethod); err != nil {
@@ -143,7 +141,7 @@ func parseSpawnOptions(l *lua.LState, idx int) (spawnOptions, error) {
 	if err := checkClosedKeys(opts, spawnKeys, "options"); err != nil {
 		return out, err
 	}
-	if out.Policy, out.PolicySet, err = parsePolicyFromOptions(opts); err != nil {
+	if out.Policy, err = parsePolicyFromOptions(opts); err != nil {
 		return spawnOptions{}, err
 	}
 	if out.Method, err = optionalStringValue(opts.RawGetString(evalOptionMethod), evalOptionMethod); err != nil {
@@ -185,24 +183,22 @@ func parseInput(opts *lua.LTable) (payload.Payloads, error) {
 
 // parsePolicyFromOptions reads the policy from either the nested policy table
 // or the top-level policy fields. The two forms do not mix.
-func parsePolicyFromOptions(opts *lua.LTable) (apihost.EvalPolicy, bool, error) {
+func parsePolicyFromOptions(opts *lua.LTable) (apihost.EvalPolicy, error) {
 	raw := opts.RawGetString(evalOptionPolicy)
 	if raw == lua.LNil {
-		policy, err := parsePolicyFields(opts)
-		return policy, hasPolicyField(opts) != "", err
+		return parsePolicyFields(opts)
 	}
 	nested, ok := raw.(*lua.LTable)
 	if !ok {
-		return apihost.EvalPolicy{}, false, errors.New("eval policy must be table")
+		return apihost.EvalPolicy{}, errors.New("eval policy must be table")
 	}
 	if err := checkClosedKeys(nested, policyKeys, evalOptionPolicy); err != nil {
-		return apihost.EvalPolicy{}, false, err
+		return apihost.EvalPolicy{}, err
 	}
 	if field := hasPolicyField(opts); field != "" {
-		return apihost.EvalPolicy{}, false, fmt.Errorf("eval policy table conflicts with top-level policy field %q", field)
+		return apihost.EvalPolicy{}, fmt.Errorf("eval policy table conflicts with top-level policy field %q", field)
 	}
-	policy, err := parsePolicyFields(nested)
-	return policy, true, err
+	return parsePolicyFields(nested)
 }
 
 // hasPolicyField returns the first policy key present in opts.

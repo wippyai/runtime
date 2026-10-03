@@ -58,12 +58,10 @@ func TestOptions_Absent(t *testing.T) {
 func TestOptions_EmptyTable(t *testing.T) {
 	c, err := compile(t, "{}")
 	require.NoError(t, err)
-	assert.False(t, c.PolicySet)
 	assert.Equal(t, apihost.EvalSendObjectCapability, c.Policy.SendMode)
 
 	s, err := spawn(t, "{}")
 	require.NoError(t, err)
-	assert.False(t, s.PolicySet)
 	assert.Equal(t, apihost.EvalLinkRequired, s.LinkMode)
 	assert.Empty(t, s.Input)
 }
@@ -111,7 +109,6 @@ func TestOptions_StringFields(t *testing.T) {
 	c, err := compile(t, `{method = "run"}`)
 	require.NoError(t, err)
 	assert.Equal(t, "run", c.Method)
-	assert.False(t, c.PolicySet)
 
 	s, err := spawn(t, `{method = "run", name = "worker", network = "net"}`)
 	require.NoError(t, err)
@@ -141,7 +138,6 @@ func TestOptions_CompileMode(t *testing.T) {
 		c, err := compile(t, `{compile = `+tt.src+`}`)
 		require.NoError(t, err, tt.src)
 		assert.Equal(t, tt.mode, c.Policy.CompileMode, tt.src)
-		assert.True(t, c.PolicySet)
 	}
 
 	_, err := compile(t, `{compile = "fast"}`)
@@ -175,7 +171,6 @@ func TestOptions_SendMode(t *testing.T) {
 		c, err := compile(t, fmt.Sprintf(`{send = %q}`, tt.src))
 		require.NoError(t, err, tt.src)
 		assert.Equal(t, tt.mode, c.Policy.SendMode, tt.src)
-		assert.True(t, c.PolicySet)
 	}
 
 	_, err := compile(t, `{send = "all"}`)
@@ -232,7 +227,6 @@ func TestOptions_Modules(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"json", "time"}, c.Policy.Modules)
 	assert.Equal(t, []string{"io"}, c.Policy.AllowClasses)
-	assert.True(t, c.PolicySet)
 
 	c, err = compile(t, `{modules = {}}`)
 	require.NoError(t, err)
@@ -363,7 +357,6 @@ func TestOptions_Commands(t *testing.T) {
 		c, err := compile(t, tt.src)
 		require.NoError(t, err, tt.src)
 		assert.Equal(t, tt.want, c.Policy.AllowCommands, tt.src)
-		assert.True(t, c.PolicySet)
 	}
 
 	errs := []struct{ src, err string }{
@@ -417,12 +410,10 @@ func TestOptions_AllowDetached(t *testing.T) {
 	c, err := compile(t, `{allow_detached = true}`)
 	require.NoError(t, err)
 	assert.True(t, c.Policy.AllowDetached)
-	assert.True(t, c.PolicySet)
 
 	c, err = compile(t, `{allow_detached = false}`)
 	require.NoError(t, err)
 	assert.False(t, c.Policy.AllowDetached)
-	assert.True(t, c.PolicySet)
 
 	_, err = compile(t, `{allow_detached = 1}`)
 	assert.EqualError(t, err, "eval allow_detached must be boolean")
@@ -439,7 +430,6 @@ func TestOptions_Limits(t *testing.T) {
 		MaxSteps: 4, MailboxCapacity: 5, MaxChildren: 6,
 	}
 	assert.Equal(t, want, flat.Policy)
-	assert.True(t, flat.PolicySet)
 
 	nested, err := compile(t, `{limits = {
 		memory_limit_bytes = 1000, heap_reserve_bytes = 2000, tick_budget = 3,
@@ -447,7 +437,6 @@ func TestOptions_Limits(t *testing.T) {
 	}}`)
 	require.NoError(t, err)
 	assert.Equal(t, want, nested.Policy)
-	assert.True(t, nested.PolicySet)
 
 	inPolicy, err := compile(t, `{policy = {limits = {max_steps = 4}, tick_budget = 3}}`)
 	require.NoError(t, err)
@@ -558,7 +547,6 @@ func TestOptions_NestedPolicy(t *testing.T) {
 	}}`)
 	require.NoError(t, err)
 	assert.Equal(t, "m", c.Method)
-	assert.True(t, c.PolicySet)
 	assert.Equal(t, apihost.EvalCompileTyped, c.Policy.CompileMode)
 	assert.Equal(t, []string{"json"}, c.Policy.Modules)
 	assert.Equal(t, apihost.EvalSendDenied, c.Policy.SendMode)
@@ -568,7 +556,6 @@ func TestOptions_NestedPolicy(t *testing.T) {
 
 	c, err = compile(t, `{policy = {}}`)
 	require.NoError(t, err)
-	assert.True(t, c.PolicySet)
 
 	flat, err := compile(t, `{compile = "typed", modules = {"json"}, send = "none", commands = {"spawn"}, allow_detached = true, max_steps = 10}`)
 	require.NoError(t, err)
@@ -583,7 +570,6 @@ func TestOptions_NestedPolicy(t *testing.T) {
 
 	s, err := spawn(t, `{policy = {modules = {"json"}}, name = "n", link = "monitor"}`)
 	require.NoError(t, err)
-	assert.True(t, s.PolicySet)
 	assert.Equal(t, []string{"json"}, s.Policy.Modules)
 	assert.Equal(t, "n", s.Name)
 	assert.Equal(t, apihost.EvalLinkMonitorOnly, s.LinkMode)
@@ -622,34 +608,6 @@ func TestOptions_NestedPolicyConflictsWithTopLevel(t *testing.T) {
 	assert.NoError(t, err, "method is not a policy field")
 	_, err = spawn(t, `{policy = {}, name = "n", link = "detached", input = 1}`)
 	assert.NoError(t, err, "spawn fields are not policy fields")
-}
-
-func TestOptions_PolicySet(t *testing.T) {
-	tests := []struct {
-		src string
-		set bool
-	}{
-		{`{}`, false},
-		{`{method = "m"}`, false},
-		{`{modules = {}}`, true},
-		{`{max_steps = 1}`, true},
-		{`{limits = {max_steps = 1}}`, true},
-		{`{allow_detached = false}`, true},
-		{`{policy = {}}`, true},
-		{`{policy = {modules = {"json"}}}`, true},
-	}
-	for _, tt := range tests {
-		c, err := compile(t, tt.src)
-		require.NoError(t, err, tt.src)
-		assert.Equal(t, tt.set, c.PolicySet, tt.src)
-		s, err := spawn(t, tt.src)
-		require.NoError(t, err, tt.src)
-		assert.Equal(t, tt.set, s.PolicySet, tt.src)
-	}
-
-	s, err := spawn(t, `{name = "n", network = "x", input = 1, link = "detached"}`)
-	require.NoError(t, err)
-	assert.False(t, s.PolicySet)
 }
 
 func TestOptions_SpawnInput(t *testing.T) {
