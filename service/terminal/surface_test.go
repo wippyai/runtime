@@ -7,14 +7,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/charmbracelet/x/vt"
+	xterm "github.com/gitpod-io/xterm-go"
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
 func TestSurfaceShrinkPreservesBottomRow(t *testing.T) {
 	for _, invalidate := range []bool{false, true} {
-		screen := vt.NewEmulator(8, 4)
+		screen := xterm.New(xterm.WithCols(8), xterm.WithRows(4))
 		surface := NewSurface(screen, ttyapi.SurfaceOptions{})
 		_, err := surface.Present(ttyapi.Frame{Rows: []string{"content", "taskbar", "old", "tail"}})
 		require.NoError(t, err)
@@ -24,12 +24,12 @@ func TestSurfaceShrinkPreservesBottomRow(t *testing.T) {
 		}
 		_, err = surface.Present(ttyapi.Frame{Rows: []string{"content", "taskbar"}})
 		require.NoError(t, err)
-		require.Contains(t, screen.Render(), "taskbar")
+		require.Contains(t, screen.String(), "taskbar")
 	}
 }
 
 func TestSurfacePreservesFullWidthRows(t *testing.T) {
-	screen := vt.NewEmulator(8, 2)
+	screen := xterm.New(xterm.WithCols(8), xterm.WithRows(2))
 	surface := NewSurface(screen, ttyapi.SurfaceOptions{})
 	for _, rows := range [][]string{
 		{"12345678", "abcdefgh"},
@@ -38,7 +38,7 @@ func TestSurfacePreservesFullWidthRows(t *testing.T) {
 		_, err := surface.Present(ttyapi.Frame{Rows: rows})
 		require.NoError(t, err)
 		for _, row := range rows {
-			require.Contains(t, screen.Render(), row)
+			require.Contains(t, screen.String(), row)
 		}
 	}
 }
