@@ -8,7 +8,6 @@ import (
 	"math"
 
 	"github.com/wippyai/runtime/api/attrs"
-	"github.com/wippyai/runtime/api/registry"
 )
 
 // Actor execution option keys, shared by process entry meta.options and
@@ -17,6 +16,9 @@ const (
 	ProcessOptionTickBudget = "tick_budget"
 	ProcessOptionMaxSteps   = "max_steps"
 )
+
+// entryOptionsMetaKey is the entry meta bag holding declaration-time options.
+const entryOptionsMetaKey = "options"
 
 // ExecutionBudgets holds the execution limits of a Lua actor.
 //
@@ -71,10 +73,10 @@ func ExecutionBudgetsFromOptions(options attrs.Attributes, subject string) (Exec
 func EntryExecutionBudgets(meta attrs.Bag) (ExecutionBudgets, error) {
 	for _, key := range [...]string{ProcessOptionTickBudget, ProcessOptionMaxSteps} {
 		if _, ok := meta.Get(key); ok {
-			return ExecutionBudgets{}, fmt.Errorf("process entry meta %q must be nested under meta.%s", key, registry.EntryOptionsMetaKey)
+			return ExecutionBudgets{}, fmt.Errorf("process entry meta %q must be nested under meta.%s", key, entryOptionsMetaKey)
 		}
 	}
-	options, ok := registry.EntryOptionsFromMeta(meta)
+	options, ok := meta.GetBag(entryOptionsMetaKey)
 	if !ok {
 		return ExecutionBudgets{}, nil
 	}
