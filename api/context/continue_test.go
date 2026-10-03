@@ -122,7 +122,7 @@ func TestContinueFrameContextClosesValuesItOwns(t *testing.T) {
 	}
 }
 
-type sharedSet struct{ n int }
+type sharedSet struct{ _ byte }
 
 func (s *sharedSet) Clone() any { c := *s; return &c }
 
