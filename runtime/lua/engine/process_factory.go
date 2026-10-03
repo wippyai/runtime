@@ -49,6 +49,7 @@ type processConfig struct {
 	excludeModules []string
 	extraModules   []*luaapi.ModuleDef
 	buildMode      code.AccessMode
+	budgets        luaapi.ExecutionBudgets
 }
 
 func newProcessConfig() *processConfig {
@@ -107,6 +108,14 @@ func WithModules(mods ...*luaapi.ModuleDef) FactoryOption {
 	}
 }
 
+// WithExecutionBudgets sets the execution options (tick_budget, max_steps)
+// of the processes the factory creates.
+func WithExecutionBudgets(budgets luaapi.ExecutionBudgets) FactoryOption {
+	return func(c *processConfig) {
+		c.budgets = budgets
+	}
+}
+
 // WithFilter sets a custom filter function.
 // Return (true, nil) to include, (false, nil) to exclude, (false, err) to fail.
 func WithFilter(fn func(name string, classes []string) (bool, error)) FactoryOption {
@@ -152,6 +161,7 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 	factoryCfg := FactoryConfig{
 		Proto:         compiled.Main,
 		ModuleBinders: binders,
+		Budgets:       cfg.budgets,
 	}
 
 	factory := NewFactory(factoryCfg)
@@ -211,6 +221,7 @@ func (f *ProcessFactory) isolationBinder(
 		base := l.Get(lua.GlobalsIndex).(*lua.LTable)
 		valueByNode := make(map[registry.ID]lua.LValue, len(compiled.Dependencies))
 		processed := make(map[registry.ID]struct{}, len(compiled.Dependencies))
+		var seals []func()
 
 		// Dependencies are ordered deepest-first, so a library's imports are
 		// resolved before the library itself runs.
@@ -255,21 +266,30 @@ func (f *ProcessFactory) isolationBinder(
 			}
 
 			if dep.Proto != nil {
-				env := buildChunkEnv(l, base, compiled.Imports[id], valueByNode)
+				env, seal := buildChunkEnv(l, base, compiled.Imports[id], valueByNode)
+				seals = append(seals, seal)
 				fn := l.LoadProto(dep.Proto)
 				fn.Env = env
-				l.Push(fn)
-				if err := l.PCall(0, 1, nil); err != nil {
-					return fmt.Errorf("failed to load dependency %s: %w", dep.Name, toAPIError(err))
-				}
-				valueByNode[id] = l.Get(-1)
-				l.Pop(1)
+				DeferInitializer(l, Initializer{
+					Fn:   fn,
+					Done: func(result lua.LValue) { valueByNode[id] = result },
+				})
 			}
 		}
 
 		// The entrypoint runs under its own scoped environment. Assigning it as
 		// the state environment makes LoadProto stamp the main chunk with it.
-		l.Env = buildChunkEnv(l, base, compiled.Imports[compiled.MainID], valueByNode)
+		env, seal := buildChunkEnv(l, base, compiled.Imports[compiled.MainID], valueByNode)
+		l.Env = env
+		seals = append(seals, seal)
+
+		// Once every library has initialized, each environment fixes which
+		// aliases are imports against the globals as they then are.
+		OnInitialized(l, func() {
+			for _, seal := range seals {
+				seal()
+			}
+		})
 		return nil
 	}
 }
@@ -279,30 +299,60 @@ func (f *ProcessFactory) isolationBinder(
 // through a scoped require) and falls back to the shared safe base for standard
 // globals via its metatable.
 //
-// A runtime-installed DSL global may temporarily shadow an import alias when
-// that global did not exist in the base environment at chunk creation time. This
-// preserves the old shared-_G migration DSL behavior without leaking declared
-// imports into _G. Undeclared modules resolve to nil and require fails closed.
-func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, valueByNode map[registry.ID]lua.LValue) *lua.LTable {
+// An alias is an import when the base environment holds a value under that
+// name at the moment the environment is sealed: after library initialization
+// completes, or at the first lookup if that comes earlier. A global installed
+// under an alias name before sealing is shadowed by the import; one installed
+// afterwards, such as the migration DSL's helpers, stays visible through the
+// base without leaking declared imports into _G. Undeclared modules resolve to
+// nil and require fails closed.
+func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, valueByNode map[registry.ID]lua.LValue) (*lua.LTable, func()) {
 	env := l.NewTable()
 
-	resolved := make(map[string]lua.LValue, len(imports))
-	baseHadAlias := make(map[string]bool, len(imports))
+	// Library values appear in valueByNode as their initializers complete, so
+	// imports resolve at lookup time. Imports sharing an alias resolve to the
+	// last one that has a value.
+	aliasIDs := make(map[string][]registry.ID, len(imports))
 	for _, imp := range imports {
-		v, ok := valueByNode[imp.ID]
-		if !ok {
-			continue
-		}
 		alias := imp.Alias
 		if alias == "" {
 			alias = imp.ID.Name
 		}
-		resolved[alias] = v
-		baseHadAlias[alias] = base.RawGetString(alias) != lua.LNil
+		aliasIDs[alias] = append(aliasIDs[alias], imp.ID)
+	}
+
+	// An alias that already exists in the base is an import: the declared
+	// import wins over it, so a library's explicit _G export under an alias
+	// name does not override the import, while helpers installed later resolve
+	// through the base. The returned seal fixes the set against the current
+	// globals; it is called when library initialization completes. Lookups
+	// before that, which only library top-level code makes, fix it on first
+	// use, with the chunk's own dependencies already run.
+	var baseHadAlias map[string]bool
+	seal := func() {
+		baseHadAlias = make(map[string]bool, len(aliasIDs))
+		for alias := range aliasIDs {
+			baseHadAlias[alias] = base.RawGetString(alias) != lua.LNil
+		}
+	}
+	snapshot := func() {
+		if baseHadAlias == nil {
+			seal()
+		}
+	}
+	resolve := func(alias string) (lua.LValue, bool) {
+		ids := aliasIDs[alias]
+		for i := len(ids) - 1; i >= 0; i-- {
+			if v, ok := valueByNode[ids[i]]; ok {
+				return v, true
+			}
+		}
+		return nil, false
 	}
 
 	mt := l.NewTable()
 	mt.RawSetString("__index", l.NewFunction(func(s *lua.LState) int {
+		snapshot()
 		name := s.CheckString(2)
 		baseValue := base.RawGetString(name)
 		if baseValue != lua.LNil && !baseHadAlias[name] {
@@ -312,7 +362,7 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 			s.Push(baseValue)
 			return 1
 		}
-		if v, ok := resolved[name]; ok {
+		if v, ok := resolve(name); ok {
 			s.Push(v)
 			return 1
 		}
@@ -326,8 +376,9 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 	l.SetMetatable(env, mt)
 
 	env.RawSetString("require", l.NewFunction(func(s *lua.LState) int {
+		snapshot()
 		name := s.CheckString(1)
-		if v, ok := resolved[name]; ok {
+		if v, ok := resolve(name); ok {
 			s.Push(v)
 			return 1
 		}
@@ -341,7 +392,7 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 		s.RaiseError("module '%s' not found", name)
 		return 0
 	}))
-	return env
+	return env, seal
 }
 
 // Helper functions
@@ -372,6 +423,7 @@ type FactoryConfig struct {
 	Script        string
 	ScriptName    string
 	ModuleBinders []ModuleBinder
+	Budgets       luaapi.ExecutionBudgets
 }
 
 // Factory creates Lua processes with shared configuration.
@@ -382,6 +434,7 @@ type Factory struct {
 	script        string
 	scriptName    string
 	moduleBinders []ModuleBinder
+	budgets       luaapi.ExecutionBudgets
 }
 
 // NewFactory creates a ProcessFactory for Lua processes.
@@ -393,6 +446,7 @@ func NewFactory(cfg FactoryConfig) process.FactoryFunc {
 		scriptName:    cfg.ScriptName,
 		moduleBinders: cfg.ModuleBinders,
 		stateOpts:     cfg.StateOptions,
+		budgets:       cfg.Budgets,
 	}
 	return f.Create
 }
@@ -405,11 +459,12 @@ func (f *Factory) Create() (process.Process, error) {
 	}
 
 	proc := &Process{
-		threads:  make([]*Task, 0, 4),
-		queue:    NewTaskQueue(),
-		yieldBuf: make([]*Task, 0, 4),
-		factory:  f,
-		state:    state,
+		threads:      make([]*Task, 0, 4),
+		queue:        NewTaskQueue(),
+		yieldBuf:     make([]*Task, 0, 4),
+		factory:      f,
+		state:        state,
+		entryBudgets: f.budgets,
 	}
 
 	if f.proto != nil {

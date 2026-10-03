@@ -76,6 +76,7 @@ func TestFactory_ImportIsolation_LibDepDoesNotLeak(t *testing.T) {
 	if err != nil {
 		t.Fatalf("factory() failed: %v", err)
 	}
+	runEntry(t, proc.(*Process))
 	state := proc.(*Process).State()
 	env := state.Env
 
@@ -158,6 +159,7 @@ func TestFactory_ImportIsolation_OverlayLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("factory() failed: %v", err)
 	}
+	runEntry(t, proc.(*Process))
 	state := proc.(*Process).State()
 	env := state.Env
 
@@ -230,6 +232,7 @@ func TestFactory_ImportIsolation_ExplicitGlobalExportIsVisibleWithoutImportLeak(
 	defer procRaw.Close()
 
 	luaProc := procRaw.(*Process)
+	runEntry(t, luaProc)
 	state := luaProc.State()
 
 	if got := state.GetGlobal("public_export"); got.String() != "visible" {
@@ -314,5 +317,18 @@ func TestFactory_ImportIsolation_DynamicDSLGlobalOverridesImportAlias(t *testing
 	luaProc := procRaw.(*Process)
 	if v := luaProc.State().GetGlobal("migration"); v != lua.LNil {
 		t.Fatalf("migration DSL leaked into _G after define cleanup: %v", v)
+	}
+}
+
+// runEntry runs the process's first step, which initializes its libraries.
+func runEntry(t *testing.T, proc *Process) {
+	t.Helper()
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "main", nil); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatalf("Step failed: %v", err)
 	}
 }

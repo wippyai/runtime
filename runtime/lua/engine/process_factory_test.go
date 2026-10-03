@@ -3,10 +3,14 @@
 package engine
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
@@ -259,9 +263,6 @@ func TestNewProcessFactory(t *testing.T) {
 }
 
 func TestDependencyRaisePreservesKind(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-	lua.OpenErrors(l)
 	id := registry.NewID("test", "dependency")
 	compiled := &code.CompiledMain{
 		Dependencies: []code.CompiledProto{{
@@ -270,12 +271,131 @@ func TestDependencyRaisePreservesKind(t *testing.T) {
 			Proto: compileTestProto(t, `error(errors.new({message="bad dependency", kind=errors.INVALID, retryable=false}))`),
 		}},
 	}
-	pf := NewProcessFactory(nil)
-	binder := pf.isolationBinder(compiled, newProcessConfig(), nil, nil, nil, nil)
-	err := binder(l)
+	proc := newDependencyProcess(t, compiled, `return { main = function() end }`, 0)
+	if err := proc.Init(frameContext(), "main", nil); err != nil {
+		t.Fatal(err)
+	}
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
 	if err == nil || apierror.BuildChain(err).Root().Kind != string(apierror.Invalid) {
 		t.Fatalf("dependency error = %v", err)
 	}
+}
+
+// Library chunks run in dependency order under per-chunk environments, inside
+// the first step.
+func TestDependenciesRunInFirstStepWithScopedEnvironments(t *testing.T) {
+	baseID := registry.NewID("test", "base")
+	midID := registry.NewID("test", "mid")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID: mainID,
+		Imports: map[registry.ID][]code.Import{
+			midID:  {{ID: baseID, Alias: "b"}},
+			mainID: {{ID: midID, Alias: "m"}},
+		},
+		Dependencies: []code.CompiledProto{
+			{Name: "base", Node: &code.Node{ID: baseID}, Proto: compileTestProto(t, `ran = (ran or 0) + 1 return { v = 1 }`)},
+			{Name: "mid", Node: &code.Node{ID: midID}, Proto: compileTestProto(t, `return { v = b.v + 1, via_require = require("b").v }`)},
+		},
+	}
+	proc := newDependencyProcess(t, compiled, `
+		return { main = function()
+			return m.v * 100 + require("m").via_require * 10 + (b == nil and 1 or 0)
+		end }
+	`, 0)
+	state := proc.State()
+	if state.GetGlobal("ran") != lua.LNil {
+		t.Fatal("library code must not run before the first step")
+	}
+	if err := proc.Init(frameContext(), "main", nil); err != nil {
+		t.Fatal(err)
+	}
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	// m.v = 2, require("m").via_require = 1, b hidden from main = 1.
+	if v, _ := output.Result().Data().(lua.LValue); lua.LVAsNumber(v) != 211 {
+		t.Fatalf("expected 211, got %v", output.Result().Data())
+	}
+}
+
+// A library that never returns is preempted instead of blocking Init, and a
+// later execution of a process with finished libraries does not run them again.
+func TestDependencyLoopIsPreempted(t *testing.T) {
+	id := registry.NewID("test", "spin")
+	compiled := &code.CompiledMain{
+		Dependencies: []code.CompiledProto{{Name: "spin", Node: &code.Node{ID: id}, Proto: compileTestProto(t, `while true do end`)}},
+	}
+	proc := newDependencyProcess(t, compiled, `return { main = function() end }`, 100)
+	proc.EnablePreemption()
+
+	inited := make(chan error, 1)
+	go func() { inited <- proc.Init(frameContext(), "main", nil) }()
+	select {
+	case err := <-inited:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Init blocked on library code")
+	}
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.Status() != process.StepPreempted {
+		t.Fatalf("expected the library loop to be preempted, got %v", output.Status())
+	}
+}
+
+func TestDependenciesRunOncePerProcess(t *testing.T) {
+	id := registry.NewID("test", "counter")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID:  mainID,
+		Imports: map[registry.ID][]code.Import{mainID: {{ID: id, Alias: "c"}}},
+		Dependencies: []code.CompiledProto{{Name: "counter", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`runs = (runs or 0) + 1 return { runs = runs }`)}},
+	}
+	proc := newDependencyProcess(t, compiled, `return { main = function() return c.runs end }`, 0)
+	for i := 0; i < 3; i++ {
+		if err := proc.Init(frameContext(), "main", nil); err != nil {
+			t.Fatal(err)
+		}
+		var output process.StepOutput
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatal(err)
+		}
+		if v, _ := output.Result().Data().(lua.LValue); lua.LVAsNumber(v) != 1 {
+			t.Fatalf("execution %d: expected the library to have run once, got %v", i, output.Result().Data())
+		}
+	}
+}
+
+func frameContext() context.Context {
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	return ctx
+}
+
+// newDependencyProcess builds a process over script whose state is bound
+// through the factory's isolation binder for compiled.
+func newDependencyProcess(t *testing.T, compiled *code.CompiledMain, script string, tickBudget int64) *Process {
+	t.Helper()
+	binder := NewProcessFactory(nil).isolationBinder(compiled, newProcessConfig(), nil, nil, nil, nil)
+	budgets := luaapi.ExecutionBudgets{}
+	if tickBudget != 0 {
+		budgets = luaapi.ExecutionBudgets{TickBudget: tickBudget, TickBudgetSet: true}
+	}
+	proc := mustNewProcess(t,
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })),
+		WithModuleBinder(binder),
+		WithScript(script, "main.lua"),
+		WithProcessExecutionBudgets(budgets),
+	)
+	t.Cleanup(proc.Close)
+	return proc
 }
 
 // --- helpers ---
@@ -288,4 +408,125 @@ func compileTestProto(t *testing.T, source string) *lua.FunctionProto {
 	fn, err := l.LoadString(source)
 	require.NoError(t, err)
 	return fn.Proto
+}
+
+// A library that assigns _G under the alias it is imported as does not
+// override the declared import: the alias resolves the same through the
+// environment and through require.
+func TestLibraryGlobalExportDoesNotOverrideImportAlias(t *testing.T) {
+	id := registry.NewID("test", "c")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID:  mainID,
+		Imports: map[registry.ID][]code.Import{mainID: {{ID: id, Alias: "c"}}},
+		Dependencies: []code.CompiledProto{{Name: "c", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`_G.c = { v = 99 } _G.other = 7 return { v = 42 }`)}},
+	}
+	proc := newDependencyProcess(t, compiled, `
+		return { main = function() return c.v * 1000 + require("c").v + other end }
+	`, 0)
+	runProcess(t, proc, 42049)
+}
+
+// A global installed after the environment is in use stays visible even when
+// it shares a name with an import alias.
+func TestDynamicGlobalOverridesImportAliasAfterInitialization(t *testing.T) {
+	id := registry.NewID("test", "dsl")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID:  mainID,
+		Imports: map[registry.ID][]code.Import{mainID: {{ID: id, Alias: "dsl"}}},
+		Dependencies: []code.CompiledProto{{Name: "dsl", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`return { with = function(fn) _G.dsl = function() return 5 end local r = fn() _G.dsl = nil return r end }`)}},
+	}
+	proc := newDependencyProcess(t, compiled, `
+		return { main = function()
+			return require("dsl").with(function() return dsl() end)
+		end }
+	`, 0)
+	runProcess(t, proc, 5)
+}
+
+// SyncExecute initializes the process's libraries before it runs the chunk.
+func TestSyncExecuteRunsPendingInitializers(t *testing.T) {
+	id := registry.NewID("test", "c")
+	mainID := registry.NewID("test", "main")
+	compiled := &code.CompiledMain{
+		MainID:  mainID,
+		Imports: map[registry.ID][]code.Import{mainID: {{ID: id, Alias: "c"}}},
+		Dependencies: []code.CompiledProto{{Name: "c", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`_G.runs = (_G.runs or 0) + 1 return { v = 42 }`)}},
+	}
+	binder := NewProcessFactory(nil).isolationBinder(compiled, newProcessConfig(), nil, nil, nil, nil)
+	proc := mustNewProcess(t, WithModuleBinder(binder), WithProto(compileTestProto(t, `return c.v + runs`)))
+	t.Cleanup(proc.Close)
+	for i := 0; i < 2; i++ {
+		got, err := proc.SyncExecute(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lua.LVAsNumber(got) != 43 {
+			t.Fatalf("run %d: expected 43, got %v", i, got)
+		}
+	}
+}
+
+func TestSyncExecuteInitializerErrorKeepsKind(t *testing.T) {
+	id := registry.NewID("test", "c")
+	compiled := &code.CompiledMain{
+		Dependencies: []code.CompiledProto{{Name: "c", Node: &code.Node{ID: id}, Proto: compileTestProto(t,
+			`error(errors.new({message="bad dependency", kind=errors.INVALID, retryable=false}))`)}},
+	}
+	binder := NewProcessFactory(nil).isolationBinder(compiled, newProcessConfig(), nil, nil, nil, nil)
+	proc := mustNewProcess(t,
+		WithModuleBinder(wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })),
+		WithModuleBinder(binder), WithProto(compileTestProto(t, `return 1`)))
+	t.Cleanup(proc.Close)
+	_, err := proc.SyncExecute(context.Background())
+	if err == nil || apierror.BuildChain(err).Root().Kind != string(apierror.Invalid) {
+		t.Fatalf("expected an Invalid error from the library, got %v", err)
+	}
+}
+
+func runProcess(t *testing.T, proc *Process, want float64) {
+	t.Helper()
+	if err := proc.Init(frameContext(), "main", nil); err != nil {
+		t.Fatal(err)
+	}
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := output.Result().Data().(lua.LValue); float64(lua.LVAsNumber(v)) != want {
+		t.Fatalf("expected %v, got %v", want, output.Result().Data())
+	}
+}
+
+// Every chunk environment decides its import aliases when library
+// initialization completes: a sibling library's _G export under an alias name
+// does not override the import in an earlier library, whether or not that
+// library looked up a global while it initialized.
+func TestSiblingGlobalExportDoesNotOverrideEarlierLibraryImport(t *testing.T) {
+	for name, aSource := range map[string]string{
+		"no top-level lookup":   `return { get = function() return c.v end }`,
+		"top-level global read": `local _ = tostring return { get = function() return c.v end }`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			aID, bID, cID, mainID := registry.NewID("t", "a"), registry.NewID("t", "b"), registry.NewID("t", "c"), registry.NewID("t", "main")
+			compiled := &code.CompiledMain{
+				MainID: mainID,
+				Imports: map[registry.ID][]code.Import{
+					aID:    {{ID: cID, Alias: "c"}},
+					mainID: {{ID: aID, Alias: "a"}, {ID: bID, Alias: "b"}},
+				},
+				Dependencies: []code.CompiledProto{
+					{Name: "c", Node: &code.Node{ID: cID}, Proto: compileTestProto(t, `return { v = 42 }`)},
+					{Name: "a", Node: &code.Node{ID: aID}, Proto: compileTestProto(t, aSource)},
+					{Name: "b", Node: &code.Node{ID: bID}, Proto: compileTestProto(t, `_G.c = { v = 99 } return {}`)},
+				},
+			}
+			proc := newDependencyProcess(t, compiled, `return { main = function() return a.get() end }`, 0)
+			runProcess(t, proc, 42)
+		})
+	}
 }

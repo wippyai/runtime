@@ -29,8 +29,9 @@ type Worker struct {
 	executed            atomic.Uint64
 	stolen              atomic.Uint64
 	notified            atomic.Bool
-	executing           bool // guarded by routeMu
 	retiring            atomic.Bool
+	parked              atomic.Bool // set while counted in Scheduler.parked
+	executing           bool        // guarded by routeMu
 	dispatchesSinceFair uint8
 	fairSource          uint8
 }
@@ -163,15 +164,46 @@ func (w *Worker) handoff(proc *Processor) {
 	w.scheduler.global.Push(proc)
 }
 
+// requeuePreempted makes a preempted processor runnable behind other ready
+// work. When this worker has nothing else to run the processor continues on
+// the local deque like StepContinue; otherwise it joins the global FIFO, where
+// any worker can pick it up after the work already queued. The wakeup is only
+// needed when some worker is parked: this worker looks for work again right
+// after the step.
+func (w *Worker) requeuePreempted(proc *Processor) {
+	s := w.scheduler
+	if w.local.IsEmpty() && w.inject.IsEmpty() && s.global.Len() == 0 {
+		w.local.Push(proc)
+		return
+	}
+	proc.lastWorker.Store(noWorkerAffinity)
+	s.global.Push(proc)
+	if s.parked.Load() > 0 {
+		s.wakeAny()
+	}
+}
+
+func (w *Worker) unpark() {
+	w.parked.Store(false)
+	w.scheduler.parked.Add(-1)
+}
+
 func (w *Worker) park() {
 	s := w.scheduler
+	// A worker counts as parked from before its last work check until it
+	// stops waiting, so a producer that publishes work and then reads the
+	// count either sees the worker or the worker sees the work.
+	s.parked.Add(1)
+	w.parked.Store(true)
 	w.parkMu.Lock()
 	for {
 		if w.retiring.Load() {
+			w.unpark()
 			w.parkMu.Unlock()
 			return
 		}
 		if proc := w.findWork(); proc != nil {
+			w.unpark()
 			shouldWake := s.global.Len() > 0
 			w.parkMu.Unlock()
 			if shouldWake {
@@ -182,6 +214,7 @@ func (w *Worker) park() {
 			return
 		}
 		if s.phase.Load() == phaseStoppingWorkers {
+			w.unpark()
 			w.parkMu.Unlock()
 			return
 		}
@@ -220,7 +253,7 @@ func (w *Worker) signal() bool {
 
 // localDispatchQuantum bounds preference for the cache-hot local continuation.
 // Fair turns rotate through injected wakeups, global submissions and the oldest
-// local continuation. This is cooperative dispatch fairness, not guest preemption.
+// local continuation.
 const localDispatchQuantum = 32
 
 func (w *Worker) takeFairWork() *Processor {
@@ -398,7 +431,7 @@ func (w *Worker) executeOne(proc *Processor) {
 	if status != process.StepDone {
 		yields := proc.output.Yields()
 		if len(yields) > 0 {
-			w.dispatchYields(proc.ctx, proc, yields)
+			w.dispatchYields(proc.ctx, proc, yields, status == process.StepPreempted)
 			return
 		}
 	}
@@ -419,6 +452,12 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Push to local deque - same worker will pick it up next iteration.
 		// No wake needed since we're the active worker.
 		w.local.Push(proc)
+
+	case process.StepPreempted:
+		if !proc.casState(StateRunning, StateReady) {
+			return
+		}
+		w.requeuePreempted(proc)
 
 	case process.StepYield:
 		if !proc.casState(StateRunning, StateBlocked) {
@@ -443,7 +482,6 @@ func (w *Worker) executeOne(proc *Processor) {
 	case process.StepUpgrade:
 		req := proc.output.Upgrade()
 		if req == nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -454,7 +492,6 @@ func (w *Worker) executeOne(proc *Processor) {
 
 		factory := process.GetFactory(proc.ctx)
 		if factory == nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -469,7 +506,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			var ok bool
 			source, ok = runtime.GetFrameID(proc.ctx)
 			if !ok {
-				proc.Process.Close()
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
@@ -482,7 +518,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Create new process
 		newProc, meta, err := factory.Create(source)
 		if err != nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -491,11 +526,22 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 
+		var stepsUsed uint64
+		if counter, ok := proc.Process.(process.StepAccounted); ok {
+			stepsUsed = counter.StepsUsed()
+		}
+
 		// Close old process
 		proc.Process.Close()
 
 		// Swap
 		proc.Process = newProc
+		enablePreemption(newProc)
+		// The replacement numbers its yields from the start; completions of the
+		// replaced code must not resume them. Messages and wakes stay bound to
+		// the unchanged queue generation.
+		proc.queue.RetireYieldCompletions()
+		proc.completer = proc.queue.NewYieldCompleter(w.scheduler)
 
 		// Init new process
 		method := "main"
@@ -509,7 +555,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		// the process by its NEW definition (used by ListProcesses and OUTDATED
 		// notification), not the pre-upgrade source.
 		if err := runtime.SetFrameID(upgradeCtx, source); err != nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -517,9 +562,20 @@ func (w *Worker) executeOne(proc *Processor) {
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: set source failed: %w", err))
 			return
 		}
+		// Spawn options (execution limits, parent) describe the actor, not its
+		// current definition, so the replacement frame carries them over.
+		if opts := runtime.GetFrameLifecycleOptions(proc.ctx); opts != nil {
+			if err := runtime.SetFrameLifecycleOptions(upgradeCtx, opts); err != nil {
+				if !proc.casState(StateRunning, StateComplete) {
+					return
+				}
+				proc.queue.Close()
+				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: preserve options failed: %w", err))
+				return
+			}
+		}
 		if hasSelfPID {
 			if err := runtime.SetFramePID(upgradeCtx, selfPID); err != nil {
-				proc.Process.Close()
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
@@ -529,13 +585,15 @@ func (w *Worker) executeOne(proc *Processor) {
 			}
 		}
 		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
 			proc.queue.Close()
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: init failed: %w", err))
 			return
+		}
+		if counter, ok := newProc.(process.StepAccounted); ok {
+			counter.ResumeStepCount(stepsUsed)
 		}
 		proc.ctx = upgradeCtx
 		// Re-publish the out-of-band snapshot so future invalidations classify
@@ -555,7 +613,9 @@ func (w *Worker) executeOne(proc *Processor) {
 // dispatchYields sends all yields to handlers.
 // Processor state is StateRunning during this call.
 // CompleteYield sets wakeup flag instead of re-queueing while Running.
-func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []process.Yield) {
+// A preempted process stays runnable and is requeued; otherwise it blocks
+// until a completion wakes it.
+func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []process.Yield, preempted bool) {
 	for _, y := range yields {
 		handler := w.scheduler.getHandler(y.Cmd)
 		if handler == nil {
@@ -566,13 +626,20 @@ func (w *Worker) dispatchYields(ctx context.Context, proc *Processor, yields []p
 			})
 			continue
 		}
-		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc); err != nil {
+		if err := handler.Handle(ctx, y.Cmd, y.Tag, proc.completer); err != nil {
 			proc.queue.PushDirect(process.Event{
 				Type:  process.EventYieldComplete,
 				Tag:   y.Tag,
 				Error: err,
 			})
 		}
+	}
+
+	if preempted {
+		if proc.casState(StateRunning, StateReady) {
+			w.requeuePreempted(proc)
+		}
+		return
 	}
 
 	// Atomically transition to final state.

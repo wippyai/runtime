@@ -867,11 +867,9 @@ func TestCollectProcessStatsWithProvider(t *testing.T) {
 func TestWakeProcessorPath(t *testing.T) {
 	reg := scheduler.NewRegistry()
 	reg.Register(CmdYield, dispatcher.HandlerFunc(func(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-		proc := receiver.(*Processor)
-		completer := proc.queue.NewYieldCompleter(proc.scheduler)
 		go func() {
 			time.Sleep(10 * time.Millisecond)
-			completer.CompleteYield(tag, nil, nil)
+			receiver.CompleteYield(tag, nil, nil)
 		}()
 		return nil
 	}))

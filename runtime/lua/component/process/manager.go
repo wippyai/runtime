@@ -28,6 +28,7 @@ type configEntry struct {
 	bytecode *api.BytecodeProcessConfig
 	security *security.Config
 	method   string
+	budgets  api.ExecutionBudgets
 }
 
 // Manager handles both source and bytecode Lua process components.
@@ -117,7 +118,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
 			}
 		}
 
-		if err := m.registerFactory(ctx, id, cfg.method, cfg.security); err != nil {
+		if err := m.registerFactory(ctx, id, cfg); err != nil {
 			m.log.Error("failed to invalidate process", zap.Error(err))
 			errs = append(errs, err)
 			continue
@@ -156,6 +157,10 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
+	budgets, err := api.EntryExecutionBudgets(cfg.Meta)
+	if err != nil {
+		return runtimelua.NewUnpackConfigError("process", err)
+	}
 
 	node := code.Node{
 		ID:     entry.ID,
@@ -168,9 +173,10 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg, security: cfg.Security})
+	stored := &configEntry{method: cfg.Method, source: cfg, security: cfg.Security, budgets: budgets}
+	m.configs.Store(entry.ID, stored)
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, stored); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		m.configs.Delete(entry.ID)
 		return runtimelua.NewRegisterFactoryError(err)
@@ -183,6 +189,10 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 // addBytecode adds a bytecode-based process.
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeProcessConfig](ctx, entry)
+	if err != nil {
+		return runtimelua.NewUnpackConfigError("process", err)
+	}
+	budgets, err := api.EntryExecutionBudgets(cfg.Meta)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
@@ -202,9 +212,10 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg, security: cfg.Security})
+	stored := &configEntry{method: cfg.Method, bytecode: cfg, security: cfg.Security, budgets: budgets}
+	m.configs.Store(entry.ID, stored)
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, stored); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
 		m.configs.Delete(entry.ID)
 		return runtimelua.NewRegisterFactoryError(err)
@@ -224,6 +235,10 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
+	budgets, err := api.EntryExecutionBudgets(cfg.Meta)
+	if err != nil {
+		return runtimelua.NewUnpackConfigError("process", err)
+	}
 
 	node := code.Node{
 		ID:     entry.ID,
@@ -236,9 +251,10 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 		return runtimelua.NewUpdateNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, source: cfg, security: cfg.Security})
+	stored := &configEntry{method: cfg.Method, source: cfg, security: cfg.Security, budgets: budgets}
+	m.configs.Store(entry.ID, stored)
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, stored); err != nil {
 		return runtimelua.NewUpdateFactoryError(err)
 	}
 
@@ -249,6 +265,10 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 // updateBytecode updates a bytecode-based process.
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeProcessConfig](ctx, entry)
+	if err != nil {
+		return runtimelua.NewUnpackConfigError("process", err)
+	}
+	budgets, err := api.EntryExecutionBudgets(cfg.Meta)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
@@ -268,9 +288,10 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		return runtimelua.NewUpdateNodeError("process", err)
 	}
 
-	m.configs.Store(entry.ID, &configEntry{method: cfg.Method, bytecode: cfg, security: cfg.Security})
+	stored := &configEntry{method: cfg.Method, bytecode: cfg, security: cfg.Security, budgets: budgets}
+	m.configs.Store(entry.ID, stored)
 
-	if err := m.registerFactory(ctx, entry.ID, cfg.Method, cfg.Security); err != nil {
+	if err := m.registerFactory(ctx, entry.ID, stored); err != nil {
 		return runtimelua.NewUpdateFactoryError(err)
 	}
 
@@ -279,13 +300,16 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 }
 
 // registerFactory registers a process factory with the factory registry and waits for confirmation.
-func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string, sec *security.Config) error {
+func (m *Manager) registerFactory(ctx context.Context, id registry.ID, cfg *configEntry) error {
 	// Create factory using ProcessFactory
-	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
+	factoryFn, err := m.factory.CreateFactory(id,
+		engine.WithModules(component.ExecutableAmbientModules()...),
+		engine.WithExecutionBudgets(cfg.budgets))
 	if err != nil {
 		return err // Already has compile context from code.Manager
 	}
 
+	method := cfg.method
 	if method == "" {
 		method = "main"
 	}
@@ -311,7 +335,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 			Factory: factoryFn,
 			Meta: process.Meta{
 				Method:   method,
-				Security: sec,
+				Security: cfg.security,
 			},
 		},
 	})
