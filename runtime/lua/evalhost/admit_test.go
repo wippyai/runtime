@@ -428,3 +428,21 @@ func TestAdmitterBoundsDetachedEvalLifetime(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 5*time.Minute, lifetimeOf(), "a detached eval has a bounded lifetime")
 }
+
+func TestAdmitterSpawnHonorsCancellation(t *testing.T) {
+	a, starter := newTestAdmitter(t)
+	ctx, _ := ownerContext(t)
+	program, err := a.Compile(ctx, apihost.EvalCompileSpec{SourceCode: admitSource})
+	require.NoError(t, err)
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	for name, spec := range map[string]apihost.EvalSpawnSpec{
+		"cached program": {Program: program, Parent: admitParent},
+		"source":         {SourceCode: admitSource, Parent: admitParent},
+	} {
+		_, err := a.Spawn(cancelled, spec)
+		require.ErrorIs(t, err, context.Canceled, name)
+	}
+	require.Nil(t, starter.start, "no process starts for a cancelled caller")
+}

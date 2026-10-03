@@ -390,6 +390,9 @@ func (a *Admitter) Evict(_ context.Context, program apihost.EvalProgram) (bool, 
 
 // Spawn implements apihost.EvalHost.
 func (a *Admitter) Spawn(ctx context.Context, spec apihost.EvalSpawnSpec) (pid.PID, error) {
+	if err := ctx.Err(); err != nil {
+		return pid.PID{}, err
+	}
 	entry, err := a.programFor(ctx, spec)
 	if err != nil {
 		return pid.PID{}, err
