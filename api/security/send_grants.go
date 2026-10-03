@@ -52,14 +52,6 @@ func (g *ProcessSendGrants) Grant(p pid.PID) {
 	g.mu.Unlock()
 }
 
-// Revoke removes p from the set. A process that has exited is never
-// addressable again, so its grant can be dropped once its exit is observed.
-func (g *ProcessSendGrants) Revoke(p pid.PID) {
-	g.mu.Lock()
-	delete(g.pids, keyOf(p))
-	g.mu.Unlock()
-}
-
 // Holds reports whether p was granted.
 func (g *ProcessSendGrants) Holds(p pid.PID) bool {
 	g.mu.RLock()
@@ -110,13 +102,5 @@ func GetProcessSendGrants(ctx context.Context) *ProcessSendGrants {
 func GrantProcessSend(ctx context.Context, p pid.PID) {
 	if grants := GetProcessSendGrants(ctx); grants != nil {
 		grants.Grant(p)
-	}
-}
-
-// RevokeProcessSend drops the grant to p, a process that has exited, from the
-// process in ctx. It does nothing for unrestricted processes.
-func RevokeProcessSend(ctx context.Context, p pid.PID) {
-	if grants := GetProcessSendGrants(ctx); grants != nil {
-		grants.Revoke(p)
 	}
 }

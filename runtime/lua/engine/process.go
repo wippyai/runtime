@@ -23,7 +23,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
-	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -1556,10 +1555,6 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	handlerTopic := topic
 	frame, hasFrame := subscriptionFrameFromPayloads(qm.Payloads)
 
-	if topic == topology.TopicEvents {
-		p.revokeExitedSendGrant(qm.Payloads)
-	}
-
 	// Check for LINK_DOWN events when trap_links is false
 	// Per spec: without trap_links, process should fail when linked process fails
 	if topic == topology.TopicEvents && !p.trapLinks {
@@ -1773,17 +1768,6 @@ func (p *Process) outdatedEventToLua(ev *topology.OutdatedEvent) lua.LValue {
 	}
 	tbl.RawSetString("sources", sources)
 	return tbl
-}
-
-// revokeExitedSendGrant drops a capability-restricted process's grant to a
-// process whose exit the event reports.
-func (p *Process) revokeExitedSendGrant(payloads []payload.Payload) {
-	if len(payloads) == 0 || payloads[0] == nil {
-		return
-	}
-	if event, ok := payloads[0].Data().(*topology.ExitEvent); ok {
-		secapi.RevokeProcessSend(p.ctx, event.From)
-	}
 }
 
 // isLinkDownEvent checks if the payload contains a LINK_DOWN event.
