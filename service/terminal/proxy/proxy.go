@@ -11,10 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	vt "github.com/charmbracelet/x/vt"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/internal/term/vt"
 )
 
 var (
@@ -24,8 +23,6 @@ var (
 
 const (
 	// scrollbackCellBudget keeps history bounded even for a very wide PTY.
-	// Keeping the cap small also bounds x/vt's line-slice eviction work, which
-	// otherwise shifts its default 10,000 entries for every later output line.
 	scrollbackCellBudget = 20_480
 	maxScrollbackLines   = 256
 
@@ -40,7 +37,9 @@ type Proxy struct {
 	closeErr        error
 	closeCause      error
 	process         execapi.PTYProcess
-	screen          *vt.SafeEmulator
+	screen          *vt.Terminal
+	responses       responseQueue
+	capture         *strings.Builder
 	closeNotify     chan struct{}
 	input           inputState
 	shutdownGrace   time.Duration
@@ -52,7 +51,6 @@ type Proxy struct {
 	inputMu         sync.Mutex
 	lifecycleMu     sync.Mutex
 	closeRequested  atomic.Bool
-	cursorVisible   atomic.Bool
 	started         atomic.Bool
 }
 
@@ -134,20 +132,18 @@ func New(process execapi.PTYProcess, surface ttyapi.Surface, width, height int) 
 		return nil, ErrInvalidProxy
 	}
 	p := &Proxy{
-		process: process, surface: surface, screen: vt.NewSafeEmulator(width, height),
+		process: process, surface: surface,
+		screen:        vt.New(vt.WithCols(width), vt.WithRows(height), vt.WithScrollback(scrollbackSize(width))),
 		shutdownGrace: defaultShutdownGrace, closeNotify: make(chan struct{}),
 	}
-	// Retain a bounded primary-screen history for nested surfaces. Physical
+	// A bounded primary-screen history serves nested surfaces. Physical
 	// terminals normally provide their own scrollback, but a virtual surface
-	// cannot. The cap avoids x/vt's costly default 10,000-line retention.
-	p.resizeScrollbackLocked(width)
+	// cannot.
+	p.responses.init()
 	p.height.Store(int64(height))
-	p.cursorVisible.Store(true)
 	p.input.init()
-	p.screen.SetCallbacks(vt.Callbacks{
-		EnableMode: p.input.enable, DisableMode: p.input.disable,
-		CursorVisibility: p.cursorVisible.Store,
-	})
+	p.screen.OnData(p.reply)
+	p.installModeHandlers()
 	p.installKeyboardHandlers()
 	p.installPageHandlers()
 	return p, nil
@@ -157,13 +153,14 @@ func (p *Proxy) present() error {
 	p.screenMu.Lock()
 	height := int(p.height.Load())
 	rows, scrolled := p.rowsLocked(height)
-	position := p.screen.CursorPosition()
-	width := p.screen.Width()
-	visible := p.cursorVisible.Load() && !scrolled
+	buffer := p.screen.Buffer()
+	width := p.screen.Cols()
+	visible := !p.screen.IsCursorHidden() && !scrolled
+	column, row := buffer.X, buffer.Y
 	p.screenMu.Unlock()
 	frame := ttyapi.Frame{Rows: rows, Cursor: &ttyapi.Cursor{
-		Column:  min(max(position.X, 0), width-1),
-		Row:     min(max(position.Y, 0), height-1),
+		Column:  min(max(column, 0), width-1),
+		Row:     min(max(row, 0), height-1),
 		Visible: visible,
 	}}
 	_, err := p.surface.Present(frame)
@@ -173,87 +170,25 @@ func (p *Proxy) present() error {
 // rowsLocked renders the live screen unless the primary-screen viewport has
 // been moved into scrollback. screenMu must be held by the caller.
 func (p *Proxy) rowsLocked(height int) ([]string, bool) {
-	if p.input.altScreen.Load() {
+	buffer := p.screen.Buffer()
+	if p.screen.IsAltBufferActive() {
 		p.viewOffset = 0
-		return paddedRows(p.screen.Render(), height), false
 	}
-
-	history := p.screen.ScrollbackLen()
-	p.viewOffset = min(p.viewOffset, history)
-	if p.viewOffset == 0 {
-		return paddedRows(p.screen.Render(), height), false
-	}
-
-	width := p.screen.Width()
-	start := history - p.viewOffset
+	p.viewOffset = min(p.viewOffset, buffer.YBase)
+	start := buffer.YBase - p.viewOffset
 	rows := make([]string, height)
 	for y := range rows {
-		line := uv.NewLine(width)
-		lineIndex := start + y
-		for x := range width {
-			var cell *uv.Cell
-			if lineIndex < history {
-				cell = p.screen.ScrollbackCellAt(x, lineIndex)
-			} else {
-				cell = p.screen.CellAt(x, lineIndex-history)
-			}
-			if cell != nil {
-				line[x] = *cell.Clone()
-			}
-		}
-		rows[y] = line.Render()
+		rows[y] = buffer.RenderLine(start + y)
 	}
-	return rows, true
+	return rows, p.viewOffset > 0
 }
 
-func paddedRows(rendered string, height int) []string {
-	rows := strings.Split(rendered, "\n")
-	if len(rows) > height {
-		rows = rows[:height]
-	}
-	for len(rows) < height {
-		rows = append(rows, "")
-	}
-	return rows
+// historyLenLocked is the number of primary-screen history lines. screenMu
+// must be held by the caller.
+func (p *Proxy) historyLenLocked() int {
+	return p.screen.NormalBuffer().YBase
 }
 
 func scrollbackSize(width int) int {
 	return min(maxScrollbackLines, max(scrollbackCellBudget/max(width, 1), 1))
-}
-
-// resizeScrollbackLocked retains as much recent history as fits both the
-// current line cap and cell budget. x/vt stores old lines at their original
-// widths, so changing from a very wide terminal to a narrow one needs more
-// than simply recomputing the number of retained lines. Once the proxy is
-// live, callers hold screenMu while changing this state.
-func (p *Proxy) resizeScrollbackLocked(width int) {
-	target := scrollbackSize(width)
-	p.screen.SetScrollbackSize(target)
-
-	lines := p.screen.Scrollback().Lines()
-	used, retained := 0, 0
-	for index := len(lines) - 1; index >= 0; index-- {
-		cells := len(lines[index])
-		if cells > scrollbackCellBudget-used {
-			break
-		}
-		used += cells
-		retained++
-	}
-	if len(lines) == 0 {
-		return
-	}
-	if retained == 0 {
-		p.screen.ClearScrollback()
-		return
-	}
-	// Existing wide rows consume part of the budget. Bound the number of new
-	// rows at the current width, without paying to rescan history on output.
-	// SetMaxLines only removes old entries, so trim first if necessary and then
-	// install the conservative cap for subsequent output at this geometry.
-	capacity := min(target, retained+(scrollbackCellBudget-used)/max(width, 1))
-	if retained < len(lines) {
-		p.screen.SetScrollbackSize(retained)
-	}
-	p.screen.SetScrollbackSize(capacity)
 }

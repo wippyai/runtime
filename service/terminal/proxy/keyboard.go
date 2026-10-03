@@ -3,18 +3,27 @@
 package proxy
 
 import (
-	"io"
 	"strconv"
 	"sync"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/x/ansi"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/internal/term/vt"
 )
 
-// keyboardState records protocols negotiated by the child terminal. x/vt
-// intentionally does not encode Kitty/CSI-u or modifyOtherKeys yet, so the
-// proxy owns this input-side state until the emulator exposes it natively.
+// Kitty keyboard protocol enhancement flags.
+const (
+	kittyDisambiguateEscapeCodes = 1 << iota
+	kittyReportEventTypes
+	kittyReportAlternateKeys
+	kittyReportAllKeysAsEscapeCodes
+	kittyReportAssociatedText
+	kittyAllFlags = 1<<iota - 1
+)
+
+// keyboardState records protocols negotiated by the child terminal. The
+// emulator does not encode Kitty/CSI-u or modifyOtherKeys, so the proxy owns
+// this input-side state.
 type keyboardState struct {
 	kitty           []int
 	modifyOtherKeys int
@@ -32,7 +41,7 @@ func (s *keyboardState) flags() int {
 
 func (s *keyboardState) push(flags int) {
 	s.mu.Lock()
-	s.kitty = append(s.kitty, flags&ansi.KittyAllFlags)
+	s.kitty = append(s.kitty, flags&kittyAllFlags)
 	s.mu.Unlock()
 }
 
@@ -63,7 +72,7 @@ func (s *keyboardState) set(flags, mode int) {
 	default:
 		current = flags
 	}
-	s.kitty[len(s.kitty)-1] = current & ansi.KittyAllFlags
+	s.kitty[len(s.kitty)-1] = current & kittyAllFlags
 	s.mu.Unlock()
 }
 
@@ -87,7 +96,7 @@ func (s *keyboardState) encode(event ttyapi.Event) (string, bool) {
 		_, functional := kittyFunctionalKeys[name]
 		special = special || functional
 		plainText := !special && !event.Shift && !event.Alt && !event.Ctrl &&
-			event.Action != "release" && flags&(ansi.KittyReportAllKeysAsEscapeCodes|ansi.KittyReportEventTypes) == 0
+			event.Action != "release" && flags&(kittyReportAllKeysAsEscapeCodes|kittyReportEventTypes) == 0
 		if plainText {
 			return "", false
 		}
@@ -109,7 +118,7 @@ func (s *keyboardState) encode(event ttyapi.Event) (string, bool) {
 }
 
 func encodeKittyKey(event ttyapi.Event, flags int) string {
-	if event.Action == "release" && flags&ansi.KittyReportEventTypes == 0 {
+	if event.Action == "release" && flags&kittyReportEventTypes == 0 {
 		return ""
 	}
 	code, ok := keyCode(event)
@@ -120,7 +129,7 @@ func encodeKittyKey(event ttyapi.Event, flags int) string {
 	name := keyName(event)
 	// These controls retain their legacy press encoding until report-all is
 	// requested, including when event-type reporting is enabled.
-	if flags&ansi.KittyReportAllKeysAsEscapeCodes == 0 && (name == "enter" || name == "tab" || name == "backspace") {
+	if flags&kittyReportAllKeysAsEscapeCodes == 0 && (name == "enter" || name == "tab" || name == "backspace") {
 		if event.Action == "release" {
 			return ""
 		}
@@ -137,12 +146,12 @@ func encodeKittyKey(event ttyapi.Event, flags int) string {
 		code, final = key.code, key.final
 	}
 	params := strconv.Itoa(code)
-	if final != 'u' && final != '~' && mods == 1 && flags&ansi.KittyReportEventTypes == 0 {
+	if final != 'u' && final != '~' && mods == 1 && flags&kittyReportEventTypes == 0 {
 		params = ""
 	}
-	if mods != 1 || flags&ansi.KittyReportEventTypes != 0 {
+	if mods != 1 || flags&kittyReportEventTypes != 0 {
 		params += ";" + strconv.Itoa(mods)
-		if flags&ansi.KittyReportEventTypes != 0 {
+		if flags&kittyReportEventTypes != 0 {
 			params += ":" + strconv.Itoa(eventType)
 		}
 	}
@@ -192,35 +201,36 @@ var kittyKeyCodes = map[string]int{
 	"esc": 27, "enter": 13, "tab": 9, "backspace": 127, "space": 32,
 }
 
+// param returns parameter i, or def when it is absent or omitted.
+func param(params *vt.Params, i, def int) int {
+	if i >= params.Length || params.Params[i] < 0 {
+		return def
+	}
+	return int(params.Params[i])
+}
+
 func (p *Proxy) installKeyboardHandlers() {
-	p.screen.RegisterCsiHandler(ansi.Command('?', 0, 'u'), func(ansi.Params) bool {
-		_, _ = io.WriteString(p.screen.InputPipe(), "\x1b[?"+
-			strconv.Itoa(p.input.keyboard.flags())+"u")
+	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '?', Final: 'u'}, func(*vt.Params) bool {
+		p.reply("\x1b[?" + strconv.Itoa(p.input.keyboard.flags()) + "u")
 		return true
 	})
-	p.screen.RegisterCsiHandler(ansi.Command('>', 0, 'u'), func(params ansi.Params) bool {
-		flags, _, _ := params.Param(0, 0)
-		p.input.keyboard.push(flags)
+	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '>', Final: 'u'}, func(params *vt.Params) bool {
+		p.input.keyboard.push(param(params, 0, 0))
 		return true
 	})
-	p.screen.RegisterCsiHandler(ansi.Command('<', 0, 'u'), func(params ansi.Params) bool {
-		count, _, _ := params.Param(0, 1)
-		p.input.keyboard.pop(count)
+	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '<', Final: 'u'}, func(params *vt.Params) bool {
+		p.input.keyboard.pop(param(params, 0, 1))
 		return true
 	})
-	p.screen.RegisterCsiHandler(ansi.Command('=', 0, 'u'), func(params ansi.Params) bool {
-		flags, _, _ := params.Param(0, 0)
-		mode, _, _ := params.Param(1, 1)
-		p.input.keyboard.set(flags, mode)
+	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '=', Final: 'u'}, func(params *vt.Params) bool {
+		p.input.keyboard.set(param(params, 0, 0), param(params, 1, 1))
 		return true
 	})
-	p.screen.RegisterCsiHandler(ansi.Command('>', 0, 'm'), func(params ansi.Params) bool {
-		resource, _, _ := params.Param(0, 0)
-		if resource != 4 {
+	p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '>', Final: 'm'}, func(params *vt.Params) bool {
+		if param(params, 0, 0) != 4 {
 			return false
 		}
-		level, _, _ := params.Param(1, 0)
-		p.input.keyboard.setModifyOtherKeys(level)
+		p.input.keyboard.setModifyOtherKeys(param(params, 1, 0))
 		return true
 	})
 }

@@ -8,14 +8,18 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/x/ansi"
 	execapi "github.com/wippyai/runtime/api/service/exec"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/runtime/internal/term/vt"
 )
 
-// modeAlternateScroll is xterm's alternate scroll mode; the vendored ansi
-// package defines no constant for it.
-const modeAlternateScroll = ansi.DECMode(1007)
+const (
+	// modeAlternateScroll is xterm's alternate scroll mode (DECSET 1007).
+	modeAlternateScroll = 1007
+
+	bracketedPasteStart = "\x1b[200~"
+	bracketedPasteEnd   = "\x1b[201~"
+)
 
 // xterm delivers three cursor key presses per wheel notch under alternate scroll.
 const alternateScrollLines = 3
@@ -28,7 +32,6 @@ type inputState struct {
 	bracketedPaste atomic.Bool
 	focusEvents    atomic.Bool
 	mouseEnabled   atomic.Bool
-	mouseSGR       atomic.Bool
 }
 
 // init applies the power-on mode defaults that differ from the zero value.
@@ -44,9 +47,10 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 		}
 		p.screenMu.Lock()
 		p.height.Store(int64(event.Height))
+		p.screen.SetScrollback(scrollbackSize(event.Width))
 		p.screen.Resize(event.Width, event.Height)
-		p.resizeScrollbackLocked(event.Width)
-		p.viewOffset = min(p.viewOffset, p.screen.ScrollbackLen())
+		p.syncModesLocked()
+		p.viewOffset = min(p.viewOffset, p.historyLenLocked())
 		p.screenMu.Unlock()
 		if err := p.process.Resize(event.Width, event.Height); err != nil {
 			return err
@@ -55,7 +59,7 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 	case "paste":
 		text := event.Paste
 		if p.input.bracketedPaste.Load() {
-			text = ansi.BracketedPasteStart + text + ansi.BracketedPasteEnd
+			text = bracketedPasteStart + text + bracketedPasteEnd
 		}
 		return p.writeLive(text)
 	case "focus":
@@ -69,7 +73,7 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 		return p.writeLive(p.input.key(event))
 	case "mouse":
 		if p.input.mouseEnabled.Load() {
-			return p.writeLive(p.input.mouse(event))
+			return p.writeLive(p.encodeMouse(event))
 		}
 		if p.input.altScreen.Load() {
 			return p.write(p.input.alternateScroll(event))
@@ -80,9 +84,9 @@ func (p *Proxy) handle(event ttyapi.Event) error {
 }
 
 // writeLive returns a history viewport to the live screen before delivering
-// user input. Output keeps a history viewport stable while x/vt's retained
-// history is still growing; after eviction x/vt exposes no line identity with
-// which to anchor a viewport. A resize keeps it where possible (clamped to
+// user input. Output keeps a history viewport stable while the retained
+// history is still growing; after eviction the buffer exposes no line identity
+// with which to anchor a viewport. A resize keeps it where possible (clamped to
 // retained history).
 func (p *Proxy) writeLive(sequence string) error {
 	if sequence == "" {
@@ -118,7 +122,7 @@ func (p *Proxy) scroll(event ttyapi.Event) error {
 	}
 	p.screenMu.Lock()
 	old := p.viewOffset
-	p.viewOffset = min(max(p.viewOffset+delta, 0), p.screen.ScrollbackLen())
+	p.viewOffset = min(max(p.viewOffset+delta, 0), p.historyLenLocked())
 	changed := p.viewOffset != old
 	p.screenMu.Unlock()
 	if !changed {
@@ -220,23 +224,48 @@ func modifier(event ttyapi.Event) int {
 	return value
 }
 
-func (s *inputState) mouse(event ttyapi.Event) string {
-	if !s.mouseEnabled.Load() {
-		return s.alternateScroll(event)
+// encodeMouse encodes a public tty mouse event with the child's negotiated
+// tracking protocol and coordinate encoding. Public coordinates are one-based,
+// as the wire protocols are.
+func (p *Proxy) encodeMouse(event ttyapi.Event) string {
+	core := vt.CoreMouseEvent{
+		Col: event.X, Row: event.Y, Shift: event.Shift, Alt: event.Alt, Ctrl: event.Ctrl,
 	}
-	button, ok := mouseButtons[event.Button]
-	if !ok {
+	switch event.Button {
+	case "none":
+		core.Button = vt.MouseButtonNone
+	case "left":
+		core.Button = vt.MouseButtonLeft
+	case "middle":
+		core.Button = vt.MouseButtonMiddle
+	case "right":
+		core.Button = vt.MouseButtonRight
+	case "wheel_up":
+		core.Button, core.Action = vt.MouseButtonWheel, vt.MouseActionUp
+	case "wheel_down":
+		core.Button, core.Action = vt.MouseButtonWheel, vt.MouseActionDown
+	default:
 		return ""
 	}
-	release, motion := event.Action == "release", event.Action == "motion"
-	encoded := ansi.EncodeMouseButton(button, motion, event.Shift, event.Alt, event.Ctrl)
-	// Public tty events are one-based; ANSI helpers accept zero-based cells
-	// and add the protocol offset while encoding.
-	x, y := event.X-1, event.Y-1
-	if s.mouseSGR.Load() {
-		return ansi.MouseSgr(encoded, x, y, release)
+	if core.Button != vt.MouseButtonWheel {
+		switch event.Action {
+		case "press":
+			core.Action = vt.MouseActionDown
+		case "release":
+			core.Action = vt.MouseActionUp
+		case "motion":
+			core.Action = vt.MouseActionMove
+		default:
+			return ""
+		}
 	}
-	return ansi.MouseX10(encoded, x, y)
+	var encoded strings.Builder
+	p.screenMu.Lock()
+	p.capture = &encoded
+	p.screen.TriggerMouseEvent(core)
+	p.capture = nil
+	p.screenMu.Unlock()
+	return encoded.String()
 }
 
 // alternateScroll implements xterm's DECSET 1007: while the alternate screen
@@ -263,28 +292,40 @@ func (s *inputState) alternateScroll(event ttyapi.Event) string {
 	return strings.Repeat(prefix+cursorKeys[name], alternateScrollLines)
 }
 
-var mouseButtons = map[string]ansi.MouseButton{
-	"none": ansi.MouseNone, "left": ansi.MouseLeft, "middle": ansi.MouseMiddle,
-	"right": ansi.MouseRight, "wheel_up": ansi.MouseWheelUp, "wheel_down": ansi.MouseWheelDown,
+// reply routes emulator output to the child. While a mouse event is being
+// encoded the output is the encoded event itself.
+func (p *Proxy) reply(data string) {
+	if p.capture != nil {
+		p.capture.WriteString(data)
+		return
+	}
+	p.responses.push([]byte(data))
 }
 
-func (s *inputState) enable(mode ansi.Mode)  { s.set(mode, true) }
-func (s *inputState) disable(mode ansi.Mode) { s.set(mode, false) }
-func (s *inputState) set(mode ansi.Mode, enabled bool) {
-	switch mode {
-	case ansi.ModeCursorKeys:
-		s.appCursor.Store(enabled)
-	case ansi.ModeAltScreen, ansi.ModeAltScreenSaveCursor:
-		s.altScreen.Store(enabled)
-	case modeAlternateScroll:
-		s.altScroll.Store(enabled)
-	case ansi.ModeBracketedPaste:
-		s.bracketedPaste.Store(enabled)
-	case ansi.ModeFocusEvent:
-		s.focusEvents.Store(enabled)
-	case ansi.ModeMouseX10, ansi.ModeMouseNormal, ansi.ModeMouseHighlight, ansi.ModeMouseButtonEvent, ansi.ModeMouseAnyEvent:
-		s.mouseEnabled.Store(enabled)
-	case ansi.ModeMouseExtSgr:
-		s.mouseSGR.Store(enabled)
+// syncModesLocked publishes the emulator's input-affecting mode state for
+// lock-free reads by the input path. screenMu must be held by the caller.
+func (p *Proxy) syncModesLocked() {
+	modes := p.screen.DecPrivateModes()
+	s := &p.input
+	s.appCursor.Store(modes.ApplicationCursorKeys)
+	s.altScreen.Store(p.screen.IsAltBufferActive())
+	s.bracketedPaste.Store(modes.BracketedPasteMode)
+	s.focusEvents.Store(modes.SendFocus)
+	s.mouseEnabled.Store(modes.MouseTrackingMode != "" && modes.MouseTrackingMode != "NONE")
+}
+
+// installModeHandlers tracks DECSET 1007, which the emulator does not
+// implement. The handlers observe the sequence and leave it to the emulator.
+func (p *Proxy) installModeHandlers() {
+	for _, final := range []byte{'h', 'l'} {
+		enabled := final == 'h'
+		p.screen.RegisterCsiHandler(vt.FunctionIdentifier{Prefix: '?', Final: final}, func(params *vt.Params) bool {
+			for i := 0; i < params.Length; i++ {
+				if params.Params[i] == modeAlternateScroll {
+					p.input.altScroll.Store(enabled)
+				}
+			}
+			return false
+		})
 	}
 }
