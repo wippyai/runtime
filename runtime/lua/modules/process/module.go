@@ -1052,9 +1052,14 @@ func upgrade(l *lua.LState) int {
 		req.Source = registry.ParseID(l.CheckString(1))
 	}
 
-	// Upgrading replaces the process's code; a policy may forbid it.
-	if secapi.IsDenied(l.Context(), "process.upgrade", req.Source.String(), nil) {
-		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to upgrade process: %s", req.Source)))
+	// Upgrading replaces the process's code; a policy may forbid it. Without
+	// a source the process reloads its current definition.
+	target := req.Source
+	if target.Name == "" {
+		target, _ = runtime.GetFrameID(l.Context())
+	}
+	if secapi.IsDenied(l.Context(), "process.upgrade", target.String(), nil) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to upgrade process: %s", target)))
 	}
 
 	// args 2+: payloads for new process

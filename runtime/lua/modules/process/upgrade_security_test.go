@@ -9,6 +9,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	secsystem "github.com/wippyai/runtime/system/security"
@@ -51,4 +52,28 @@ func TestUpgradeProceedsUnlessDenied(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, registry.ParseID("app:worker"), req.Source)
 	}
+}
+
+// workerUpgradePolicy denies upgrading app:worker only.
+type workerUpgradePolicy struct{}
+
+func (*workerUpgradePolicy) ID() registry.ID { return registry.ParseID("test:worker-upgrade") }
+
+func (*workerUpgradePolicy) Evaluate(_ secapi.Actor, action, resource string, _ attrs.Bag) secapi.Result {
+	if action == "process.upgrade" && resource == "app:worker" {
+		return secapi.Deny
+	}
+	return secapi.Undefined
+}
+
+func TestUpgradeToCurrentDefinitionIsCheckedAgainstIt(t *testing.T) {
+	l, _ := newLuaWithPID(t)
+	require.NoError(t, runtime.SetFrameID(l.Context(), registry.ParseID("app:worker")))
+	require.NoError(t, secapi.SetActor(l.Context(), secapi.Actor{ID: "caller"}))
+	require.NoError(t, secapi.SetScope(l.Context(), secsystem.NewScope([]secapi.Policy{&workerUpgradePolicy{}})))
+
+	require.Equal(t, 2, upgrade(l), "upgrade() reloads app:worker, which the policy denies")
+	err, ok := l.Get(-1).(*lua.Error)
+	require.True(t, ok)
+	require.Equal(t, lua.PermissionDenied, err.Kind())
 }
