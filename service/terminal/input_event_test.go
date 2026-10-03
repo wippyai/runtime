@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/internal/term/input"
+	"github.com/wippyai/tty/input"
 )
 
 func TestConvertInputEventPreservesNavigationAndKittyModifiers(t *testing.T) {

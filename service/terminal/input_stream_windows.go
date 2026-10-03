@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/muesli/cancelreader"
-	"github.com/wippyai/runtime/internal/term/input"
+	"github.com/wippyai/tty/input"
 )
 
 // consoleInput adapts the console record reader to terminalInputReader. Its

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/text"
+	"github.com/wippyai/tty/text"
 )
 
 // Kitty graphics protocol commands, each terminated by ST (ESC \\) with quiet

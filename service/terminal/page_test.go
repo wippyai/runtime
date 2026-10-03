@@ -10,7 +10,7 @@ import (
 	xterm "github.com/gitpod-io/xterm-go"
 	"github.com/stretchr/testify/require"
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/runtime/internal/term/text"
+	"github.com/wippyai/tty/text"
 )
 
 func screenCell(screen *xterm.Terminal, x, y int) *xterm.CellData {

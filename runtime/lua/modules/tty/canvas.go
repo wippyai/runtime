@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/internal/term/canvas"
-	termtext "github.com/wippyai/runtime/internal/term/text"
+	"github.com/wippyai/tty/canvas"
+	termtext "github.com/wippyai/tty/text"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
