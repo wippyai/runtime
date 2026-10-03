@@ -17,18 +17,20 @@ import (
 )
 
 type Worker struct {
-	batchBuf            [32]*Processor
-	local               *Deque
-	inject              *InjectQueue
-	scheduler           *Scheduler
-	parkCond            *sync.Cond
-	done                chan struct{}
-	parkMu              sync.Mutex
-	routeMu             sync.Mutex
-	id                  int
-	executed            atomic.Uint64
-	stolen              atomic.Uint64
-	notified            atomic.Bool
+	batchBuf  [32]*Processor
+	local     *Deque
+	inject    *InjectQueue
+	scheduler *Scheduler
+	parkCond  *sync.Cond
+	done      chan struct{}
+	parkMu    sync.Mutex
+	routeMu   sync.Mutex
+	id        int
+	executed  atomic.Uint64
+	stolen    atomic.Uint64
+	notified  atomic.Bool
+	// parked is set while the worker is counted in Scheduler.parked.
+	parked              atomic.Bool
 	executing           bool // guarded by routeMu
 	retiring            atomic.Bool
 	dispatchesSinceFair uint8
@@ -182,21 +184,27 @@ func (w *Worker) requeuePreempted(proc *Processor) {
 	}
 }
 
+func (w *Worker) unpark() {
+	w.parked.Store(false)
+	w.scheduler.parked.Add(-1)
+}
+
 func (w *Worker) park() {
 	s := w.scheduler
 	// A worker counts as parked from before its last work check until it
 	// stops waiting, so a producer that publishes work and then reads the
 	// count either sees the worker or the worker sees the work.
 	s.parked.Add(1)
+	w.parked.Store(true)
 	w.parkMu.Lock()
 	for {
 		if w.retiring.Load() {
-			s.parked.Add(-1)
+			w.unpark()
 			w.parkMu.Unlock()
 			return
 		}
 		if proc := w.findWork(); proc != nil {
-			s.parked.Add(-1)
+			w.unpark()
 			shouldWake := s.global.Len() > 0
 			w.parkMu.Unlock()
 			if shouldWake {
@@ -207,7 +215,7 @@ func (w *Worker) park() {
 			return
 		}
 		if s.phase.Load() == phaseStoppingWorkers {
-			s.parked.Add(-1)
+			w.unpark()
 			w.parkMu.Unlock()
 			return
 		}

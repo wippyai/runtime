@@ -351,3 +351,21 @@ func TestUpgradeCarriesStepCount(t *testing.T) {
 		t.Fatalf("expected 41 steps carried to the replacement, got %d", got)
 	}
 }
+
+// A wake-up goes to a worker that is parked: a worker that is running a step
+// cannot take the work before that step ends.
+func TestWakeAnySignalsParkedWorker(t *testing.T) {
+	s := newPreemptTestScheduler(2, &testLifecycle{})
+	busy, parked := newWorker(0, s), newWorker(1, s)
+	s.storeWorkers([]*Worker{busy, parked})
+	parked.parked.Store(true)
+
+	s.wakeAny()
+
+	if busy.notified.Load() {
+		t.Fatal("a running worker was notified while another worker was parked")
+	}
+	if !parked.notified.Load() {
+		t.Fatal("the parked worker was not notified")
+	}
+}

@@ -230,9 +230,13 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	})
 }
 
+// wakeAny notifies one parked worker. A worker that is not parked looks for
+// work when its current step ends, so notifying it cannot start the work
+// while that step runs; the park protocol guarantees that a worker about to
+// park either sees the queued work or is seen as parked.
 func (s *Scheduler) wakeAny() {
 	for _, w := range s.workerSnapshot() {
-		if w.signal() {
+		if w.parked.Load() && w.signal() {
 			return
 		}
 	}
