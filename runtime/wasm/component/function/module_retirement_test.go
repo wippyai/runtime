@@ -3,12 +3,17 @@
 package function
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"os"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
@@ -116,16 +121,34 @@ func TestFailedReplacementPreservesCallableGeneration(t *testing.T) {
 	m.Stop()
 }
 
+type retirementFSRegistry struct{ fs fsapi.FS }
+
+func (r retirementFSRegistry) GetFS(name string) (fsapi.FS, bool) {
+	return r.fs, name == "assets"
+}
+
 func TestIsolatedComponentPoolReleasesUnusedPreflightModule(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
-	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil, wasmcomponent.InMemoryCaches())
+	data, err := os.ReadFile("../../engine/testdata/two_core_echo.wasm")
+	require.NoError(t, err)
+	fsReg := retirementFSRegistry{fs: fsapi.NewReadOnlyFS(fstest.MapFS{"component.wasm": {Data: data}})}
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, fsReg, wasmcomponent.InMemoryCaches())
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
-	module, err := m.coreRT.LoadWASM(ctx, retirementWASM, "")
+	wasmCfg := &wasmapi.FunctionConfig{FS: "assets", Path: "component.wasm", Hash: fmt.Sprintf("sha256:%x", sha256.Sum256(data)), Method: "echo"}
+	module, component, err := m.loadWASMModule(ctx, wasmCfg)
 	require.NoError(t, err)
-	// The lazy factory does not instantiate here; the preflight module is never
-	// used by the isolated-module factory, regardless of guest contents.
-	cfg := &configEntry{component: true, kind: wasmapi.FunctionWASM, method: "run", pool: wasmapi.PoolConfig{Type: "lazy"}}
-	require.NoError(t, m.createPool(registry.NewID("test", "isolated"), cfg, module))
+	require.True(t, component)
+	cfg := &configEntry{component: true, wasm: wasmCfg, kind: wasmapi.FunctionWASM, method: "echo", transport: wasmapi.TransportTypePayload, pool: wasmapi.PoolConfig{Type: "lazy"}}
+	id := registry.NewID("test", "isolated")
+	require.NoError(t, m.createPool(id, cfg, module))
 	require.ErrorContains(t, module.Compile(ctx), "closed", "unused validation copy is still retained")
+	for i := range 3 {
+		want := fmt.Sprintf("independent component call %d", i)
+		result, err := m.Execute(ctx, runtimeapi.Task{ID: id, Payloads: payload.Payloads{payload.New(want)}})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NoError(t, result.Error)
+		require.Equal(t, want, result.Value.Data())
+	}
 }
