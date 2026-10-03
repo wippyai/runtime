@@ -368,6 +368,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
+	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
@@ -480,10 +481,11 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	}
 
 	if s.lifecycle != nil {
-		s.lifecycle.OnComplete(proc.ctx, proc.pid, res)
+		s.lifecycle.OnComplete(proc.root, proc.pid, res)
 	}
 
 	if proc.pooled {
+		proc.releaseIncarnation()
 		return
 	}
 
@@ -493,6 +495,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	proc.releaseIncarnation()
 
 	if allowPool && !stopping {
 		releaseProcessor(proc)
@@ -517,6 +520,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
+	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s

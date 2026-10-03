@@ -18,7 +18,7 @@ var ErrChildLimitExceeded = apierror.New(LimitExceeded, "process child limit exc
 var (
 	// childSlotsKey holds a process's child limit. It is not inherited: a
 	// child's own limit is set by whoever admits it.
-	childSlotsKey = &ctxapi.Key{Name: "process.child_slots"}
+	childSlotsKey = &ctxapi.Key{Name: "process.child_slots", Execution: true}
 	childSlotKey  = &ctxapi.Key{Name: "process.child_slot"}
 )
 

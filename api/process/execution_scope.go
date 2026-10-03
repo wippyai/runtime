@@ -26,9 +26,11 @@ var (
 var (
 	// executionScopeKey holds the scope of the execution running in a frame.
 	// It is not inherited: every execution gets its own scope.
-	executionScopeKey = &ctxapi.Key{Name: "process.execution_scope"}
+	executionScopeKey = &ctxapi.Key{Name: "process.execution_scope", Execution: true}
+	// ownedKey marks the execution of an owned process.
+	ownedKey = &ctxapi.Key{Name: "process.owned", Execution: true}
 	// ownedChildKey holds, in an owned process's frame, its registration
-	// with its owner's scope.
+	// with its owner's scope; the frame releases it.
 	ownedChildKey = &ctxapi.Key{Name: "process.owned_child"}
 )
 
@@ -107,7 +109,7 @@ func IsOwned(ctx context.Context) bool {
 	if fc == nil {
 		return false
 	}
-	return fc.Has(ownedChildKey)
+	return fc.Has(ownedKey)
 }
 
 // Kind returns the kind of execution the scope belongs to.
@@ -115,21 +117,26 @@ func (s *ExecutionScope) Kind() ExecutionKind {
 	return s.kind
 }
 
-// Reserve registers a child about to start. The returned pair goes into the
-// child's frame as an attachment: it is rolled back if the child is not
-// admitted and released when the child completes.
-func (s *ExecutionScope) Reserve() (ctxapi.Pair, *OwnedChild, error) {
+// Reserve registers a child about to start. The returned pairs go into the
+// child's frame: they mark the child owned and hold its registration as an
+// attachment, rolled back if the child is not admitted and released when the
+// child completes.
+func (s *ExecutionScope) Reserve() ([]ctxapi.Pair, *OwnedChild, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ended {
-		return ctxapi.Pair{}, nil, ErrOwnerEnded
+		return nil, nil, ErrOwnerEnded
 	}
 	child := &ownedChild{scope: s}
 	if s.owned == nil {
 		s.owned = make(map[*ownedChild]struct{}, 2)
 	}
 	s.owned[child] = struct{}{}
-	return ctxapi.Pair{Key: ownedChildKey, Value: child}, &OwnedChild{child: child}, nil
+	pairs := []ctxapi.Pair{
+		{Key: ownedKey, Value: true},
+		{Key: ownedChildKey, Value: child},
+	}
+	return pairs, &OwnedChild{child: child}, nil
 }
 
 // Complete implements ctxapi.Completer: the execution has ended. Owned

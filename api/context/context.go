@@ -12,8 +12,16 @@ type (
 	// When Inherit is true, the value will be automatically copied to new frames
 	// created from sealed parent frames.
 	Key struct {
-		Name    string
+		Name string
+		// Inherit copies the value to every frame forked from the frame,
+		// including the frames of processes it spawns.
 		Inherit bool
+		// Execution marks a value that belongs to the execution running in
+		// the frame rather than to the code it runs: ContinueFrameContext
+		// carries it to the frame of the next code incarnation (a process
+		// upgrade), and nothing else receives it. An execution value must not
+		// be a Closer, since every frame continuing the execution shares it.
+		Execution bool
 	}
 
 	// Pair represents a key-value pair for batch operations.

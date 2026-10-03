@@ -548,43 +548,27 @@ func (w *Worker) executeOne(proc *Processor) {
 		if meta != nil && meta.Method != "" {
 			method = meta.Method
 		}
-		selfPID, hasSelfPID := runtime.GetFramePID(proc.ctx)
-		upgradeCtx, _ := ctxapi.OpenFrameContext(proc.ctx)
-		// The frame id does not inherit across frames; carry the resolved
-		// upgrade source onto the new frame so a cross-source upgrade classifies
-		// the process by its NEW definition (used by ListProcesses and OUTDATED
-		// notification), not the pre-upgrade source.
-		if err := runtime.SetFrameID(upgradeCtx, source); err != nil {
+		// The new code continues the same execution: its frame carries the
+		// execution's values (PID, spawn options, ownership) and is forked
+		// from the execution's frame, not from the previous incarnation's.
+		upgradeCtx, upgradeFrame, err := ctxapi.ContinueFrameContext(proc.root)
+		if err == nil {
+			// The frame id names the code: a cross-source upgrade classifies
+			// the process by its new definition (ListProcesses, OUTDATED).
+			if err = runtime.SetFrameID(upgradeCtx, source); err != nil {
+				ctxapi.ReleaseFrameContext(upgradeFrame)
+			}
+		}
+		if err != nil {
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
 			proc.queue.Close()
-			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: set source failed: %w", err))
+			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: continue execution failed: %w", err))
 			return
 		}
-		// Spawn options (execution limits, parent) describe the actor, not its
-		// current definition, so the replacement frame carries them over.
-		if opts := runtime.GetFrameLifecycleOptions(proc.ctx); opts != nil {
-			if err := runtime.SetFrameLifecycleOptions(upgradeCtx, opts); err != nil {
-				if !proc.casState(StateRunning, StateComplete) {
-					return
-				}
-				proc.queue.Close()
-				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: preserve options failed: %w", err))
-				return
-			}
-		}
-		if hasSelfPID {
-			if err := runtime.SetFramePID(upgradeCtx, selfPID); err != nil {
-				if !proc.casState(StateRunning, StateComplete) {
-					return
-				}
-				proc.queue.Close()
-				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: preserve pid failed: %w", err))
-				return
-			}
-		}
 		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
+			ctxapi.ReleaseFrameContext(upgradeFrame)
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -595,6 +579,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		if counter, ok := newProc.(process.StepAccounted); ok {
 			counter.ResumeStepCount(stepsUsed)
 		}
+		proc.releaseIncarnation()
 		proc.ctx = upgradeCtx
 		// Re-publish the out-of-band snapshot so future invalidations classify
 		// the process by its (possibly new) upgraded source. The queue

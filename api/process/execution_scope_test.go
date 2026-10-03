@@ -34,10 +34,10 @@ func TestExecutionScopeTerminatesRunningChildrenWhenItEnds(t *testing.T) {
 	child := pid.PID{Host: "h", UniqID: "child"}
 	require.NoError(t, running.Bind(child))
 
-	exitedPair, exited, err := scope.Reserve()
+	exitedPairs, exited, err := scope.Reserve()
 	require.NoError(t, err)
 	require.NoError(t, exited.Bind(pid.PID{Host: "h", UniqID: "exited"}))
-	exitedPair.Value.(ctxapi.Completer).Complete()
+	registration(t, exitedPairs).(ctxapi.Completer).Complete()
 
 	scope.Complete()
 	require.Equal(t, []pid.PID{child}, term.terminated, "only children still running are terminated")
@@ -68,9 +68,9 @@ func TestExecutionScopeChildStartingWhileOwnerEnds(t *testing.T) {
 func TestExecutionScopeRollbackReleasesReservation(t *testing.T) {
 	term := &recordingTerminator{}
 	scope := NewExecutionScope(context.Background(), ExecutionProcess, term)
-	pair, _, err := scope.Reserve()
+	pairs, _, err := scope.Reserve()
 	require.NoError(t, err)
-	require.NoError(t, pair.Value.(ctxapi.FrameAttachment).Rollback())
+	require.NoError(t, registration(t, pairs).(ctxapi.FrameAttachment).Rollback())
 	scope.Complete()
 	require.Empty(t, term.terminated)
 }
@@ -82,9 +82,9 @@ func TestExecutionScopeFrameHelpers(t *testing.T) {
 	require.False(t, IsOwned(ctx))
 
 	scope := NewExecutionScope(ctx, ExecutionProcess, &recordingTerminator{})
-	pair, _, err := scope.Reserve()
+	pairs, _, err := scope.Reserve()
 	require.NoError(t, err)
-	require.NoError(t, fc.SetMultiple(ExecutionScopePair(scope), pair))
+	require.NoError(t, fc.SetMultiple(append(pairs, ExecutionScopePair(scope))...))
 	require.Same(t, scope, GetExecutionScope(ctx))
 	require.True(t, IsOwned(ctx))
 
@@ -108,4 +108,40 @@ func TestExecutionScopeCompletesThroughFrame(t *testing.T) {
 
 	ctxapi.CompleteFrame(ctx)
 	require.Len(t, term.terminated, 1, "process completion ends the scope")
+}
+
+// registration returns the owned child's registration among its frame pairs.
+func registration(t *testing.T, pairs []ctxapi.Pair) any {
+	t.Helper()
+	for _, p := range pairs {
+		if p.Key == ownedChildKey {
+			return p.Value
+		}
+	}
+	t.Fatal("reservation holds no registration")
+	return nil
+}
+
+func TestExecutionScopeSurvivesUpgrade(t *testing.T) {
+	term := &recordingTerminator{}
+	owner := NewExecutionScope(context.Background(), ExecutionProcess, term)
+	pairs, _, err := owner.Reserve()
+	require.NoError(t, err)
+
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	scope := NewExecutionScope(ctx, ExecutionProcess, term)
+	slots := NewChildSlots(2)
+	require.NoError(t, fc.SetMultiple(append(pairs, ExecutionScopePair(scope), ChildSlotsPair(slots))...))
+	fc.Seal()
+
+	upgraded, ufc, err := ctxapi.ContinueFrameContext(ctx)
+	require.NoError(t, err)
+	defer ctxapi.ReleaseFrameContext(ufc)
+	require.Same(t, scope, GetExecutionScope(upgraded), "the upgraded code runs in the same execution")
+	require.True(t, IsOwned(upgraded), "an owned process stays owned across upgrades")
+	got, ok := ufc.Get(childSlotsKey)
+	require.True(t, ok)
+	require.Same(t, slots, got, "the child limit spans the whole process")
+	require.False(t, ufc.Has(ownedChildKey), "the registration stays with the execution's frame")
 }

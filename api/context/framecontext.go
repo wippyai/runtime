@@ -403,6 +403,43 @@ func PropagatedPairs(ctx context.Context) []Pair {
 	return pairs
 }
 
+// ContinueFrameContext opens the frame of the next code incarnation of the
+// execution running in ctx, as when a process upgrades: a fork of the
+// execution's frame that also carries its Execution values, holding a
+// reference on that frame until it is released. An execution without a frame
+// has no values to carry and continues in a new root frame.
+func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, error) {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		next, nfc := OpenFrameContext(ctx)
+		return next, nfc, nil
+	}
+	var carried []Pair
+	var invalid bool
+	fc.Iterate(func(key, value any) {
+		k, ok := key.(*Key)
+		if !ok || !k.Execution || k.Inherit {
+			return
+		}
+		if _, ok := value.(Closer); ok {
+			invalid = true
+			return
+		}
+		carried = append(carried, Pair{Key: key, Value: value})
+	})
+	if invalid {
+		return ctx, nil, ErrExecutionValueCloser
+	}
+	next, nfc := OpenFrameContext(ctx)
+	if len(carried) > 0 {
+		if err := nfc.SetMultiple(carried...); err != nil {
+			ReleaseFrameContext(nfc)
+			return ctx, nil, err
+		}
+	}
+	return next, nfc, nil
+}
+
 // CompleteFrame releases the Completer values of the frame in ctx; process
 // hosts call it when the process owning the frame completes.
 func CompleteFrame(ctx context.Context) {

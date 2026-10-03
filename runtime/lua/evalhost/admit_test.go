@@ -317,12 +317,12 @@ func TestAdmitterDetachedRequiresUnownedProcessCaller(t *testing.T) {
 	require.ErrorIs(t, err, apihost.ErrEvalDetachedDenied, "detaching needs a caller execution")
 
 	owner, _ := ownerContext(t)
-	pair, child, err := process.GetExecutionScope(owner).Reserve()
+	pairs, child, err := process.GetExecutionScope(owner).Reserve()
 	require.NoError(t, err)
 	require.NoError(t, child.Bind(admitParent))
 	owned, fc := ctxapi.OpenFrameContext(context.Background())
 	defer ctxapi.ReleaseFrameContext(fc)
-	require.NoError(t, fc.SetMultiple(pair, process.ExecutionScopePair(process.NewExecutionScope(owned, process.ExecutionProcess, &recordingStarter{}))))
+	require.NoError(t, fc.SetMultiple(append(pairs, process.ExecutionScopePair(process.NewExecutionScope(owned, process.ExecutionProcess, &recordingStarter{})))...))
 	_, err = a.Spawn(owned, detached)
 	require.ErrorIs(t, err, apihost.ErrEvalDetachedDenied, "an owned process stays contained")
 }

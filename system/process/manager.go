@@ -79,13 +79,13 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 			start.Context = start.Context[:contextBase]
 			return pid.PID{}, err
 		}
-		pair, child, reserveErr := scope.Reserve()
+		pairs, child, reserveErr := scope.Reserve()
 		if reserveErr != nil {
 			err = errors.Join(reserveErr, rollbackFrameAttachments(start.Context[contextBase:]))
 			start.Context = start.Context[:contextBase]
 			return pid.PID{}, err
 		}
-		start.Context = append(start.Context, pair)
+		start.Context = append(start.Context, pairs...)
 		owned = child
 	}
 

@@ -157,7 +157,7 @@ func TestManagerStartChildrenOfOwnedProcessAreOwned(t *testing.T) {
 	_ = node.RegisterHost("host", host)
 
 	owner, ownerScope, _ := scopedContext(t)
-	pair, registration, err := ownerScope.Reserve()
+	pairs, registration, err := ownerScope.Reserve()
 	require.NoError(t, err)
 	require.NoError(t, registration.Bind(pid.PID{Host: "host", UniqID: "owned"}))
 
@@ -165,7 +165,7 @@ func TestManagerStartChildrenOfOwnedProcessAreOwned(t *testing.T) {
 	defer ctxapi.ReleaseFrameContext(fc)
 	term := &stubTerminator{}
 	ownScope := process.NewExecutionScope(ownedCtx, process.ExecutionProcess, term)
-	require.NoError(t, fc.SetMultiple(pair, process.ExecutionScopePair(ownScope)))
+	require.NoError(t, fc.SetMultiple(append(pairs, process.ExecutionScopePair(ownScope))...))
 
 	grandchild, err := NewManager(node, zap.NewNop()).Start(ownedCtx, &process.Start{
 		HostID: "host", Source: registry.NewID("app", "worker"),
