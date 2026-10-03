@@ -133,7 +133,9 @@ func (s *Service) Attach(ctx context.Context, handle string) (ttyapi.Viewport, e
 		return nil, ttyapi.ErrViewportClosed
 	}
 	ss.viewers[owner]++
-	view := ss.newViewportLocked(owner, false)
+	// The creating process keeps creator authority through any handle it
+	// reattaches, as after an in-place upgrade drops its viewport object.
+	view := ss.newViewportLocked(owner, samePID(owner, ss.creator))
 	view.rights = ttyapi.MountRights{Observe: true, Input: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightInput, handle, nil), Resize: samePID(owner, ss.creator) || security.IsAllowed(ctx, ttyapi.RightResize, handle, nil)}
 	ss.mu.Unlock()
 	return view, nil
