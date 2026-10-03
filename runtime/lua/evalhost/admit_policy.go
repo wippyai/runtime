@@ -5,9 +5,9 @@ package evalhost
 import (
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"hash"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -300,11 +300,9 @@ func hashPolicy(policy apihost.EvalPolicy, imports [32]byte) ([32]byte, error) {
 	writeUint(h, uint64(len(policy.Bindings)))
 	for _, binding := range policy.Bindings {
 		writeString(h, binding.Name)
-		data, err := json.Marshal(binding.Value)
-		if err != nil {
-			return [32]byte{}, apihost.ErrEvalBindingInvalid
+		if err := writeBindingValue(h, binding.Value); err != nil {
+			return [32]byte{}, err
 		}
-		writeString(h, string(data))
 	}
 	writeStrings(h, policy.AllowClasses)
 	writeUint(h, uint64(len(policy.AllowCommands)))
@@ -319,6 +317,67 @@ func hashPolicy(policy apihost.EvalPolicy, imports [32]byte) ([32]byte, error) {
 	var sum [32]byte
 	copy(sum[:], h.Sum(nil))
 	return sum, nil
+}
+
+// Binding value tags; integers and floats are distinct Lua values.
+const (
+	bindingTagNil byte = iota
+	bindingTagFalse
+	bindingTagTrue
+	bindingTagInteger
+	bindingTagFloat
+	bindingTagString
+	bindingTagList
+	bindingTagMap
+)
+
+// writeBindingValue hashes a binding value as copyBindings produces it, with
+// map keys in sorted order.
+func writeBindingValue(h hash.Hash, v any) error {
+	switch x := v.(type) {
+	case nil:
+		h.Write([]byte{bindingTagNil})
+	case bool:
+		if x {
+			h.Write([]byte{bindingTagTrue})
+		} else {
+			h.Write([]byte{bindingTagFalse})
+		}
+	case int64:
+		h.Write([]byte{bindingTagInteger})
+		writeUint(h, uint64(x))
+	case float64:
+		h.Write([]byte{bindingTagFloat})
+		writeUint(h, math.Float64bits(x))
+	case string:
+		h.Write([]byte{bindingTagString})
+		writeString(h, x)
+	case []any:
+		h.Write([]byte{bindingTagList})
+		writeUint(h, uint64(len(x)))
+		for _, item := range x {
+			if err := writeBindingValue(h, item); err != nil {
+				return err
+			}
+		}
+	case map[string]any:
+		h.Write([]byte{bindingTagMap})
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		writeUint(h, uint64(len(keys)))
+		for _, k := range keys {
+			writeString(h, k)
+			if err := writeBindingValue(h, x[k]); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("%w: unsupported %T value", apihost.ErrEvalBindingInvalid, v)
+	}
+	return nil
 }
 
 func writeUint(h hash.Hash, v uint64) {

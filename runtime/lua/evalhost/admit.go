@@ -480,7 +480,13 @@ func (a *Admitter) programFor(ctx context.Context, spec apihost.EvalSpawnSpec) (
 		return nil, apihost.ErrEvalProgramNotFound
 	}
 	if !policyIsZero(spec.Policy) {
-		requested, err := hashPolicy(canonicalPolicy(spec.Policy), [32]byte{})
+		policy := canonicalPolicy(spec.Policy)
+		bindings, err := copyBindings(policy.Bindings)
+		if err != nil {
+			return nil, err
+		}
+		policy.Bindings = bindings
+		requested, err := hashPolicy(policy, [32]byte{})
 		if err != nil {
 			return nil, err
 		}
