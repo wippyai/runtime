@@ -48,9 +48,13 @@ func (b ExecutionBudgets) Override(o ExecutionBudgets) ExecutionBudgets {
 }
 
 // ExecutionBudgetsFromOptions reads the execution options from an options
-// bag. subject names the source in error messages.
+// bag; nil options hold no execution options. subject names the source in
+// error messages.
 func ExecutionBudgetsFromOptions(options attrs.Attributes, subject string) (ExecutionBudgets, error) {
 	var b ExecutionBudgets
+	if options == nil {
+		return b, nil
+	}
 	if raw, ok := options.Get(ProcessOptionTickBudget); ok && raw != nil {
 		v, err := optionInt64(raw)
 		if err != nil {
@@ -69,7 +73,7 @@ func ExecutionBudgetsFromOptions(options attrs.Attributes, subject string) (Exec
 }
 
 // EntryExecutionBudgets reads the execution options of a process entry from
-// meta.options. The options are only accepted nested under meta.options.
+// meta.options, which must be a map when present. The options are only accepted nested under meta.options.
 func EntryExecutionBudgets(meta attrs.Bag) (ExecutionBudgets, error) {
 	for _, key := range [...]string{ProcessOptionTickBudget, ProcessOptionMaxSteps} {
 		if _, ok := meta.Get(key); ok {
@@ -78,6 +82,9 @@ func EntryExecutionBudgets(meta attrs.Bag) (ExecutionBudgets, error) {
 	}
 	options, ok := meta.GetBag(entryOptionsMetaKey)
 	if !ok {
+		if raw, present := meta.Get(entryOptionsMetaKey); present && raw != nil {
+			return ExecutionBudgets{}, fmt.Errorf("process entry meta.%s must be a map, got %T", entryOptionsMetaKey, raw)
+		}
 		return ExecutionBudgets{}, nil
 	}
 	return ExecutionBudgetsFromOptions(options, "process entry meta.options")

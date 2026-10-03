@@ -70,3 +70,21 @@ func TestExecutionBudgetsOverride(t *testing.T) {
 		t.Fatalf("unexpected override %+v", got)
 	}
 }
+
+func TestEntryExecutionBudgetsRejectsNonMapOptions(t *testing.T) {
+	for _, raw := range []any{"fast", []any{"tick_budget"}, 5} {
+		if _, err := EntryExecutionBudgets(attrs.Bag{"options": raw}); err == nil {
+			t.Fatalf("meta.options %T must be rejected", raw)
+		}
+	}
+	if b, err := EntryExecutionBudgets(attrs.Bag{"options": nil}); err != nil || b.TickBudgetSet || b.MaxStepsSet {
+		t.Fatalf("null meta.options holds no options, got %+v %v", b, err)
+	}
+}
+
+func TestExecutionBudgetsFromNilOptionsIsEmpty(t *testing.T) {
+	b, err := ExecutionBudgetsFromOptions(nil, "test")
+	if err != nil || b.TickBudgetSet || b.MaxStepsSet {
+		t.Fatalf("expected empty budgets, got %+v %v", b, err)
+	}
+}
