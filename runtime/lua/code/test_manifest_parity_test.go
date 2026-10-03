@@ -69,6 +69,7 @@ func scopedProcessCheckerManifest(t *testing.T) *io.Manifest {
 			if method.Name == "lookup" {
 				methods[i].Type = typ.Func().Param("name", typ.String).
 					OptParam("scope", typ.Number).
+					OptParam("options", typ.NewRecord().OptField("timeout", typ.String).Build()).
 					Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
 				found = true
 			}

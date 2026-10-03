@@ -4,6 +4,7 @@ package process
 
 import (
 	"sync"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -17,7 +18,7 @@ func init() {
 	dispatcher.MustRegisterCommands("process",
 		Send, Spawn, Terminate, Cancel,
 		Monitor, Unmonitor, Link, Unlink,
-		Exec,
+		Exec, LookupWait,
 	)
 }
 
@@ -32,6 +33,8 @@ const (
 	Link      dispatcher.CommandID = 7 // Link to process
 	Unlink    dispatcher.CommandID = 8 // Unlink from process
 	Exec      dispatcher.CommandID = 9 // Execute process and wait for result
+
+	LookupWait dispatcher.CommandID = 40 // Wait for an eventual registry name
 )
 
 // SendCmd sends a message to a process.
@@ -204,6 +207,31 @@ func (c *ExecCmd) Release() {
 	c.HostID = ""
 	c.Context = nil
 	execCmdPool.Put(c)
+}
+
+// LookupWaitCmd waits until Name is bound in the eventual registry of this
+// node or Timeout passes.
+type LookupWaitCmd struct {
+	Name    string
+	Timeout time.Duration
+}
+
+var lookupWaitCmdPool = sync.Pool{New: func() any { return &LookupWaitCmd{} }}
+
+// AcquireLookupWaitCmd returns a pooled LookupWaitCmd.
+func AcquireLookupWaitCmd() *LookupWaitCmd           { return lookupWaitCmdPool.Get().(*LookupWaitCmd) }
+func (c *LookupWaitCmd) CmdID() dispatcher.CommandID { return LookupWait }
+func (c *LookupWaitCmd) Release() {
+	c.Name = ""
+	c.Timeout = 0
+	lookupWaitCmdPool.Put(c)
+}
+
+// LookupWaitResult is the result of a lookup wait. Found is false when the
+// timeout passed before the name was bound.
+type LookupWaitResult struct {
+	PID   pid.PID
+	Found bool
 }
 
 // ExecResult is the result of an exec operation.

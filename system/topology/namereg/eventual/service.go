@@ -114,6 +114,7 @@ type Service struct {
 	ownedMutations     [ShardCount]sync.Mutex
 	ownedMu            sync.Mutex
 	lastShardRequestMu sync.Mutex
+	waiters            waiters
 	stopped            atomic.Bool
 }
 
@@ -258,6 +259,9 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		s.ownedMu.Unlock()
 	}
 	mutation.Unlock()
+	if res.Won {
+		s.waiters.wake(name)
+	}
 	if !res.Won {
 		if res.Lost != nil {
 			// Cross-origin loss: the local dot was minted and installed, so
@@ -654,6 +658,7 @@ func (s *Service) CVSnapshot() []uint64 { return s.state.CVSnapshot() }
 
 // Ensure Service satisfies topology.EventualRegistry.
 var _ topology.EventualRegistry = (*Service)(nil)
+var _ topology.EventualAwaiter = (*Service)(nil)
 
 // --- internal ---
 
@@ -663,6 +668,9 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 	e.Node = internedOrigin
 
 	outcome, fwd, lost := s.state.Apply(e)
+	if outcome != MergeNoop {
+		s.waiters.wake(e.Name)
+	}
 
 	// Epidemic forwarding: a frame that changed local state is new information,
 	// so re-broadcast it. The origin emits each delta one-shot to only
@@ -732,6 +740,7 @@ func (s *Service) reassertOwned(name string) {
 	if !res.Won || res.Entry == nil {
 		return
 	}
+	s.waiters.wake(name)
 	s.queue.Push(res.Entry)
 	s.tel.recordReregistration()
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())

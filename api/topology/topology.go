@@ -120,6 +120,12 @@ type (
 		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 	}
 
+	// EventualAwaiter is implemented by an eventual registry that can wait for
+	// a name to become bound in this replica without polling.
+	EventualAwaiter interface {
+		Await(ctx context.Context, name string) (pid.PID, error)
+	}
+
 	// EventualRegistry provides cluster-wide name registration via gossip/CRDT.
 	// Eventually consistent — converges after partition heal. Sized for ~100k
 	// user-session-class names. The Lookup surface reuses globalreg's option
