@@ -46,8 +46,15 @@ var storePool = sync.Pool{
 // NewStore creates a new resource store from the pool.
 func NewStore() *Store {
 	s := storePool.Get().(*Store)
-	s.closed = false
+	s.reopen()
 	return s
+}
+
+// reopen readies a closed store for its next user.
+func (s *Store) reopen() {
+	s.mu.Lock()
+	s.closed = false
+	s.mu.Unlock()
 }
 
 // Table returns the underlying resource table for handle-based access.
@@ -111,10 +118,20 @@ func (s *Store) unlink(node *cleanupNode) {
 
 // Close runs all live cleanup functions in LIFO order and returns store to pool.
 func (s *Store) Close() error {
+	closed, err := s.shutdown()
+	if closed {
+		storePool.Put(s)
+	}
+	return err
+}
+
+// shutdown closes the store and resets it for reuse. It reports whether this
+// call closed it.
+func (s *Store) shutdown() (bool, error) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return nil
+		return false, nil
 	}
 	s.closed = true
 	s.epoch++
@@ -147,9 +164,7 @@ func (s *Store) Close() error {
 	}
 
 	s.table.Reset()
-	storePool.Put(s)
-
-	return firstErr
+	return true, firstErr
 }
 
 // IsClosed returns true if the store has been closed.
