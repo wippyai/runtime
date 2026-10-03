@@ -91,3 +91,55 @@ func TestContinueFrameContextWithoutFrame(t *testing.T) {
 		t.Fatal("an execution without a frame continues in a new frame")
 	}
 }
+
+func TestContinueFrameContextClosesValuesItOwns(t *testing.T) {
+	borrowedKey := &Key{Name: "test.borrowed", Execution: true}
+	ownKey := &Key{Name: "test.own", Execution: true}
+	ctx, fc := OpenFrameContext(context.Background())
+	borrowed := &closeRecorder{}
+	if err := fc.Set(borrowedKey, borrowed); err != nil {
+		t.Fatal(err)
+	}
+
+	_, nfc, err := ContinueFrameContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := &closeRecorder{}
+	if err := nfc.Set(ownKey, own); err != nil {
+		t.Fatal(err)
+	}
+	ReleaseFrameContext(nfc)
+	if own.closed != 1 {
+		t.Fatalf("a value the continuation installed is closed with it, got %d", own.closed)
+	}
+	if borrowed.closed != 0 {
+		t.Fatal("a value borrowed from the execution frame stays open")
+	}
+	ReleaseFrameContext(fc)
+	if borrowed.closed != 1 {
+		t.Fatalf("the execution frame closes its value once, got %d", borrowed.closed)
+	}
+}
+
+type sharedSet struct{ n int }
+
+func (s *sharedSet) Clone() any { c := *s; return &c }
+
+func TestContinueFrameContextSharesInheritedExecutionValues(t *testing.T) {
+	key := &Key{Name: "test.shared", Execution: true, Inherit: true}
+	ctx, fc := OpenFrameContext(context.Background())
+	set := &sharedSet{}
+	if err := fc.Set(key, set); err != nil {
+		t.Fatal(err)
+	}
+
+	_, nfc, err := ContinueFrameContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ReleaseFrameContext(nfc)
+	if v, _ := nfc.Get(key); v != set {
+		t.Fatal("a continuation shares an inheritable execution value instead of copying it")
+	}
+}

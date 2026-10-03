@@ -18,8 +18,9 @@ type (
 		Inherit bool
 		// Execution marks a value that belongs to the execution running in
 		// the frame rather than to the code it runs: ContinueFrameContext
-		// carries it to the frame of the next code incarnation (a process
-		// upgrade), and nothing else receives it. The frame that set it owns
+		// carries it, by reference, to the frame of the next code incarnation
+		// (a process upgrade). Frame forks receive it only when Inherit is also
+		// set, as a copy. The frame that set it owns
 		// it: a Closer value is closed when that frame is reclaimed.
 		Execution bool
 	}

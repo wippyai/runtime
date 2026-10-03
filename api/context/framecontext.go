@@ -5,6 +5,7 @@ package context
 import (
 	"context"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -59,6 +60,9 @@ type frameContext struct {
 	// execution is set on the frame of a later code incarnation: the
 	// execution's own frame, which owns and closes the Execution values.
 	execution FrameContext
+	// borrowed holds the keys whose values the continuation shares with the
+	// execution frame; that frame closes them.
+	borrowed []any
 }
 
 type frameContextRef struct {
@@ -424,7 +428,7 @@ func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, e
 	fc.Seal()
 	var carried []Pair
 	fc.Iterate(func(key, value any) {
-		if k, ok := key.(*Key); ok && k.Execution && !k.Inherit {
+		if k, ok := key.(*Key); ok && k.Execution {
 			carried = append(carried, Pair{Key: key, Value: value})
 		}
 	})
@@ -432,6 +436,10 @@ func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, e
 	if ref, ok := nfc.(*frameContextRef); ok {
 		if frame := ref.resolveFrame(); frame != nil {
 			frame.execution = ExecutionFrame(ctx)
+			frame.borrowed = make([]any, len(carried))
+			for i, pair := range carried {
+				frame.borrowed[i] = pair.Key
+			}
 		}
 	}
 	if len(carried) > 0 {
@@ -532,12 +540,13 @@ func releaseFrame(f *frameContext, expectedGeneration uint64) {
 		if !ok {
 			continue
 		}
-		if key, isKey := k.(*Key); isKey && key.Execution && f.execution != nil {
+		if slices.Contains(f.borrowed, k) {
 			continue
 		}
 		closers = append(closers, closer)
 	}
 	f.execution = nil
+	f.borrowed = nil
 	values := make(frameValues, 8)
 	f.values.Store(&values)
 	parent := f.parent
