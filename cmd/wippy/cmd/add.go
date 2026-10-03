@@ -9,11 +9,11 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/cmd/internal/style"
 )
 
 var addCmd = &cobra.Command{
@@ -97,9 +97,9 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		params.Version = ref.Version
 	}
 
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	labelStyle := style.New().Bold(true).Foreground(14)
+	successStyle := style.New().Foreground(10).Bold(true)
+	infoStyle := style.New().Foreground(12)
 
 	fmt.Println()
 	fmt.Printf("%s %s/%s\n", labelStyle.Render("Adding:"), ref.Org, ref.Module)

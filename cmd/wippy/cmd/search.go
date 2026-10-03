@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
+	"github.com/wippyai/runtime/cmd/internal/style"
 )
 
 var searchCmd = &cobra.Command{
@@ -137,10 +137,10 @@ func printSearchTable(result *hub.SearchResult) error {
 		return nil
 	}
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	titleStyle := style.New().Bold(true).Foreground(14)
+	nameStyle := style.New().Bold(true).Foreground(10)
+	versionStyle := style.New().Foreground(12)
+	dimStyle := style.New().Foreground(8)
 
 	fmt.Println()
 	fmt.Printf("%s  %s  %s\n",

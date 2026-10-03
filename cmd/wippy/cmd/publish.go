@@ -16,7 +16,6 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/Masterminds/semver/v3"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
@@ -28,6 +27,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/hub"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	"github.com/wippyai/wapp"
 )
 
@@ -388,8 +388,8 @@ func digestAndSizeFromFile(path string) (string, int64, error) {
 // promptVersion fetches the latest published version from the hub and presents
 // bump options for the user to select interactively.
 func promptVersion(ctx context.Context, client *hub.Client, cfg *config.ModuleConfig, registryURL string) (string, error) {
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	labelStyle := style.New().Bold(true).Foreground(14)
+	dimStyle := style.New().Foreground(8)
 
 	fmt.Println()
 	fmt.Printf("%s %s/%s\n", labelStyle.Render("Module:"), cfg.Organization, cfg.ModuleName)
@@ -692,8 +692,8 @@ func computeFileDigest(path string) (string, error) {
 }
 
 func printPublishInfo(cfg *config.ModuleConfig, label, registry string) {
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	labelStyle := style.New().Bold(true).Foreground(14)
+	infoStyle := style.New().Foreground(12)
 
 	fmt.Printf("%s %s/%s\n", labelStyle.Render("Module:"), cfg.Organization, cfg.ModuleName)
 	if label != "" {
@@ -706,12 +706,12 @@ func printPublishInfo(cfg *config.ModuleConfig, label, registry string) {
 }
 
 func printStatus(msg string) {
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	dimStyle := style.New().Foreground(8)
 	fmt.Printf("  %s\n", dimStyle.Render(msg))
 }
 
 func printSuccess(msg string) {
-	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	successStyle := style.New().Foreground(10).Bold(true)
 	fmt.Printf("  %s\n", successStyle.Render(msg))
 }
 
@@ -720,8 +720,8 @@ func printSuccess(msg string) {
 // an opaque message. The command still returns a non-zero error — this
 // only enriches the output, it never masks the failure.
 func printPublishFailure(publishID string, status *hub.StatusResult) {
-	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	errStyle := style.New().Foreground(9).Bold(true)
+	dimStyle := style.New().Foreground(8)
 
 	fmt.Println()
 	if publishID != "" {
