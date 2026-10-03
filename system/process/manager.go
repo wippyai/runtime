@@ -118,7 +118,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 				return pid.PID{}, errors.Join(topology.NameAlreadyRegisteredError(procPID), err)
 			}
 			// The owner ended while the child was starting.
-			return pid.PID{}, errors.Join(err, host.Terminate(context.WithoutCancel(ctx), procPID))
+			return pid.PID{}, errors.Join(err, host.Terminate(api.WithTerminationCause(context.WithoutCancel(ctx), api.ErrOwnerEnded), procPID))
 		}
 	}
 

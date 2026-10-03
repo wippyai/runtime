@@ -19,7 +19,8 @@ var (
 	// ErrOwnerRequired fails an owned spawn from a context without an
 	// execution scope.
 	ErrOwnerRequired = apierror.New(InvalidState, "owned spawn requires an owning execution").WithRetryable(apierror.False)
-	// ErrOwnerEnded fails an owned spawn whose owning execution has ended.
+	// ErrOwnerEnded reports that the owning execution has ended. It fails
+	// later owned spawns and completes children terminated with their owner.
 	ErrOwnerEnded = apierror.New(InvalidState, "owning execution has ended").WithRetryable(apierror.False)
 	// ErrOwnedNotStarted reports that the host started no process for an
 	// owned spawn, such as when a named spawn reached an existing process.
@@ -184,7 +185,7 @@ func (s *ExecutionScope) Complete() {
 // nothing; any other failure is logged, since completion has no caller to
 // report to.
 func (s *ExecutionScope) terminate(p pid.PID) {
-	err := s.terminator.Terminate(s.ctx, p)
+	err := s.terminator.Terminate(WithTerminationCause(s.ctx, ErrOwnerEnded), p)
 	if err == nil || errors.Is(err, ErrProcessNotFound) {
 		return
 	}

@@ -298,3 +298,24 @@ entries:
       - time
     imports:
       assert: app.lib:assert
+
+  - name: owner_wait
+    kind: function.lua
+    source: file://owner_wait.lua
+    method: main
+    modules:
+      - eval
+
+  - name: owner_ended
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_module
+      description: an eval EXIT result identifies owner completion
+    source: file://owner_ended.lua
+    method: main
+    modules:
+      - funcs
+      - time
+    imports:
+      assert: app.lib:assert

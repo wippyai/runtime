@@ -327,3 +327,33 @@ func TestManagerStartLeavesNoConsumedAttachmentsOnTheStart(t *testing.T) {
 	scope.Complete()
 	require.Equal(t, []pid.PID{child}, term.terminated)
 }
+
+type endingOwnerHost struct {
+	cause error
+	scope *process.ExecutionScope
+	mockHost
+}
+
+func (h *endingOwnerHost) Run(_ context.Context, _ *process.Start) (pid.PID, error) {
+	h.scope.Complete()
+	return pid.PID{Host: "host", UniqID: "late-child"}, nil
+}
+
+func (h *endingOwnerHost) Terminate(ctx context.Context, _ pid.PID) error {
+	h.cause = process.TerminationCause(ctx)
+	return nil
+}
+
+func TestManagerStartAfterOwnerCompletionTerminatesWithCause(t *testing.T) {
+	node := newMockNode()
+	host := &endingOwnerHost{mockHost: mockHost{acceptsAttachments: true}}
+	require.NoError(t, node.RegisterHost("host", host))
+	manager := NewManager(node, zap.NewNop())
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	host.scope = process.NewExecutionScope(ctx, process.ExecutionFunction, manager)
+	require.NoError(t, fc.SetMultiple(process.ExecutionScopePair(host.scope)))
+	_, err := manager.Start(ctx, ownedStart())
+	require.ErrorIs(t, err, process.ErrOwnerEnded)
+	require.ErrorIs(t, host.cause, process.ErrOwnerEnded)
+}

@@ -230,9 +230,9 @@ func (h *Host) sendMessages(target pid.PID, messages []*relay.Message) {
 }
 
 // Terminate implements process.Host.
-func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
+func (h *Host) Terminate(ctx context.Context, processID pid.PID) error {
 	h.log.Debug("process terminate requested", zap.String("pid", processID.String()))
-	return h.scheduler.Terminate(processID)
+	return h.scheduler.TerminateWithCause(processID, process.TerminationCause(ctx))
 }
 
 func (h *Host) AcceptsFrameAttachments() bool { return true }

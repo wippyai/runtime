@@ -15,13 +15,15 @@ import (
 type recordingTerminator struct {
 	err        error
 	terminated []pid.PID
+	causes     []error
 	mu         sync.Mutex
 }
 
-func (r *recordingTerminator) Terminate(_ context.Context, p pid.PID) error {
+func (r *recordingTerminator) Terminate(ctx context.Context, p pid.PID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.terminated = append(r.terminated, p)
+	r.causes = append(r.causes, TerminationCause(ctx))
 	return r.err
 }
 
@@ -41,6 +43,7 @@ func TestExecutionScopeTerminatesRunningChildrenWhenItEnds(t *testing.T) {
 
 	scope.Complete()
 	require.Equal(t, []pid.PID{child}, term.terminated, "only children still running are terminated")
+	require.Equal(t, []error{ErrOwnerEnded}, term.causes)
 
 	scope.Complete()
 	require.Len(t, term.terminated, 1, "ending is idempotent")
