@@ -41,6 +41,14 @@ type (
 		Close() error
 	}
 
+	// Completer is implemented by values that must be released when the
+	// execution owning the frame completes. Frame release can come later: a
+	// frame stays alive while frames forked from it are. Complete must be
+	// idempotent and safe together with Close.
+	Completer interface {
+		Complete()
+	}
+
 	// FrameAttachment is a frame-owned resource produced while resolving spawn
 	// options. Rollback releases a reservation when process admission does not
 	// transfer it to a frame. It must be safe after Close and on repeated calls.

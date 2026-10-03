@@ -74,3 +74,20 @@ func TestChildSlotsAreNotInherited(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, pairs)
 }
+
+func TestChildSlotReleasedWhenChildCompletes(t *testing.T) {
+	slots := NewChildSlots(1)
+	pairs, err := ChildSlotResolver(limitedContext(t, slots), childSpawnOptions())
+	require.NoError(t, err)
+
+	// The child's frame outlives the child while its own children run; the
+	// slot is released at completion, not at frame release.
+	child, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, fc.SetMultiple(pairs...))
+	require.Equal(t, 1, slots.InUse())
+	ctxapi.CompleteFrame(child)
+	require.Zero(t, slots.InUse())
+	ctxapi.CompleteFrame(child)
+	require.Zero(t, slots.InUse(), "completion is idempotent")
+}

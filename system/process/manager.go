@@ -70,6 +70,25 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		return pid.PID{}, err
 	}
 	start.Context = resolvedContext
+
+	var owned *api.OwnedChild
+	if (start.Options != nil && start.Options.GetBool(api.ProcessOwnedKey, false)) || api.IsOwned(ctx) {
+		scope := api.GetExecutionScope(ctx)
+		if scope == nil {
+			err = errors.Join(api.ErrOwnerRequired, rollbackFrameAttachments(start.Context[contextBase:]))
+			start.Context = start.Context[:contextBase]
+			return pid.PID{}, err
+		}
+		pair, child, reserveErr := scope.Reserve()
+		if reserveErr != nil {
+			err = errors.Join(reserveErr, rollbackFrameAttachments(start.Context[contextBase:]))
+			start.Context = start.Context[:contextBase]
+			return pid.PID{}, err
+		}
+		start.Context = append(start.Context, pair)
+		owned = child
+	}
+
 	if hasFrameAttachments(start.Context[contextBase:]) {
 		acceptor, ok := host.(api.FrameAttachmentHost)
 		if !ok || !acceptor.AcceptsFrameAttachments() {
@@ -90,6 +109,12 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		err = errors.Join(err, rollbackFrameAttachments(start.Context[contextBase:]))
 		start.Context = start.Context[:contextBase]
 		return procPID, err
+	}
+	if owned != nil {
+		if err := owned.Bind(procPID); err != nil {
+			// The owner ended while the child was starting.
+			return pid.PID{}, errors.Join(err, host.Terminate(context.WithoutCancel(ctx), procPID))
+		}
 	}
 
 	if start.Options != nil && m.node != nil {

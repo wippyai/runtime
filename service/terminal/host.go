@@ -90,6 +90,7 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 	if h.raw != nil {
 		_ = h.raw.Reset()
 	}
+	ctxapi.CompleteFrame(ctx)
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		_ = fc.Close()
 	}
@@ -379,6 +380,9 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	}
 	pairs[3] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
 	copy(pairs[4:], start.Context)
+	if scope := process.NewExecutionScopeFor(h.ctx, process.ExecutionProcess); scope != nil {
+		pairs = append(pairs, process.ExecutionScopePair(scope))
+	}
 
 	if err := fc.SetMultiple(pairs...); err != nil {
 		h.log.Error("failed to set frame context", zap.Error(err))

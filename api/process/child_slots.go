@@ -24,8 +24,7 @@ var (
 
 // ChildSlots bounds how many child processes a process may have running at
 // once. A spawn reserves a slot as a frame attachment of the child: it is
-// released when the child's frame is released at exit, or rolled back when
-// the spawn fails.
+// released when the child completes, or rolled back when the spawn fails.
 type ChildSlots struct {
 	limit int64
 	used  atomic.Int64
@@ -90,6 +89,11 @@ func ChildSlotResolver(ctx context.Context, options attrs.Attributes) ([]ctxapi.
 type childSlot struct {
 	slots    *ChildSlots
 	released atomic.Bool
+}
+
+// Complete releases the slot when the child completes.
+func (s *childSlot) Complete() {
+	s.release()
 }
 
 func (s *childSlot) Close() error {

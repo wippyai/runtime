@@ -397,6 +397,20 @@ func PropagatedPairs(ctx context.Context) []Pair {
 	return pairs
 }
 
+// CompleteFrame releases the Completer values of the frame in ctx; process
+// hosts call it when the process owning the frame completes.
+func CompleteFrame(ctx context.Context) {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		return
+	}
+	fc.Iterate(func(_ any, value any) {
+		if completer, ok := value.(Completer); ok {
+			completer.Complete()
+		}
+	})
+}
+
 // ReleaseFrameContext decrements refcount and triggers chain collapse when zero.
 // Only pools the frame when all references (including children) are released.
 func ReleaseFrameContext(fc FrameContext) {

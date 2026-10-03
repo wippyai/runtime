@@ -34,6 +34,10 @@ const (
 	ProcessMonitorKey = "process.monitor"
 	ProcessLinkKey    = "process.link"
 	ProcessNameKey    = "process.name"
+	// ProcessOwnedKey makes the started process owned by the spawning
+	// execution: it is terminated when that execution ends. Processes spawned
+	// by an owned process are always owned.
+	ProcessOwnedKey = "process.owned"
 )
 
 type (
