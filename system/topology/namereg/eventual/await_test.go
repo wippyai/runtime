@@ -86,6 +86,36 @@ func TestAwait_EndsWithTheContextAndLeavesNoWaiter(t *testing.T) {
 	require.Zero(t, svc.Waiting())
 }
 
+func TestAwait_EndsWhenTheServiceStops(t *testing.T) {
+	svc := startedService(t, "node-A")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { _, err := svc.Await(ctx, "svc.never"); result <- err }()
+	require.Eventually(t, func() bool { return svc.Waiting() == 1 }, time.Second, time.Millisecond)
+	require.NoError(t, svc.Stop())
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, eventual.ErrServiceStopped)
+	case <-time.After(time.Second):
+		t.Fatal("Await outlived the registry service")
+	}
+	require.Zero(t, svc.Waiting())
+	_, err := svc.Await(ctx, "svc.after-stop")
+	require.ErrorIs(t, err, eventual.ErrServiceStopped)
+}
+
+func TestAwait_CanceledContextDoesNotReturnALiveName(t *testing.T) {
+	svc := startedService(t, "node-A")
+	_, err := svc.Register("svc.live", pid.PID{Node: "node-A", Host: "workers", UniqID: "sup"})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = svc.Await(ctx, "svc.live")
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, svc.Waiting())
+}
+
 func TestAwait_ManyWaitersOnOneNameAllWake(t *testing.T) {
 	svc := startedService(t, "node-A")
 	p := pid.PID{Node: "node-A", Host: "workers", UniqID: "sup"}

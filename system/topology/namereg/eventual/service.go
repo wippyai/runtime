@@ -108,6 +108,7 @@ type Service struct {
 	// the pid/priority to re-assert them. Guarded by ownedMu.
 	owned    map[string]ownedReg
 	waiters  waiters
+	done     chan struct{}
 	cfg      Config
 	stopOnce sync.Once
 	// Keep one name's State dot and owned intent in order. Distinct shards can
@@ -156,6 +157,7 @@ func NewService(cfg Config) *Service {
 		logger:           cfg.Logger.Named("eventualreg"),
 		lastShardRequest: map[string]int64{},
 		owned:            map[string]ownedReg{},
+		done:             make(chan struct{}),
 	}
 
 	gcCfg := GCConfig{
@@ -201,6 +203,7 @@ func (s *Service) Start(ctx context.Context) error {
 func (s *Service) Stop() error {
 	s.stopOnce.Do(func() {
 		s.stopped.Store(true)
+		close(s.done)
 		if s.nodeLeftSub != nil {
 			s.nodeLeftSub.Close()
 		}

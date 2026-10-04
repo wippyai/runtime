@@ -76,6 +76,12 @@ func (w *waiters) wake(name string) {
 // can make a name live.
 func (s *Service) Await(ctx context.Context, name string) (pid.PID, error) {
 	for {
+		if err := ctx.Err(); err != nil {
+			return pid.PID{}, err
+		}
+		if s.stopped.Load() {
+			return pid.PID{}, ErrServiceStopped
+		}
 		entry := s.waiters.enter(name)
 		if p, ok := s.state.Lookup(name); ok {
 			s.waiters.leave(name, entry)
@@ -87,6 +93,9 @@ func (s *Service) Await(ctx context.Context, name string) (pid.PID, error) {
 		case <-ctx.Done():
 			s.waiters.leave(name, entry)
 			return pid.PID{}, ctx.Err()
+		case <-s.done:
+			s.waiters.leave(name, entry)
+			return pid.PID{}, ErrServiceStopped
 		}
 	}
 }
