@@ -106,9 +106,12 @@ type Service struct {
 	queue            *BroadcastQueue
 	// owned holds names this node registered live and still intends to keep, with
 	// the pid/priority to re-assert them. Guarded by ownedMu.
-	owned    map[string]ownedReg
-	cfg      Config
-	stopOnce sync.Once
+	owned map[string]ownedReg
+	// ownedByPID avoids scanning all registrations on every process exit,
+	// including exits of processes that never owned a name. Guarded by ownedMu.
+	ownedByPID map[string]map[string]struct{}
+	cfg        Config
+	stopOnce   sync.Once
 	// Keep one name's State dot and owned intent in order. Distinct shards can
 	// mutate concurrently; ownedMu only protects the shared map itself.
 	ownedMutations     [ShardCount]sync.Mutex
@@ -155,6 +158,7 @@ func NewService(cfg Config) *Service {
 		logger:           cfg.Logger.Named("eventualreg"),
 		lastShardRequest: map[string]int64{},
 		owned:            map[string]ownedReg{},
+		ownedByPID:       map[string]map[string]struct{}{},
 	}
 
 	gcCfg := GCConfig{
@@ -254,6 +258,16 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 	res := s.state.Register(name, p, time.Now().UnixMilli(), o.priority)
 	if res.Won {
 		s.ownedMu.Lock()
+		if old, exists := s.owned[name]; !exists || !old.pid.Equal(p) {
+			s.forgetOwnedLocked(name)
+			key := p.String()
+			names := s.ownedByPID[key]
+			if names == nil {
+				names = make(map[string]struct{})
+				s.ownedByPID[key] = names
+			}
+			names[name] = struct{}{}
+		}
 		s.owned[name] = ownedReg{pid: p, priority: o.priority}
 		s.ownedMu.Unlock()
 	}
@@ -311,7 +325,7 @@ func (s *Service) Unregister(name string) bool {
 	mutation.Lock()
 	e := s.state.Unregister(name, time.Now().UnixMilli())
 	s.ownedMu.Lock()
-	delete(s.owned, name)
+	s.forgetOwnedLocked(name)
 	s.ownedMu.Unlock()
 	mutation.Unlock()
 	if e == nil {
@@ -333,10 +347,8 @@ func (s *Service) ReleasePID(p pid.PID) {
 	}
 	s.ownedMu.Lock()
 	var names []string
-	for name, reg := range s.owned {
-		if reg.pid.Equal(p) {
-			names = append(names, name)
-		}
+	for name := range s.ownedByPID[p.String()] {
+		names = append(names, name)
 	}
 	s.ownedMu.Unlock()
 
@@ -355,7 +367,7 @@ func (s *Service) releaseOwned(name string, p pid.PID) {
 		mutation.Unlock()
 		return
 	}
-	delete(s.owned, name)
+	s.forgetOwnedLocked(name)
 	s.ownedMu.Unlock()
 	e := s.state.Unregister(name, time.Now().UnixMilli())
 	mutation.Unlock()
@@ -367,6 +379,22 @@ func (s *Service) releaseOwned(name string, p pid.PID) {
 	s.tel.recordUnregister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
+}
+
+// forgetOwnedLocked keeps forward intent and reverse ownership in sync. The
+// caller holds ownedMu and the name's ownedMutations lock.
+func (s *Service) forgetOwnedLocked(name string) {
+	reg, ok := s.owned[name]
+	if !ok {
+		return
+	}
+	delete(s.owned, name)
+	key := reg.pid.String()
+	names := s.ownedByPID[key]
+	delete(names, name)
+	if len(names) == 0 {
+		delete(s.ownedByPID, key)
+	}
 }
 
 // Lookup returns the live PID for a name (Found=true), or a zero LookupResult
