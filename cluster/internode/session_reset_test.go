@@ -76,7 +76,7 @@ func (rawFrameCodec) Decode(data []byte) (*relay.Package, error) {
 	return pkg, nil
 }
 
-// downRouter stands in for the local relay under topology: it records link
+// downRouter stands in for the local relay under topology: it records monitor
 // down events reaching local watchers and accepts every other package.
 type downRouter struct{ tl *timeline }
 
@@ -86,7 +86,7 @@ func (r downRouter) Send(pkg *relay.Package) error {
 			continue
 		}
 		for _, p := range msg.Payloads {
-			if exit, ok := p.Data().(*topoapi.ExitEvent); ok && exit.Kind == topoapi.LinkDown {
+			if exit, ok := p.Data().(*topoapi.ExitEvent); ok && exit.Kind == topoapi.MonitorDown {
 				r.tl.add(timelineEntry{down: true, watcher: pkg.Target})
 			}
 		}

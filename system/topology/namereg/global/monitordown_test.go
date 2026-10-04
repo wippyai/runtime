@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 )
 
-func TestRegistryLinkDownClearsInactiveMonitor(t *testing.T) {
+func TestRegistryMonitorDownClearsInactiveMonitor(t *testing.T) {
 	fsm := NewFSM()
 	svc := NewService(newDirectApplyRaft(fsm, true), fsm, &nopBus{}, nil,
 		&nopRouter{}, nil, "local", noopLogger(), nil, nil, nil)
@@ -21,14 +21,14 @@ func TestRegistryLinkDownClearsInactiveMonitor(t *testing.T) {
 	}
 	svc.monitoredPIDs.Store(owner.String(), struct{}{})
 	pkg := relay.NewPackage(owner, pid.PID{Node: "local", Host: HostID},
-		topology.TopicEvents, payload.New(&topology.ExitEvent{From: owner, Kind: topology.LinkDown}))
+		topology.TopicEvents, payload.New(&topology.ExitEvent{From: owner, Kind: topology.MonitorDown}))
 	if err := svc.Send(pkg); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := svc.monitoredPIDs.Load(owner.String()); ok {
-		t.Fatal("LinkDown retained an inactive monitor")
+		t.Fatal("MonitorDown retained an inactive monitor")
 	}
 	if result, err := svc.Lookup(t.Context(), "shared"); err != nil || !result.Found || !result.PID.Equal(owner) {
-		t.Fatalf("LinkDown removed ownership: result=%+v err=%v", result, err)
+		t.Fatalf("MonitorDown removed ownership: result=%+v err=%v", result, err)
 	}
 }

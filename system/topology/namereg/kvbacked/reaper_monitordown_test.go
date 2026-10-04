@@ -13,7 +13,7 @@ import (
 	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
-func TestRegistryLinkDownDoesNotReapLiveOwner(t *testing.T) {
+func TestRegistryMonitorDownDoesNotReapLiveOwner(t *testing.T) {
 	engine := systemkv.NewService("registry-link-down", nil)
 	if _, err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -33,9 +33,9 @@ func TestRegistryLinkDownDoesNotReapLiveOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	send(topology.LinkDown)
+	send(topology.MonitorDown)
 	if result, err := reg.Lookup(context.Background(), "shared"); err != nil || !result.Found || result.PID.String() != owner.String() {
-		t.Fatalf("LinkDown revoked a live owner's name: result=%+v err=%v", result, err)
+		t.Fatalf("MonitorDown revoked a live owner's name: result=%+v err=%v", result, err)
 	}
 	send(topology.Exit)
 	if result, err := reg.Lookup(context.Background(), "shared"); err != nil || result.Found {

@@ -551,7 +551,7 @@ func (s *Service) handleExitEvent(msg *relay.Message) {
 		switch exitEvent.Kind {
 		case topology.Exit:
 			s.HandleProcessExit(exitEvent.From)
-		case topology.LinkDown:
+		case topology.MonitorDown:
 			s.monitoredPIDs.Delete(exitEvent.From.String())
 		}
 	}

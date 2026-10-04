@@ -19,13 +19,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// linkDownCounter counts link down events reaching local processes.
-type linkDownCounter struct{ n atomic.Int32 }
+// monitorDownCounter counts monitor down events reaching local processes.
+type monitorDownCounter struct{ n atomic.Int32 }
 
-func (c *linkDownCounter) Send(pkg *relayapi.Package) error {
+func (c *monitorDownCounter) Send(pkg *relayapi.Package) error {
 	for _, msg := range pkg.Messages {
 		for _, p := range msg.Payloads {
-			if exit, ok := p.Data().(*topoapi.ExitEvent); ok && exit.Kind == topoapi.LinkDown {
+			if exit, ok := p.Data().(*topoapi.ExitEvent); ok && exit.Kind == topoapi.MonitorDown {
 				c.n.Add(1)
 			}
 		}
@@ -40,7 +40,7 @@ func TestTopologyListenerBreaksMonitorsOfDeletedPeers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bus := eventbus.NewBus()
-	downs := &linkDownCounter{}
+	downs := &monitorDownCounter{}
 	topo := topology.NewTopology(downs, "local")
 	watcher := pid.PID{Node: "local", Host: "host", UniqID: "watcher"}
 	require.NoError(t, topo.Register(watcher))
