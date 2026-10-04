@@ -6,9 +6,9 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/security"
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/service/security/policy"
@@ -21,11 +21,18 @@ func SecurityPolicy() boot.Component {
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)
-			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
+			registry, ok := security.GetRegistry(ctx)
+			if !ok {
+				return ctx, security.ErrRegistryNotFound
+			}
+			owner, ok := registry.(security.PolicyApplier)
+			if !ok {
+				return ctx, security.ErrRegistryNotFound
+			}
 
 			factory := policy.NewDefaultFactory(dtt)
-			manager := policy.NewManager(bus, factory, logger.Named("security.policy"))
+			manager := policy.NewManager(owner, factory, logger.Named("security.policy"))
 
 			handlers.RegisterListener(policyapi.Policy, manager)
 			handlers.RegisterListener(policyapi.ExprKind, manager)
