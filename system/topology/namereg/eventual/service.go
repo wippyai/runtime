@@ -107,6 +107,7 @@ type Service struct {
 	// owned holds names this node registered live and still intends to keep, with
 	// the pid/priority to re-assert them. Guarded by ownedMu.
 	owned    map[string]ownedReg
+	waiters  waiters
 	cfg      Config
 	stopOnce sync.Once
 	// Keep one name's State dot and owned intent in order. Distinct shards can
@@ -114,7 +115,6 @@ type Service struct {
 	ownedMutations     [ShardCount]sync.Mutex
 	ownedMu            sync.Mutex
 	lastShardRequestMu sync.Mutex
-	waiters            waiters
 	stopped            atomic.Bool
 }
 
