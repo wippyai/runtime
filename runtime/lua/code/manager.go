@@ -703,6 +703,12 @@ func (cm *Manager) GetTypeChecker() *TypeChecker {
 	return cm.typeChecker
 }
 
+// RejectsTypeErrors reports whether type errors fail compilation. Code is then
+// validated when it is registered, which requires compiling it at that point.
+func (cm *Manager) RejectsTypeErrors() bool {
+	return cm.typeChecker.IsEnabled() && cm.typeChecker.IsStrict()
+}
+
 // AddNodeWithProto adds a node with a precompiled prototype (for bytecode entries).
 // The proto is retained directly, bypassing source compilation.
 func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import, proto *glua.FunctionProto) error {

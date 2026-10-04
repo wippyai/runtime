@@ -4,6 +4,8 @@ package engine
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/process"
@@ -49,6 +51,7 @@ type processConfig struct {
 	excludeModules []string
 	extraModules   []*luaapi.ModuleDef
 	buildMode      code.AccessMode
+	deferCompile   bool
 }
 
 func newProcessConfig() *processConfig {
@@ -93,6 +96,14 @@ func ExcludeModules(names ...string) FactoryOption {
 	}
 }
 
+// CompileOnFirstUse defers compilation until the factory creates its first
+// process, so code that never runs is never compiled or retained.
+func CompileOnFirstUse() FactoryOption {
+	return func(c *processConfig) {
+		c.deferCompile = true
+	}
+}
+
 // WithModule adds an extra module to load.
 func WithModule(mod *luaapi.ModuleDef) FactoryOption {
 	return func(c *processConfig) {
@@ -115,14 +126,32 @@ func WithFilter(fn func(name string, classes []string) (bool, error)) FactoryOpt
 	}
 }
 
-// CreateFactory returns a factory function for creating processes.
+// CreateFactory returns a factory function for creating processes. The code is
+// compiled now unless CompileOnFirstUse is set, in which case the first process
+// creation compiles it against the code graph current at that moment. Strict
+// type checking keeps compilation at creation so type errors reject the entry.
 func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (process.FactoryFunc, error) {
 	cfg := newProcessConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	// Build compile-time options
+	if cfg.deferCompile && !f.code.RejectsTypeErrors() {
+		deferred := &deferredFactory{build: func() (*Factory, error) {
+			return f.build(id, cfg)
+		}}
+		return deferred.Create, nil
+	}
+
+	factory, err := f.build(id, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return factory.Create, nil
+}
+
+// build compiles the entrypoint and prepares the factory that creates its processes.
+func (f *ProcessFactory) build(id registry.ID, cfg *processConfig) (*Factory, error) {
 	buildOpts := code.NewBuildOptions().WithMode(cfg.buildMode)
 	if len(cfg.allowedIDs) > 0 {
 		buildOpts.WithAllowed(cfg.allowedIDs...)
@@ -137,24 +166,53 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 		buildOpts.WithAllowedClasses(cfg.allowedClasses...)
 	}
 
-	// Compile
 	compiled, err := f.code.Compile(id, buildOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build binders with runtime filtering
 	binders, err := f.buildBinders(compiled, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	factoryCfg := FactoryConfig{
+	return newFactory(FactoryConfig{
 		Proto:         compiled.Main,
 		ModuleBinders: binders,
-	}
+	}), nil
+}
 
-	factory := NewFactory(factoryCfg)
+// deferredFactory builds its Factory on the first process creation. Concurrent
+// first callers share one build; a failed build is retried by the next call.
+type deferredFactory struct {
+	build   func() (*Factory, error)
+	factory atomic.Pointer[Factory]
+	mu      sync.Mutex
+}
+
+// Create builds the factory on first use and creates a process from it.
+func (d *deferredFactory) Create() (process.Process, error) {
+	factory, err := d.resolve()
+	if err != nil {
+		return nil, err
+	}
+	return factory.Create()
+}
+
+func (d *deferredFactory) resolve() (*Factory, error) {
+	if factory := d.factory.Load(); factory != nil {
+		return factory, nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if factory := d.factory.Load(); factory != nil {
+		return factory, nil
+	}
+	factory, err := d.build()
+	if err != nil {
+		return nil, err
+	}
+	d.factory.Store(factory)
 	return factory, nil
 }
 
@@ -387,14 +445,17 @@ type Factory struct {
 // NewFactory creates a ProcessFactory for Lua processes.
 // The factory returns processes that are already initialized.
 func NewFactory(cfg FactoryConfig) process.FactoryFunc {
-	f := &Factory{
+	return newFactory(cfg).Create
+}
+
+func newFactory(cfg FactoryConfig) *Factory {
+	return &Factory{
 		proto:         cfg.Proto,
 		script:        cfg.Script,
 		scriptName:    cfg.ScriptName,
 		moduleBinders: cfg.ModuleBinders,
 		stateOpts:     cfg.StateOptions,
 	}
-	return f.Create
 }
 
 // Create produces a new initialized Process.

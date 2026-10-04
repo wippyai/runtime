@@ -109,7 +109,11 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 }
 
 func (m *Manager) buildPool(id registry.ID, cfg *configEntry) (funcpool.Pool, error) {
-	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
+	opts := []engine.FactoryOption{engine.WithModules(component.ExecutableAmbientModules()...)}
+	if createsWorkersOnDemand(cfg.pool) {
+		opts = append(opts, engine.CompileOnFirstUse())
+	}
+	factoryFn, err := m.factory.CreateFactory(id, opts...)
 	if err != nil {
 		return nil, err // Already has compile context from code.Manager
 	}
@@ -195,10 +199,26 @@ func (m *Manager) nextPoolHostID(id registry.ID) string {
 	return id.String() + "#lua." + strconv.FormatUint(m.hostSeq.Add(1), 10)
 }
 
+// createsWorkersOnDemand reports whether the configured pool creates its first
+// worker on the first call. Such pools compile on first use; pools that create
+// workers up front, or request warm_start, compile when they are built.
+func createsWorkersOnDemand(cfg api.PoolConfig) bool {
+	if cfg.WarmStart {
+		return false
+	}
+	switch cfg.Type {
+	case api.PoolTypeLazy:
+		return true
+	case "":
+		return cfg.IsFlex()
+	default:
+		return false
+	}
+}
+
 // autoSelectPool automatically selects pool type based on config options (legacy behavior).
 func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg api.PoolConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
-	isLazyPool := cfg.Workers == 0 && (cfg.Size == 0 || cfg.MaxSize > 0)
-	if isLazyPool {
+	if cfg.IsFlex() {
 		maxWorkers := cfg.MaxSize
 		if maxWorkers <= 0 {
 			maxWorkers = api.DefaultMaxSize

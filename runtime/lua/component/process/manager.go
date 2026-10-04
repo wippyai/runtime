@@ -280,8 +280,10 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 
 // registerFactory registers a process factory with the factory registry and waits for confirmation.
 func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string, sec *security.Config) error {
-	// Create factory using ProcessFactory
-	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
+	factoryFn, err := m.factory.CreateFactory(id,
+		engine.WithModules(component.ExecutableAmbientModules()...),
+		engine.CompileOnFirstUse(),
+	)
 	if err != nil {
 		return err // Already has compile context from code.Manager
 	}

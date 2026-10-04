@@ -165,6 +165,12 @@ type (
 	}
 )
 
+// IsFlex reports whether a pool without an explicit type grows workers on
+// demand instead of keeping a fixed set.
+func (p PoolConfig) IsFlex() bool {
+	return p.Workers == 0 && (p.Size == 0 || p.MaxSize > 0)
+}
+
 // Validate checks if the FunctionConfig has all required fields set to valid values.
 // It returns an error if any validation check fails.
 func (c *FunctionConfig) Validate() error {
@@ -176,11 +182,8 @@ func (c *FunctionConfig) Validate() error {
 		return ErrMethodRequired
 	}
 
-	// Pool validation for different pool types
-	isFlexPool := c.Pool.Workers == 0 && (c.Pool.Size == 0 || c.Pool.MaxSize > 0)
-
 	// For non-flex pools, validate Size
-	if !isFlexPool && c.Pool.Size <= 0 {
+	if !c.Pool.IsFlex() && c.Pool.Size <= 0 {
 		return ErrInvalidPoolSize
 	}
 
