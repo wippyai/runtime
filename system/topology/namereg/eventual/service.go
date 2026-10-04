@@ -97,11 +97,11 @@ type Service struct {
 	// Key: peer node string. Value: unix-nanos of the last request emitted.
 	// Reads/writes are guarded by lastShardRequestMu.
 	lastShardRequest map[string]int64
-	// held keeps the shard response frames for a requester that was not a live
-	// member when its request arrived, as when a node rejoins under a name its
-	// peers still list as departed. They are sent when membership reports the
-	// node joined and dropped when it leaves. Guarded by heldMu.
-	held          map[string]heldResponse
+	// held keeps only requested shard IDs, not encoded registry snapshots.
+	// Requests are installed before sending so a concurrent join cannot miss
+	// them. BroadcastCap bounds pending requesters; overflow falls back to the
+	// next anti-entropy round. Guarded by heldMu.
+	held          map[string]*heldResponse
 	membershipSub *eventbus.Subscriber
 	tracker       *TombstoneTracker
 	gc            *GCRunner
@@ -207,6 +207,9 @@ func (s *Service) Start(ctx context.Context) error {
 func (s *Service) Stop() error {
 	s.stopOnce.Do(func() {
 		s.stopped.Store(true)
+		s.heldMu.Lock()
+		clear(s.held)
+		s.heldMu.Unlock()
 		if s.membershipSub != nil {
 			s.membershipSub.Close()
 		}
@@ -424,10 +427,46 @@ func (s *Service) handleShardRequestFrame(body []byte) {
 		// receive-side observation, not a request we emitted.
 		return
 	}
-	payloads := make([][]byte, 0, len(ids))
+	var shards uint64
+	for _, id := range ids {
+		shards |= uint64(1) << id
+	}
+	response := &heldResponse{shards: shards}
+	s.heldMu.Lock()
+	if s.stopped.Load() {
+		s.heldMu.Unlock()
+		return
+	}
+	if s.held == nil {
+		s.held = make(map[string]*heldResponse)
+	}
+	if _, exists := s.held[sender]; exists || len(s.held) < s.cfg.BroadcastCap {
+		s.held[sender] = response
+	}
+	s.heldMu.Unlock()
+	if s.sendShardResponse(sender, shards) {
+		s.heldMu.Lock()
+		// A concurrent request for the same node owns its own retry intent.
+		if s.held[sender] == response {
+			delete(s.held, sender)
+		}
+		s.heldMu.Unlock()
+	}
+}
+
+// sendShardResponse regenerates a response from current state. It never holds
+// heldMu while calling the transport, which can invoke membership callbacks.
+func (s *Service) sendShardResponse(sender string, shards uint64) bool {
+	if s.stopped.Load() {
+		return false
+	}
+	payloads := make([][]byte, 0)
 	payloadsSkipped := 0
 	maxShardPayloadBytes := ReliableFrameMaxBytes - (2 + len(s.cfg.LocalNodeID))
-	for _, id := range ids {
+	for id := uint16(0); id < ShardCount; id++ {
+		if shards&(uint64(1)<<id) == 0 {
+			continue
+		}
 		entries := s.state.ShardEntries(int(id))
 		chunks, skipped, err := EncodeShardPayloadsBounded(id, entries, s.state.NodeString, maxShardPayloadBytes)
 		if err != nil {
@@ -444,12 +483,12 @@ func (s *Service) handleShardRequestFrame(body []byte) {
 				zap.Int("skipped", payloadsSkipped),
 				zap.Int("max_bytes", ReliableFrameMaxBytes))
 		}
-		return
+		return true
 	}
 	frames, sent, skipped, err := EncodeShardResponseFramesBounded(s.cfg.LocalNodeID, payloads, ReliableFrameMaxBytes)
 	if err != nil {
 		s.logger.Warn("eventualreg: encode response frame", zap.Error(err))
-		return
+		return false
 	}
 	if skipped+payloadsSkipped > 0 {
 		s.logger.Warn("eventualreg: shard response payloads exceeded reliable frame cap",
@@ -459,37 +498,27 @@ func (s *Service) handleShardRequestFrame(body []byte) {
 			zap.Int("max_bytes", ReliableFrameMaxBytes))
 	}
 	if len(frames) == 0 {
-		return
+		return true
 	}
-	for i, frame := range frames {
+	for _, frame := range frames {
 		if err := s.cfg.Sender.Send(sender, frame); err != nil {
-			s.logger.Debug("eventualreg: shard response held until the requester joins",
+			s.logger.Debug("eventualreg: send shard response failed",
 				zap.String("to", sender), zap.Error(err))
-			s.hold(sender, heldResponse{frames: frames[i:], payloads: sent})
-			return
+			return false
 		}
 	}
 	s.tel.recordShardResponse("tx", sent)
+	return true
 }
 
-// heldResponse is an unsent shard response and the payload count it carries.
+// heldResponse is a compact retry intent. One bit per shard also deduplicates
+// wire requests; no encoded frame, input buffer or captured entry is retained.
 type heldResponse struct {
-	frames   [][]byte
-	payloads int
-}
-
-// hold keeps the newest unsent response for node, replacing an older one.
-func (s *Service) hold(node string, response heldResponse) {
-	s.heldMu.Lock()
-	defer s.heldMu.Unlock()
-	if s.held == nil {
-		s.held = make(map[string]heldResponse)
-	}
-	s.held[node] = response
+	shards uint64
 }
 
 // takeHeld removes and returns the response held for node.
-func (s *Service) takeHeld(node string) heldResponse {
+func (s *Service) takeHeld(node string) *heldResponse {
 	s.heldMu.Lock()
 	defer s.heldMu.Unlock()
 	response := s.held[node]
@@ -519,15 +548,8 @@ func (s *Service) onNodeJoinedEvent(e event.Event) {
 		return
 	}
 	response := s.takeHeld(ne.Node.ID)
-	for _, frame := range response.frames {
-		if err := s.cfg.Sender.Send(ne.Node.ID, frame); err != nil {
-			s.logger.Debug("eventualreg: send held shard response failed",
-				zap.String("to", ne.Node.ID), zap.Error(err))
-			return
-		}
-	}
-	if len(response.frames) > 0 {
-		s.tel.recordShardResponse("tx", response.payloads)
+	if response != nil {
+		s.sendShardResponse(ne.Node.ID, response.shards)
 	}
 }
 

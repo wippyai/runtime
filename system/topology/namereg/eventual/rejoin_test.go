@@ -95,8 +95,8 @@ func TestRejoin_ShardResponseReachesARequesterThatIsNotLiveYet(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond, "node-B must receive the held shard response when it joins")
 }
 
-// TestRejoin_HeldResponseIsDroppedWhenTheRequesterLeaves keeps held replies
-// bounded: a requester that leaves without joining gets nothing later.
+// TestRejoin_HeldResponseIsDroppedWhenTheRequesterLeaves checks that a retry
+// for an old membership lifetime cannot reach a later incarnation.
 func TestRejoin_HeldResponseIsDroppedWhenTheRequesterLeaves(t *testing.T) {
 	busA := eventbus.NewBus()
 	toB := &liveSender{live: map[string]bool{}, peers: map[string]*eventual.Service{}}
@@ -121,4 +121,33 @@ func TestRejoin_HeldResponseIsDroppedWhenTheRequesterLeaves(t *testing.T) {
 		r, err := b.Lookup(context.Background(), "bee.hive.supervisor/node-A")
 		return err == nil && r.Found
 	}, 300*time.Millisecond, 10*time.Millisecond, "a reply held for a requester that left must not be delivered to a later join")
+}
+
+func TestRejoin_ResponseUsesCurrentStateInsteadOfACapturedSnapshot(t *testing.T) {
+	busA := eventbus.NewBus()
+	toB := &liveSender{live: map[string]bool{}, peers: map[string]*eventual.Service{}}
+	a := eventual.NewService(eventual.Config{LocalNodeID: "node-A", Bus: busA, Sender: toB})
+	b := eventual.NewService(eventual.Config{LocalNodeID: "node-B"})
+	toB.peers["node-B"] = b
+	require.NoError(t, a.Start(context.Background()))
+	require.NoError(t, b.Start(context.Background()))
+	t.Cleanup(func() { _ = a.Stop(); _ = b.Stop() })
+	owner := pid.PID{Node: "node-A", Host: "workers", UniqID: "owner"}
+	_, err := a.Register("svc", owner)
+	require.NoError(t, err)
+	request, err := eventual.EncodeShardRequestFrame("node-B", allShards())
+	require.NoError(t, err)
+	a.OnFrame(request)
+	require.True(t, a.Unregister("svc"))
+	_, err = a.Register("after-request", owner)
+	require.NoError(t, err)
+	toB.join("node-B")
+	busA.Send(context.Background(), nodeJoinedEvent("node-B"))
+	require.Eventually(t, func() bool {
+		r, err := b.Lookup(context.Background(), "after-request")
+		return err == nil && r.Found
+	}, time.Second, time.Millisecond)
+	r, err := b.Lookup(context.Background(), "svc")
+	require.NoError(t, err)
+	require.False(t, r.Found, "a withdrawn registration must not be replayed")
 }
