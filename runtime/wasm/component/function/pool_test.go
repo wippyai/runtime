@@ -273,18 +273,6 @@ func TestManagerCreatePoolAndExecute_AllPoolTypes(t *testing.T) {
 	}
 	defer rt.Close(ctx)
 
-	mod, err := rt.LoadWAT(ctx, `(module
-		(func (export "run") (result i32)
-			i32.const 42
-		)
-	)`, "run: func() -> s32;")
-	if err != nil {
-		t.Fatalf("LoadWAT() error = %v", err)
-	}
-	if err := mod.Compile(ctx); err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-
 	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil, wasmcomponent.InMemoryCaches())
 	m.started = true
 	t.Cleanup(m.Stop)
@@ -318,6 +306,17 @@ func TestManagerCreatePoolAndExecute_AllPoolTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			mod, err := rt.LoadWAT(ctx, `(module
+				(func (export "run") (result i32)
+					i32.const 42
+				)
+			)`, "run: func() -> s32;")
+			if err != nil {
+				t.Fatalf("LoadWAT() error = %v", err)
+			}
+			if err := mod.Compile(ctx); err != nil {
+				t.Fatalf("Compile() error = %v", err)
+			}
 			cfg := &configEntry{
 				kind:      wasmapi.FunctionWAT,
 				method:    "run",
