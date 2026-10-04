@@ -151,6 +151,7 @@ func resolveEngineSettings(cfg boot.Config, logger *zap.Logger) code.Config {
 			TypecheckEnabled: true,
 			MaxBytes:         cache.DefaultMaxBytes,
 			MaxEntries:       cache.DefaultMaxEntries,
+			MemoryBytes:      cache.DefaultMemoryBytes,
 			PruneInterval:    cache.DefaultPruneInterval,
 		},
 		InvalidationWaitTimeout: code.DefaultInvalidationWaitTimeout,
@@ -189,6 +190,7 @@ func resolveEngineSettings(cfg boot.Config, logger *zap.Logger) code.Config {
 		settings.Cache.TypecheckEnabled = luaCfg.GetBool("cache.typecheck.enabled", settings.Cache.TypecheckEnabled)
 		settings.Cache.MaxBytes = int64(luaCfg.GetInt("cache.max_bytes", int(settings.Cache.MaxBytes)))
 		settings.Cache.MaxEntries = luaCfg.GetInt("cache.max_entries", settings.Cache.MaxEntries)
+		settings.Cache.MemoryBytes = int64(luaCfg.GetInt("cache.memory_bytes", int(settings.Cache.MemoryBytes)))
 		settings.Cache.PruneInterval = luaCfg.GetInt("cache.prune_interval", settings.Cache.PruneInterval)
 	}
 

@@ -9,10 +9,6 @@ import (
 	lru "github.com/wippyai/runtime/internal/cache"
 )
 
-// Bound resident bytes independently of the disk retention policy. Entry count
-// uses the configured cache limit, not a separate small-application ceiling.
-const defaultCompileMemoryBytes = 32 << 20
-
 type compileBytesKey struct {
 	id          registry.ID
 	fingerprint string

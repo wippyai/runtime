@@ -427,3 +427,17 @@ func TestEngineSettingsAcceptHostEmbeddedCache(t *testing.T) {
 	settings = resolveEngineSettings(cfg, zap.NewNop())
 	require.Nil(t, settings.EmbeddedCache)
 }
+
+func TestEngineCacheMemoryBudget(t *testing.T) {
+	if got := resolveEngineSettings(nil, zap.NewNop()).Cache.MemoryBytes; got != cache.DefaultMemoryBytes {
+		t.Fatalf("default memory budget = %d, want %d", got, cache.DefaultMemoryBytes)
+	}
+	cfg := boot.NewConfig(boot.WithSection("lua", map[string]any{"cache.memory_bytes": 4 << 20}))
+	settings := resolveEngineSettings(cfg, zap.NewNop())
+	if settings.Cache.MemoryBytes != 4<<20 {
+		t.Fatalf("configured memory budget = %d, want %d", settings.Cache.MemoryBytes, 4<<20)
+	}
+	if settings.Cache.MaxBytes != cache.DefaultMaxBytes {
+		t.Fatalf("store budget = %d, want the default %d", settings.Cache.MaxBytes, cache.DefaultMaxBytes)
+	}
+}

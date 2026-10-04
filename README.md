@@ -203,6 +203,7 @@ lua:
     mode: readwrite # off | readonly | readwrite
     max_bytes: 1073741824
     max_entries: 20000
+    memory_bytes: 33554432 # in-memory compiled bytes kept in front of the store
     prune_interval: 256
     compile:
       enabled: true

@@ -166,7 +166,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 	}
 	if cacheCfg.Enabled {
 		cm.compileBytes = newCompileBytesCache(
-			int(min(cacheCfg.MaxBytes, int64(defaultCompileMemoryBytes))),
+			int(min(cacheCfg.MaxBytes, cacheCfg.MemoryBytes)),
 			cacheCfg.MaxEntries,
 		)
 		cm.cacheStore = cache.NewBoundedDiskStore(

@@ -45,7 +45,7 @@ func TestCompileBytesCacheTenThousandEntries(t *testing.T) {
 		require.True(t, ok, "entry %d evicted despite fitting the byte and configured entry budgets", i)
 		require.Equal(t, "small-bytecode", string(data))
 	}
-	require.LessOrEqual(t, cm.compileBytes.bytes, defaultCompileMemoryBytes)
+	require.LessOrEqual(t, cm.compileBytes.bytes, int(cache.DefaultMemoryBytes))
 }
 
 func TestCompileByteCacheIsolation(t *testing.T) {
@@ -238,4 +238,20 @@ func TestEmbeddedCacheHonorsCacheModes(t *testing.T) {
 			require.NoDirExists(t, cfg.Cache.Dir+"/v1/entries")
 		})
 	}
+}
+
+func TestCompileBytesCacheHonorsItsOwnMemoryBudget(t *testing.T) {
+	const budget = 64 << 10
+	cm, err := NewCodeManager(zap.NewNop(), nil, Config{Cache: cache.Config{
+		Enabled: true, CompileEnabled: true, Dir: t.TempDir(), ToolchainIdentity: "test",
+		MemoryBytes: budget,
+	}})
+	require.NoError(t, err)
+	chunk := make([]byte, 4<<10)
+	for i := 0; i < 64; i++ {
+		cm.compileBytes.put(compileBytesKey{id: registry.NewID("budget", fmt.Sprintf("unit%d", i)), fingerprint: "fp"}, chunk)
+	}
+	require.LessOrEqual(t, cm.compileBytes.bytes, budget, "the in-memory layer exceeded its configured budget")
+	require.Equal(t, cache.DefaultMaxBytes, cache.Config{Enabled: true}.Normalize().MaxBytes,
+		"the memory budget leaves the disk store's budget unchanged")
 }

@@ -6,6 +6,9 @@ package cache
 const DefaultDir = ".wippy/cache/lua"
 
 const (
+	// DefaultMemoryBytes is the budget of the in-memory layer of compiled
+	// bytes that sits in front of the cache store.
+	DefaultMemoryBytes   int64 = 32 << 20
 	DefaultMaxBytes      int64 = 1 << 30
 	DefaultMaxEntries          = 20_000
 	DefaultPruneInterval       = 256
@@ -27,10 +30,13 @@ type Config struct {
 	ToolchainIdentity string
 	MaxBytes          int64
 	MaxEntries        int
-	PruneInterval     int
-	Enabled           bool
-	CompileEnabled    bool
-	TypecheckEnabled  bool
+	// MemoryBytes bounds the in-memory layer of compiled bytes; MaxBytes
+	// bounds the cache store behind it.
+	MemoryBytes      int64
+	PruneInterval    int
+	Enabled          bool
+	CompileEnabled   bool
+	TypecheckEnabled bool
 }
 
 // Normalize applies default values.
@@ -49,6 +55,9 @@ func (c Config) Normalize() Config {
 	}
 	if c.MaxEntries <= 0 {
 		c.MaxEntries = DefaultMaxEntries
+	}
+	if c.MemoryBytes <= 0 {
+		c.MemoryBytes = DefaultMemoryBytes
 	}
 	if c.PruneInterval <= 0 {
 		c.PruneInterval = DefaultPruneInterval
