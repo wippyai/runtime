@@ -280,8 +280,27 @@ func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	seedPort, err := freeLoopbackPort(t)
+	// Keep both protocols bound while the joiner starts. A find-free/close
+	// handoff lets the joiner's own automatic allocator take the seed port.
+	// The transport is not a membership node until seed.Start consumes it.
+	var seedTransport *memberlist.NetTransport
+	var err error
+	for range 32 {
+		var port int
+		port, err = freeLoopbackPort(t)
+		if err != nil {
+			continue
+		}
+		seedTransport, err = memberlist.NewNetTransport(&memberlist.NetTransportConfig{
+			BindAddrs: []string{"127.0.0.1"}, BindPort: port,
+		})
+		if err == nil {
+			break
+		}
+	}
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = seedTransport.Shutdown() })
+	seedPort := seedTransport.GetAutoBindPort()
 
 	joiner := NewService(Config{
 		NodeName:  "late-seed-joiner",
@@ -294,9 +313,10 @@ func TestService_ConfiguredSeedConvergesAfterOfflineStart(t *testing.T) {
 	require.Len(t, joiner.memberlist.Load().Members(), 1)
 
 	seed := NewService(Config{
-		NodeName: "late-seed",
-		BindAddr: "127.0.0.1",
-		BindPort: seedPort,
+		Transport: seedTransport,
+		NodeName:  "late-seed",
+		BindAddr:  "127.0.0.1",
+		BindPort:  seedPort,
 	}, eventbus.NewBus(), zap.NewNop(), nil, nil, nil)
 	startMembershipServiceForTest(ctx, t, "late seed", seed)
 	defer func() { _ = seed.Stop() }()
