@@ -83,9 +83,13 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	processName := processName(start)
 
-	// Shortcut: if name specified and already exists, route directly to existing process
+	// Shortcut: if name specified and already exists, route directly to existing process.
+	// An admitted program never routes elsewhere: it must run or fail.
 	if processName != "" && h.pidReg != nil {
 		if existingPID, ok := h.pidReg.Lookup(processName); ok {
+			if start.Admission != nil {
+				return pid.PID{}, errors.Join(topology.NameAlreadyRegisteredError(existingPID), rollbackUnconsumedAttachments(start.Context))
+			}
 			if err := rollbackUnconsumedAttachments(start.Context); err != nil {
 				return existingPID, err
 			}
@@ -99,7 +103,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		}
 	}
 
-	proc, meta, err := h.factory.Create(start.Source)
+	proc, meta, err := h.createProcess(start)
 	if err != nil {
 		return pid.PID{}, err
 	}
@@ -124,9 +128,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		frameCtx, securityErr = securitysys.WithSecurityConfigE(frameCtx, meta.Security)
 		if securityErr != nil {
 			proc.Close()
-			if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
-				ctxapi.ReleaseFrameContext(fc)
-			}
+			abandonFrame(frameCtx)
 			return pid.PID{}, fmt.Errorf("resolve process security: %w", securityErr)
 		}
 	}
@@ -138,12 +140,10 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
 		proc.Close()
-		if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
-			ctxapi.ReleaseFrameContext(fc)
-		}
+		abandonFrame(frameCtx)
 
 		// Handle spawn-or-signal: if name taken, route messages to existing process
-		if errors.Is(err, topology.ErrNameAlreadyRegistered) {
+		if errors.Is(err, topology.ErrNameAlreadyRegistered) && start.Admission == nil {
 			if existingPID, ok := topology.GetExistingPID(err); ok {
 				return h.handleNameTaken(existingPID, start)
 			}
@@ -163,6 +163,24 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		zap.String("method", method))
 
 	return processID, nil
+}
+
+// createProcess builds the process from the start's admission, or from the
+// registry entry it names.
+func (h *Host) createProcess(start *process.Start) (process.Process, *process.Meta, error) {
+	admission := start.Admission
+	if admission == nil {
+		return h.factory.Create(start.Source)
+	}
+	if admission.Factory == nil {
+		return nil, nil, ErrAdmissionFactoryRequired
+	}
+	proc, err := admission.Factory()
+	if err != nil {
+		return nil, nil, err
+	}
+	meta := admission.Meta
+	return proc, &meta, nil
 }
 
 func rollbackUnconsumedAttachments(pairs []ctxapi.Pair) error {
@@ -212,12 +230,15 @@ func (h *Host) sendMessages(target pid.PID, messages []*relay.Message) {
 }
 
 // Terminate implements process.Host.
-func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
+func (h *Host) Terminate(ctx context.Context, processID pid.PID) error {
 	h.log.Debug("process terminate requested", zap.String("pid", processID.String()))
-	return h.scheduler.Terminate(processID)
+	return h.scheduler.TerminateWithCause(processID, process.TerminationCause(ctx))
 }
 
 func (h *Host) AcceptsFrameAttachments() bool { return true }
+
+// AcceptsAdmission implements process.AdmissionHost.
+func (h *Host) AcceptsAdmission() bool { return true }
 
 // Send implements relay.Receiver.
 func (h *Host) Send(pkg *relay.Package) error {
@@ -299,14 +320,23 @@ func (h *Host) preparePID(_ context.Context, start *process.Start) pid.PID {
 
 // prepareContext creates a frame context for the process.
 func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *process.Start) context.Context {
-	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
+	// An admitted process is confined by its own frame: it inherits nothing
+	// from the frame of the execution that started it.
+	inheritFrom := ctx
+	if start.Admission != nil {
+		inheritFrom = context.Background()
+	}
+	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, inheritFrom)
 
 	pairsLen := 3 + len(start.Context)
-	pairs := make([]ctxapi.Pair, pairsLen)
+	pairs := make([]ctxapi.Pair, pairsLen, pairsLen+1)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
 	pairs[2] = ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: start.Options}
 	copy(pairs[3:], start.Context)
+	if scope := process.NewExecutionScopeFor(h.ctx, process.ExecutionProcess); scope != nil {
+		pairs = append(pairs, process.ExecutionScopePair(scope))
+	}
 
 	if err := fc.SetMultiple(pairs...); err != nil {
 		h.log.Error("failed to set frame context", zap.Error(err))
@@ -321,7 +351,8 @@ func (h *Host) OnStart(_ context.Context, _ pid.PID, _ process.Process) error { 
 
 // OnComplete implements scheduler.Lifecycle.
 func (h *Host) OnComplete(ctx context.Context, _ pid.PID, _ *runtime.Result) {
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+	ctxapi.CompleteFrame(ctx)
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }
@@ -357,3 +388,12 @@ func NewWorkerClassMismatchError(required, actual string) apierror.Error {
 }
 
 var _ process.Host = (*Host)(nil)
+
+// abandonFrame ends the execution of a process that never completed: the
+// processes it owns end with it, and its frame is released.
+func abandonFrame(ctx context.Context) {
+	ctxapi.CompleteFrame(ctx)
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
+		ctxapi.ReleaseFrameContext(fc)
+	}
+}

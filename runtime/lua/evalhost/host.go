@@ -140,7 +140,7 @@ func (c *yieldCollector) Wait(ctx context.Context) error {
 	case <-c.done:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return context.Cause(ctx)
 	}
 }
 
@@ -357,7 +357,7 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 
 		// Check for context cancellation
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 		}
 
 		output.Reset()

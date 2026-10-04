@@ -4823,3 +4823,39 @@ func TestYieldHandlerSQLPatternWithError(t *testing.T) {
 		t.Fatalf("Expected StepDone, got %v", output.Status())
 	}
 }
+
+func TestProcessCancellationReportsCause(t *testing.T) {
+	for _, syncExecution := range []bool{false, true} {
+		t.Run(fmt.Sprintf("sync=%t", syncExecution), func(t *testing.T) {
+			source := lua.NewState()
+			fn, loadErr := source.LoadString("local function spin() while true do end end; spin()")
+			if loadErr != nil {
+				t.Fatal(loadErr)
+			}
+			proto := fn.Proto
+			source.Close()
+			proc := mustNewProcess(t, WithProto(proto))
+			ctx, frame := ctxapi.OpenFrameContext(context.Background())
+			defer ctxapi.ReleaseFrameContext(frame)
+			ctx, cancel := context.WithCancelCause(ctx)
+			defer cancel(nil)
+			if !syncExecution {
+				if err := proc.Init(ctx, "", nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			defer proc.Close()
+			cancel(process.ErrOwnerEnded)
+			var err error
+			if syncExecution {
+				_, err = proc.SyncExecute(ctx)
+			} else {
+				var out process.StepOutput
+				err = proc.Step(nil, &out)
+			}
+			if !errors.Is(err, process.ErrOwnerEnded) {
+				t.Fatalf("expected owner-ended cause, got %v", err)
+			}
+		})
+	}
+}

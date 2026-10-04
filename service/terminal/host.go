@@ -90,7 +90,8 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 	if h.raw != nil {
 		_ = h.raw.Reset()
 	}
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+	ctxapi.CompleteFrame(ctx)
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
 		_ = fc.Close()
 	}
 	h.closeDone()
@@ -222,9 +223,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		frameCtx, securityErr = securitysys.WithSecurityConfigE(frameCtx, meta.Security)
 		if securityErr != nil {
 			proc.Close()
-			if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
-				ctxapi.ReleaseFrameContext(fc)
-			}
+			abandonFrame(frameCtx)
 			return pid.PID{}, fmt.Errorf("resolve process security: %w", securityErr)
 		}
 	}
@@ -236,9 +235,7 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
 		proc.Close()
-		if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
-			ctxapi.ReleaseFrameContext(fc)
-		}
+		abandonFrame(frameCtx)
 		return pid.PID{}, err
 	}
 
@@ -379,6 +376,9 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	}
 	pairs[3] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
 	copy(pairs[4:], start.Context)
+	if scope := process.NewExecutionScopeFor(h.ctx, process.ExecutionProcess); scope != nil {
+		pairs = append(pairs, process.ExecutionScopePair(scope))
+	}
 
 	if err := fc.SetMultiple(pairs...); err != nil {
 		h.log.Error("failed to set frame context", zap.Error(err))
@@ -419,3 +419,12 @@ func (h *Host) closeDone() {
 }
 
 var _ process.Host = (*Host)(nil)
+
+// abandonFrame ends the execution of a process that never completed: the
+// processes it owns end with it, and its frame is released.
+func abandonFrame(ctx context.Context) {
+	ctxapi.CompleteFrame(ctx)
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
+		ctxapi.ReleaseFrameContext(fc)
+	}
+}

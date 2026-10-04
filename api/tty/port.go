@@ -98,7 +98,8 @@ type Binding interface {
 	Close() error
 }
 
-var portKey = &ctxapi.Key{Name: "tty.port"} // deliberately non-inheritable
+// portKey belongs to the execution: upgrades keep it, child processes do not.
+var portKey = &ctxapi.Key{Name: "tty.port", Execution: true}
 
 func PortKey() *ctxapi.Key { return portKey }
 

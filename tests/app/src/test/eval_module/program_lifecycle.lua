@@ -1,0 +1,74 @@
+-- SPDX-License-Identifier: MPL-2.0
+
+-- Test: compiled programs are reusable until evicted.
+local assert = require("assert")
+local time = require("time")
+
+-- wait_values collects the exit values of pids, which may exit in any order.
+local function wait_values(events, pids)
+	local values, pending = {}, #pids
+	local timeout = time.after("5s")
+	while pending > 0 do
+		local selected = channel.select { events:case_receive(), timeout:case_receive() }
+		assert.eq(selected.channel, events, "eval process exit received")
+		if selected.value.kind == process.event.EXIT then
+			for i, pid in ipairs(pids) do
+				if selected.value.from == pid and values[i] == nil then
+					values[i] = selected.value.result.value
+					pending = pending - 1
+				end
+			end
+		end
+	end
+	return values
+end
+
+local function main()
+	local events = process.events()
+
+	local program, err = eval.compile([[
+		return { main = function(x) return x + 1 end }
+	]])
+	assert.is_nil(err, "compile succeeds")
+	assert.eq(tostring(program):sub(1, 13), "eval.Program(", "program prints its identity")
+
+	local again, err2 = eval.compile([[
+		return { main = function(x) return x + 1 end }
+	]])
+	assert.is_nil(err2, "recompile succeeds")
+	assert.eq(tostring(again), tostring(program), "same source and policy share a program")
+
+	local first = program:spawn({ input = 1, monitor_only = true })
+	local second = eval.spawn(program, { input = 10, monitor_only = true })
+	local values = wait_values(events, { first, second })
+	assert.eq(values[1], 2, "first spawn of the program")
+	assert.eq(values[2], 11, "second spawn of the program")
+
+	local alternate = eval.compile([[
+		return { main = function() return "main" end, alt = function() return "alt" end }
+	]])
+	local plain = alternate:spawn({ monitor_only = true })
+	local overridden = alternate:spawn({ method = "alt", monitor_only = true })
+	local methods = wait_values(events, { plain, overridden })
+	assert.eq(methods[1], "main", "a program runs its compiled method")
+	assert.eq(methods[2], "alt", "a spawn method overrides the compiled one")
+
+	local mismatch, merr = program:spawn({ modules = { "json" }, monitor_only = true })
+	assert.is_nil(mismatch, "spawn with a different policy fails")
+	assert.contains(tostring(merr), "eval policy mismatch", "policy mismatch reported")
+
+	local evicted, eerr = program:evict()
+	assert.is_nil(eerr, "evict succeeds")
+	assert.eq(evicted, true, "evict returns true for a cached program")
+
+	local again, aerr = program:evict()
+	assert.is_nil(again, "evicting an evicted program fails")
+	assert.contains(tostring(aerr), "eval program not found", "a program that is not cached is not found")
+
+	local gone, gerr = program:spawn({ monitor_only = true })
+	assert.is_nil(gone, "spawn after evict fails")
+	assert.contains(tostring(gerr), "eval program not found", "evicted program is gone")
+	return true
+end
+
+return { main = main }

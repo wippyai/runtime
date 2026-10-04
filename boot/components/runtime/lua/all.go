@@ -16,6 +16,7 @@ func All() []boot.Component {
 		Crypto(),
 		Env(),
 		Eval(),
+		EvalModule(),
 		EvalRunner(),
 		Events(),
 		Excel(),

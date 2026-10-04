@@ -6,6 +6,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	api "github.com/wippyai/runtime/api/metrics"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	secapi "github.com/wippyai/runtime/api/security"
 )
 
 var moduleTable *lua.LTable
@@ -38,12 +39,11 @@ func createModuleTable() *lua.LTable {
 }
 
 func counterInc(l *lua.LState) int {
-	collector := api.GetCollector(l.Context())
-	if collector == nil {
-		return collectorNotAvailable(l)
-	}
-
 	name := l.CheckString(1)
+	collector, n := collectorFor(l, name)
+	if collector == nil {
+		return n
+	}
 	labels := parseLabels(l, 2)
 
 	collector.CounterInc(name, labels)
@@ -54,12 +54,11 @@ func counterInc(l *lua.LState) int {
 }
 
 func counterAdd(l *lua.LState) int {
-	collector := api.GetCollector(l.Context())
-	if collector == nil {
-		return collectorNotAvailable(l)
-	}
-
 	name := l.CheckString(1)
+	collector, n := collectorFor(l, name)
+	if collector == nil {
+		return n
+	}
 	value := l.CheckNumber(2)
 	labels := parseLabels(l, 3)
 
@@ -71,12 +70,11 @@ func counterAdd(l *lua.LState) int {
 }
 
 func gaugeSet(l *lua.LState) int {
-	collector := api.GetCollector(l.Context())
-	if collector == nil {
-		return collectorNotAvailable(l)
-	}
-
 	name := l.CheckString(1)
+	collector, n := collectorFor(l, name)
+	if collector == nil {
+		return n
+	}
 	value := l.CheckNumber(2)
 	labels := parseLabels(l, 3)
 
@@ -88,12 +86,11 @@ func gaugeSet(l *lua.LState) int {
 }
 
 func gaugeInc(l *lua.LState) int {
-	collector := api.GetCollector(l.Context())
-	if collector == nil {
-		return collectorNotAvailable(l)
-	}
-
 	name := l.CheckString(1)
+	collector, n := collectorFor(l, name)
+	if collector == nil {
+		return n
+	}
 	labels := parseLabels(l, 2)
 
 	collector.GaugeInc(name, labels)
@@ -104,12 +101,11 @@ func gaugeInc(l *lua.LState) int {
 }
 
 func gaugeDec(l *lua.LState) int {
-	collector := api.GetCollector(l.Context())
-	if collector == nil {
-		return collectorNotAvailable(l)
-	}
-
 	name := l.CheckString(1)
+	collector, n := collectorFor(l, name)
+	if collector == nil {
+		return n
+	}
 	labels := parseLabels(l, 2)
 
 	collector.GaugeDec(name, labels)
@@ -120,12 +116,11 @@ func gaugeDec(l *lua.LState) int {
 }
 
 func histogram(l *lua.LState) int {
-	collector := api.GetCollector(l.Context())
-	if collector == nil {
-		return collectorNotAvailable(l)
-	}
-
 	name := l.CheckString(1)
+	collector, n := collectorFor(l, name)
+	if collector == nil {
+		return n
+	}
 	value := l.CheckNumber(2)
 	labels := parseLabels(l, 3)
 
@@ -134,6 +129,25 @@ func histogram(l *lua.LState) int {
 	l.Push(lua.LBool(true))
 	l.Push(lua.LNil)
 	return 2
+}
+
+// collectorFor returns the collector the caller may record metric name in, or
+// nil with the pushed error pair. Recording changes host-wide state, so a
+// policy may forbid it.
+func collectorFor(l *lua.LState, name string) (api.Collector, int) {
+	ctx := l.Context()
+	if secapi.IsDenied(ctx, "metrics.record", name, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "not allowed to record metric: "+name).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false))
+		return nil, 2
+	}
+	collector := api.GetCollector(ctx)
+	if collector == nil {
+		return nil, collectorNotAvailable(l)
+	}
+	return collector, 0
 }
 
 func collectorNotAvailable(l *lua.LState) int {

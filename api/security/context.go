@@ -141,6 +141,18 @@ func IsAllowed(ctx context.Context, action, resource string, meta attrs.Bag) boo
 	return result == Allow
 }
 
+// IsDenied reports whether the security scope in ctx explicitly denies the
+// action. It guards actions that run unchecked unless a policy forbids them,
+// so a context without a scope, or a scope with no opinion, denies nothing.
+func IsDenied(ctx context.Context, action, resource string, meta attrs.Bag) bool {
+	actor, hasActor := GetActor(ctx)
+	scope, hasScope := GetScope(ctx)
+	if !hasActor || !hasScope {
+		return false
+	}
+	return scope.Evaluate(actor, action, resource, meta) == Deny
+}
+
 // SetStrictMode sets the security strict mode in the AppContext.
 // When strict mode is enabled, incomplete security contexts will deny access.
 // Must be called during boot before AppContext is sealed.

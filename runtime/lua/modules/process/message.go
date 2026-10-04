@@ -88,7 +88,7 @@ func messageFrom(l *lua.LState) int {
 		return 1
 	}
 
-	l.Push(lua.LString(msg.From.String()))
+	pushAcquiredPID(l, msg.From)
 	return 1
 }
 

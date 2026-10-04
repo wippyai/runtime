@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
@@ -906,4 +908,74 @@ func TestFunctions_ContextInheritance_ThreeLevels(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for function C result")
 	}
+}
+
+type scopeTerminator struct {
+	terminated atomic.Int64
+}
+
+func (*scopeTerminator) Start(context.Context, *process.Start) (pid.PID, error) {
+	return pid.PID{}, errors.New("not used")
+}
+
+func (s *scopeTerminator) Terminate(context.Context, pid.PID) error {
+	s.terminated.Add(1)
+	return nil
+}
+
+func (*scopeTerminator) Cancel(context.Context, pid.PID, pid.PID, string) error { return nil }
+
+type callCloser struct{ closed atomic.Int64 }
+
+func (c *callCloser) Close() error {
+	c.closed.Add(1)
+	return nil
+}
+
+// Each call is its own execution: processes it owns end with it, and the
+// call's scope and frame are released.
+func TestFunctions_CallScopeReleasesOwnedChildren(t *testing.T) {
+	terminator := &scopeTerminator{}
+	ctx := ctxapi.NewRootContext()
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
+	ctx = process.WithPIDGenerator(ctx, uniqid.NewPIDGenerator(uniqid.NewGenerator(), ""))
+	ctx = process.WithManager(ctx, terminator)
+
+	executor, _ := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() { require.NoError(t, executor.Stop()) }()
+
+	const children = 3
+	var scopes sync.Map
+	handlerID := registry.ParseID("test:owner-handler")
+	executor.handlers.Store(handlerID, function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		scope := process.GetExecutionScope(ctx)
+		require.NotNil(t, scope)
+		require.Equal(t, process.ExecutionFunction, scope.Kind())
+		scopes.Store(scope, struct{}{})
+		for i := 0; i < children; i++ {
+			_, child, err := scope.Reserve()
+			require.NoError(t, err)
+			require.NoError(t, child.Bind(pid.PID{UniqID: fmt.Sprint(i)}))
+		}
+		require.Equal(t, children, scope.Owned())
+		return &runtime.Result{}, nil
+	}))
+
+	closer := &callCloser{}
+	key := &ctxapi.Key{Name: "test.call.closer"}
+	const calls = 2000
+	for i := 0; i < calls; i++ {
+		_, err := executor.Call(ctx, runtime.Task{
+			ID:      handlerID,
+			Context: []ctxapi.Pair{{Key: key, Value: closer}},
+		})
+		require.NoError(t, err)
+	}
+	require.EqualValues(t, calls*children, terminator.terminated.Load(), "owned children end with the call")
+	require.EqualValues(t, calls, closer.closed.Load(), "call frames are released")
+	scopes.Range(func(k, _ any) bool {
+		require.Zero(t, k.(*process.ExecutionScope).Owned())
+		return true
+	})
 }

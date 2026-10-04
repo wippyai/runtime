@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
+	sysprocess "github.com/wippyai/runtime/system/process"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
 
@@ -248,7 +249,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 		s.byPID.Range(func(_, value any) bool {
 			proc := value.(*Processor)
 			if ref := proc.sig.Load(); ref != nil {
-				ref.terminate()
+				ref.terminate(sysprocess.ErrTerminated)
 			}
 			proc.queue.Close()
 			return true
@@ -265,7 +266,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	// Force complete any remaining processes (workers stopped)
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
-		s.completeNoPool(proc, nil, context.Canceled)
+		s.completeNoPool(proc, nil, actorCancellationError(proc.ctx))
 		return true
 	})
 }
@@ -341,26 +342,18 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 		return nil, process.ErrMaxProcessesExceeded
 	}
 
-	var procCtx context.Context
-	var cancel context.CancelFunc
-
+	var timeout time.Duration
 	if tp, ok := p.(process.ExecutionTimeoutProvider); ok {
-		timeout := tp.ExecutionTimeout()
+		timeout = tp.ExecutionTimeout()
 		if timeout < 0 {
 			return nil, process.ErrInvalidExecutionTimeout
 		}
-		if timeout > 0 {
-			procCtx, cancel = context.WithTimeout(ctx, timeout)
-		} else {
-			procCtx, cancel = context.WithCancel(ctx)
-		}
-	} else {
-		procCtx, cancel = context.WithCancel(ctx)
 	}
+	procCtx, cancel := actorContext(ctx, timeout)
 
 	enablePreemption(p)
 	if err := p.Init(procCtx, method, input); err != nil {
-		cancel()
+		cancel(nil)
 		return nil, err
 	}
 
@@ -368,6 +361,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
+	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
@@ -393,7 +387,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 			s.byPID.Delete(pid.String())
 			s.byQueue.Delete(proc.queue)
 			s.processorCount.Add(-1)
-			cancel()
+			cancel(nil)
 			releaseProcessor(proc)
 			return nil, err
 		}
@@ -413,14 +407,14 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 // wakeOnCancel makes cancellation of the incarnation's context wake an actor
 // parked without incoming messages. It captures only queue identity and
 // generation, because Processor objects are pooled.
-func (s *Scheduler) wakeOnCancel(ctx context.Context, proc *Processor, cancel context.CancelFunc) {
+func (s *Scheduler) wakeOnCancel(ctx context.Context, proc *Processor, cancel context.CancelCauseFunc) {
 	q, gen := proc.queue, proc.gen.Load()
 	stopWake := context.AfterFunc(ctx, func() {
 		if q.Push(process.Event{Type: process.EventMessage}, gen) {
 			s.WakeProcessor(q, gen)
 		}
 	})
-	proc.cancel = func() { stopWake(); cancel() }
+	proc.cancel = func(cause error) { stopWake(); cancel(cause) }
 }
 
 // uncount removes a processor from the live count and tells a draining Stop
@@ -437,6 +431,15 @@ func (s *Scheduler) uncount() {
 // Terminate forcibly terminates a process by PID.
 // Cancels the process context - worker will detect and evict on next step.
 func (s *Scheduler) Terminate(pid pid.PID) error {
+	return s.TerminateWithCause(pid, sysprocess.ErrTerminated)
+}
+
+// TerminateWithCause terminates a process with cause in its completion result.
+// A nil cause preserves the explicit termination error.
+func (s *Scheduler) TerminateWithCause(pid pid.PID, cause error) error {
+	if cause == nil {
+		cause = sysprocess.ErrTerminated
+	}
 	v, ok := s.byPID.Load(pid.String())
 	if !ok {
 		return process.ErrProcessNotFound
@@ -449,7 +452,7 @@ func (s *Scheduler) Terminate(pid pid.PID) error {
 	if ref == nil || !ref.pid.Equal(pid) {
 		return process.ErrProcessNotFound
 	}
-	ref.terminate()
+	ref.terminate(cause)
 	return nil
 }
 
@@ -484,15 +487,17 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	}
 
 	if proc.pooled {
+		proc.releaseIncarnation()
 		return
 	}
 
 	if proc.cancel != nil {
-		proc.cancel()
+		proc.cancel(nil)
 	}
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	proc.releaseIncarnation()
 
 	if allowPool && !stopping {
 		releaseProcessor(proc)
@@ -511,12 +516,13 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	enablePreemption(p)
 
 	// Wrap context with cancel for Terminate support
-	procCtx, cancel := context.WithCancel(ctx)
+	procCtx, cancel := context.WithCancelCause(ctx)
 
 	proc := acquireProcessor()
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
+	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
@@ -547,11 +553,12 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 	if proc.cancel != nil {
-		proc.cancel()
+		proc.cancel(nil)
 	}
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	proc.releaseIncarnation()
 	s.uncount()
 }
 
@@ -808,4 +815,13 @@ func (s *Scheduler) ListProcesses() []ProcessInfo {
 	})
 
 	return result
+}
+
+func actorContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelCauseFunc) {
+	if timeout == 0 {
+		return context.WithCancelCause(ctx)
+	}
+	deadlineCtx, cancelDeadline := context.WithTimeout(ctx, timeout)
+	procCtx, cancel := context.WithCancelCause(deadlineCtx)
+	return procCtx, func(cause error) { cancel(cause); cancelDeadline() }
 }

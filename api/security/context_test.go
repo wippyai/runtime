@@ -3,10 +3,12 @@
 package security
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -234,4 +236,26 @@ func TestContext_StrictMode(t *testing.T) {
 		appCtx.With(strictKey, "not a bool")
 		assert.True(t, IsStrictMode(ctx))
 	})
+}
+
+type fixedScope struct {
+	Scope
+	result Result
+}
+
+func (s *fixedScope) Evaluate(Actor, string, string, attrs.Bag) Result { return s.result }
+
+func TestContext_IsDenied(t *testing.T) {
+	withScope := func(t *testing.T, result Result) context.Context {
+		ctx, _ := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+		require.NoError(t, SetActor(ctx, Actor{ID: "user123"}))
+		require.NoError(t, SetScope(ctx, &fixedScope{result: result}))
+		return ctx
+	}
+
+	ctx, _ := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+	assert.False(t, IsDenied(ctx, "read", "resource", nil), "no security context denies nothing")
+	assert.True(t, IsDenied(withScope(t, Deny), "read", "resource", nil))
+	assert.False(t, IsDenied(withScope(t, Undefined), "read", "resource", nil), "only an explicit deny denies")
+	assert.False(t, IsDenied(withScope(t, Allow), "read", "resource", nil))
 }

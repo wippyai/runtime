@@ -12,8 +12,17 @@ type (
 	// When Inherit is true, the value will be automatically copied to new frames
 	// created from sealed parent frames.
 	Key struct {
-		Name    string
+		Name string
+		// Inherit copies the value to every frame forked from the frame,
+		// including the frames of processes it spawns.
 		Inherit bool
+		// Execution marks a value that belongs to the execution running in
+		// the frame rather than to the code it runs: ContinueFrameContext
+		// carries it, by reference, to the frame of the next code incarnation
+		// (a process upgrade). Frame forks receive it only when Inherit is also
+		// set, as a copy. The frame that set it owns
+		// it: a Closer value is closed when that frame is reclaimed.
+		Execution bool
 	}
 
 	// Pair represents a key-value pair for batch operations.
@@ -23,7 +32,8 @@ type (
 	}
 
 	// Cloner is implemented by types that can create a copy of themselves.
-	// Used during frame inheritance to prevent shared mutable state.
+	// Used during frame inheritance and cross-process propagation to prevent
+	// shared mutable state.
 	Cloner interface {
 		Clone() any
 	}
@@ -39,6 +49,14 @@ type (
 	// Closer is implemented by values that need cleanup when frame is released.
 	Closer interface {
 		Close() error
+	}
+
+	// Completer is implemented by values that must be released when the
+	// execution owning the frame completes. Frame release can come later: a
+	// frame stays alive while frames forked from it are. Complete must be
+	// idempotent and safe together with Close.
+	Completer interface {
+		Complete()
 	}
 
 	// FrameAttachment is a frame-owned resource produced while resolving spawn

@@ -5,14 +5,11 @@
 package runner
 
 import (
-	"context"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
@@ -29,7 +26,7 @@ const programTypeName = "eval_runner.Program"
 // Module is the eval_runner module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "eval_runner",
-	Description: "Execute untrusted Lua code via dispatcher",
+	Description: "Execute untrusted Lua code via dispatcher (deprecated: use the eval module)",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	Build:       buildModule,
 }
@@ -52,70 +49,6 @@ func createModuleTable() *lua.LTable {
 	mod.RawSetString("run", lua.LGoFunc(runFunc))
 	mod.Immutable = true
 	return mod
-}
-
-// checkModulePermissions checks if each module is allowed to be loaded
-func checkModulePermissions(ctx context.Context, modules []string) (string, bool) {
-	if len(modules) == 0 {
-		return "", true
-	}
-
-	meta := attrs.NewBag()
-	if frameID, ok := runtime.GetFrameID(ctx); ok {
-		meta.Set("entry_id", frameID.String())
-	}
-
-	for _, module := range modules {
-		if !security.IsAllowed(ctx, "eval.module", module, meta) {
-			return module, false
-		}
-	}
-	return "", true
-}
-
-// checkImportPermissions checks if each import is allowed to be loaded
-func checkImportPermissions(ctx context.Context, imports map[string]registry.ID) (string, bool) {
-	if len(imports) == 0 {
-		return "", true
-	}
-
-	meta := attrs.NewBag()
-	if frameID, ok := runtime.GetFrameID(ctx); ok {
-		meta.Set("entry_id", frameID.String())
-	}
-
-	for alias, id := range imports {
-		meta.Set("alias", alias)
-		if !security.IsAllowed(ctx, "eval.import", id.String(), meta) {
-			return id.String(), false
-		}
-	}
-	return "", true
-}
-
-// checkImportModulePermissions verifies the caller may delegate each granted
-// module to an import. Granting a privileged module to an import uses the same
-// eval.module action as using the module directly, so a caller cannot hand an
-// import a capability it is not itself allowed to delegate.
-func checkImportModulePermissions(ctx context.Context, importModules map[string][]string) (string, bool) {
-	if len(importModules) == 0 {
-		return "", true
-	}
-
-	meta := attrs.NewBag()
-	if frameID, ok := runtime.GetFrameID(ctx); ok {
-		meta.Set("entry_id", frameID.String())
-	}
-
-	for alias, mods := range importModules {
-		meta.Set("alias", alias)
-		for _, module := range mods {
-			if !security.IsAllowed(ctx, "eval.module", module, meta) {
-				return module, false
-			}
-		}
-	}
-	return "", true
 }
 
 // parseImports reads the imports table. Each value is either a plain registry ID
@@ -158,25 +91,6 @@ func parseImports(t *lua.LTable) (map[string]registry.ID, map[string][]string) {
 	return imports, importModules
 }
 
-// checkClassPermissions checks if each class is allowed to be enabled
-func checkClassPermissions(ctx context.Context, classes []string) (string, bool) {
-	if len(classes) == 0 {
-		return "", true
-	}
-
-	meta := attrs.NewBag()
-	if frameID, ok := runtime.GetFrameID(ctx); ok {
-		meta.Set("entry_id", frameID.String())
-	}
-
-	for _, class := range classes {
-		if !security.IsAllowed(ctx, "eval.class", class, meta) {
-			return class, false
-		}
-	}
-	return "", true
-}
-
 // compileFunc is runner.compile(source, method, options?) -> Program
 func compileFunc(l *lua.LState) int {
 	ctx := l.Context()
@@ -214,21 +128,21 @@ func compileFunc(l *lua.LState) int {
 		}
 	}
 
-	if denied, ok := checkModulePermissions(ctx, modules); !ok {
+	if denied, ok := evalhost.CheckModulePermissions(ctx, modules); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
-	if denied, ok := checkImportPermissions(ctx, imports); !ok {
+	if denied, ok := evalhost.CheckImportPermissions(ctx, imports); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.import "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
-	if denied, ok := checkImportModulePermissions(ctx, importModules); !ok {
+	if denied, ok := evalhost.CheckImportModulePermissions(ctx, importModules); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))
@@ -295,21 +209,21 @@ func runFunc(l *lua.LState) int {
 		imports, importModules = parseImports(v.(*lua.LTable))
 	}
 
-	if denied, ok := checkModulePermissions(ctx, modules); !ok {
+	if denied, ok := evalhost.CheckModulePermissions(ctx, modules); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
-	if denied, ok := checkImportPermissions(ctx, imports); !ok {
+	if denied, ok := evalhost.CheckImportPermissions(ctx, imports); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.import "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
 
-	if denied, ok := checkImportModulePermissions(ctx, importModules); !ok {
+	if denied, ok := evalhost.CheckImportModulePermissions(ctx, importModules); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))
@@ -343,7 +257,7 @@ func runFunc(l *lua.LState) int {
 	}
 
 	// Check permission for each allowed class
-	if denied, ok := checkClassPermissions(ctx, allowClasses); !ok {
+	if denied, ok := evalhost.CheckClassPermissions(ctx, allowClasses); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.class "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))

@@ -11,6 +11,9 @@ import (
 	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
+// FrameResolverOrderChildSlots is the apply order of the child slot resolver.
+const FrameResolverOrderChildSlots = 100
+
 // FrameResolverOrderNetwork is the apply order of the network overlay resolver.
 // Lower orders run first; the resulting pairs are applied to the frame in that
 // order, so a later resolver's key wins a collision.

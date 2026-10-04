@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -25,7 +26,7 @@ import (
 type signalRef struct {
 	// terminate cancels this incarnation's context. It stays bound to the
 	// incarnation after its pooled slot is reused.
-	terminate context.CancelFunc
+	terminate context.CancelCauseFunc
 	pid       pid.PID
 	source    registry.ID
 	gen       uint64
@@ -76,12 +77,15 @@ const (
 //	- StateBlocked: no owner, CompleteYield can CAS to Ready and re-queue
 //	- Worker uses CAS loop to atomically check wakeup and transition state
 type Processor struct {
+	// root is the context of the execution, created by the host; ctx is the
+	// context of the running code incarnation, which an upgrade replaces.
+	root      context.Context
 	ctx       context.Context
 	Process   process.Process
 	stats     atomic.Pointer[attrs.Bag]
 	resultCh  chan *runtime.Result
 	scheduler *Scheduler
-	cancel    context.CancelFunc
+	cancel    context.CancelCauseFunc
 	queue     *process.EventQueue
 	sig       atomic.Pointer[signalRef]
 	// completer receives yield completions for the current incarnation. It is
@@ -135,10 +139,21 @@ func (p *Processor) wake(gen uint64) bool {
 	return false
 }
 
+// releaseIncarnation releases the frame of the running code incarnation when
+// an upgrade created it; the execution's own frame belongs to its host.
+func (p *Processor) releaseIncarnation() {
+	if p.ctx == p.root {
+		return
+	}
+	if fc := ctxapi.FrameFromContext(p.ctx); fc != nil {
+		ctxapi.ReleaseFrameContext(fc)
+	}
+}
+
 // publishSignalRef publishes immutable identity, generation and the
 // incarnation's context cancel for message delivery, termination and
 // lifecycle scans. Source is optional; PID identity is not.
-func (p *Processor) publishSignalRef(terminate context.CancelFunc) {
+func (p *Processor) publishSignalRef(terminate context.CancelCauseFunc) {
 	ref := &signalRef{pid: p.pid, gen: p.gen.Load(), terminate: terminate}
 	if p.ctx != nil {
 		ref.source, _ = runtime.GetFrameID(p.ctx)
@@ -273,6 +288,8 @@ func releaseProcessor(p *Processor) {
 	// fail Ready->Running CAS and be ignored.
 	p.state.Store(int32(StateComplete))
 	p.Process = nil
+	p.releaseIncarnation()
+	p.root = nil
 	p.ctx = nil
 	p.cancel = nil
 	p.completer = nil
