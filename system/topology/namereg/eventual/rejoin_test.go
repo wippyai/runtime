@@ -21,9 +21,9 @@ import (
 // liveSender delivers frames only to nodes the local membership currently
 // lists as live, as membership's reliable user messages do.
 type liveSender struct {
-	mu    sync.Mutex
 	live  map[string]bool
 	peers map[string]*eventual.Service
+	mu    sync.Mutex
 }
 
 func (s *liveSender) Send(target string, payload []byte) error {
