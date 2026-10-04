@@ -4,8 +4,9 @@ package cmd
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,19 +22,21 @@ import (
 func TestRunCallerCancellationShutsDownGracefully(t *testing.T) {
 	workDir := t.TempDir()
 	t.Chdir(workDir)
-	marks := filepath.Join(workDir, "marks")
+	ready := make(chan struct{}, 1)
+	readyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case ready <- struct{}{}:
+		default:
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(readyServer.Close)
 	require.NoError(t, os.Mkdir("src", 0o755))
 	require.NoError(t, os.WriteFile("wippy.lock", []byte("directories:\n  src: ./src\n  modules: .wippy\n"), 0o600))
 	require.NoError(t, os.WriteFile("wippy.yaml", []byte("version: \"1.0\"\nshutdown:\n  timeout: 20s\n"), 0o600))
 	require.NoError(t, os.WriteFile("src/_index.yaml", []byte(`version: "1.0"
 namespace: app
 entries:
-  - name: marks
-    kind: fs.directory
-    directory: `+marks+`
-    auto_init: true
-    lifecycle:
-      auto_start: true
   - name: workers
     kind: process.host
     host:
@@ -43,13 +46,14 @@ entries:
   - name: worker
     kind: process.lua
     method: main
-    modules: [process, fs]
+    modules: [process, http_client]
     source: |
       local process = require("process")
-      local fs = require("fs")
+      local http = require("http_client")
       return {main = function()
         local events = process.events()
-        fs.get("app:marks"):writefile("ready", "1")
+        local response, err = http.get("`+readyServer.URL+`")
+        if err then error(err) end
         while true do
           local event = events:receive()
           if event.kind == process.event.CANCEL then
@@ -88,12 +92,27 @@ entries:
 	cmd.SetContext(caller)
 
 	result := make(chan error, 1)
-	go func() { result <- runWithUseCase(cmd, cmd.Flags().Args(), defaultUseCase) }()
+	finished := make(chan struct{})
+	go func() {
+		result <- runWithUseCase(cmd, cmd.Flags().Args(), defaultUseCase)
+		close(finished)
+	}()
+	t.Cleanup(func() {
+		cancelCaller()
+		select {
+		case <-finished:
+		case <-time.After(25 * time.Second):
+			t.Error("run did not stop during test cleanup")
+		}
+	})
 
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(filepath.Join(marks, "ready"))
-		return err == nil
-	}, 10*time.Second, 10*time.Millisecond, "service never started")
+	select {
+	case <-ready:
+	case err := <-result:
+		t.Fatalf("run returned before service readiness: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("service never started")
+	}
 
 	started := time.Now()
 	cancelCaller()
