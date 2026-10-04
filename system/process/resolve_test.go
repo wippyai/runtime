@@ -98,6 +98,14 @@ func (r *fakeEventualReg) Unregister(name string) bool {
 	return true
 }
 
+func (r *fakeEventualReg) ReleasePID(p pidapi.PID) {
+	for name, bound := range r.entries {
+		if bound == p {
+			delete(r.entries, name)
+		}
+	}
+}
+
 func (r *fakeEventualReg) Lookup(_ context.Context, name string, _ ...global.LookupOption) (global.LookupResult, error) {
 	if r.lookupErr != nil {
 		return global.LookupResult{}, r.lookupErr

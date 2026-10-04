@@ -283,7 +283,12 @@ func (r *PIDRegistry) LookupLocal(name string) (pid.PID, bool) {
 	return pid.PID{}, false
 }
 
+// Remove releases every name held for p: local names here, eventual names in
+// the eventual registry, and whatever the parent holds.
 func (r *PIDRegistry) Remove(p pid.PID) {
+	if er := r.loadEventualReg(); er != nil {
+		er.ReleasePID(p)
+	}
 	pidKey := p.String()
 
 	val, exists := r.idToName.LoadAndDelete(pidKey)
