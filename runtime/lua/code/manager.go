@@ -97,7 +97,6 @@ type (
 	Manager struct {
 		bus                     event.Bus
 		cacheStore              cache.Store
-		compileBytes            *compileBytesCache
 		log                     *zap.Logger
 		memGraph                *MemoryGraph
 		compiler                *Compiler
@@ -165,10 +164,6 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		invalidationWaitTimeout: cfg.InvalidationWaitTimeout,
 	}
 	if cacheCfg.Enabled {
-		cm.compileBytes = newCompileBytesCache(
-			int(min(cacheCfg.MaxBytes, int64(defaultCompileMemoryBytes))),
-			cacheCfg.MaxEntries,
-		)
 		cm.cacheStore = cache.NewBoundedDiskStore(
 			cacheCfg.Dir, cacheCfg.MaxBytes, cacheCfg.MaxEntries, cacheCfg.PruneInterval,
 		)

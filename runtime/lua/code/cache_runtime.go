@@ -137,13 +137,6 @@ func (cm *Manager) loadCompileCache(id registry.ID, fingerprint string) (*glua.F
 	if !cfg.CompileEnabled || !cm.cacheAllowsRead() {
 		return nil, false
 	}
-	memoryKey := compileBytesKey{id: id, fingerprint: fingerprint}
-	if data, ok := cm.compileBytes.get(memoryKey); ok {
-		if proto, err := bytecode.Undump(data); err == nil {
-			cm.compileCacheHits.Add(1)
-			return proto, true
-		}
-	}
 	key := cm.compileCacheKey(fingerprint)
 	entry, ok, err := cm.cacheStore.Get(key)
 	if err != nil || !ok || entry == nil {
@@ -171,7 +164,6 @@ func (cm *Manager) loadCompileCache(id registry.ID, fingerprint string) (*glua.F
 		cm.compileCacheMisses.Add(1)
 		return nil, false
 	}
-	cm.compileBytes.put(memoryKey, entry.Proto)
 	cm.compileCacheHits.Add(1)
 	return proto, true
 }
@@ -201,7 +193,6 @@ func (cm *Manager) saveCompileCache(node *Node, fingerprint string, deps []cache
 		Proto: data,
 	}
 	cm.putCacheEntry(cm.compileCacheKey(fingerprint), entry)
-	cm.compileBytes.put(compileBytesKey{id: node.ID, fingerprint: fingerprint}, data)
 }
 
 func (cm *Manager) compileFingerprint(id registry.ID) (string, []cache.DepMeta, error) {

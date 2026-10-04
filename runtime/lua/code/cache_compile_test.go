@@ -4,7 +4,6 @@ package code
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,25 +29,7 @@ func (s *countingCacheStore) Get(string) (*cache.Entry, bool, error) {
 }
 func (s *countingCacheStore) Put(string, *cache.Entry) error { return s.writeErr }
 
-func TestCompileBytesCacheTenThousandEntries(t *testing.T) {
-	cm, err := NewCodeManager(zap.NewNop(), nil, Config{Cache: cache.Config{
-		Enabled: true, CompileEnabled: true, Dir: t.TempDir(), ToolchainIdentity: "test",
-	}})
-	require.NoError(t, err)
-	for i := 0; i < 10_000; i++ {
-		key := compileBytesKey{id: registry.NewID("large", fmt.Sprintf("unit%d", i)), fingerprint: "same-content"}
-		cm.compileBytes.put(key, []byte("small-bytecode"))
-	}
-	for i := 0; i < 10_000; i++ {
-		key := compileBytesKey{id: registry.NewID("large", fmt.Sprintf("unit%d", i)), fingerprint: "same-content"}
-		data, ok := cm.compileBytes.get(key)
-		require.True(t, ok, "entry %d evicted despite fitting the byte and configured entry budgets", i)
-		require.Equal(t, "small-bytecode", string(data))
-	}
-	require.LessOrEqual(t, cm.compileBytes.bytes, defaultCompileMemoryBytes)
-}
-
-func TestCompileByteCacheIsolation(t *testing.T) {
+func TestCompileCacheLoadsReadTheStoreAndShareNothing(t *testing.T) {
 	cm, err := NewCodeManager(zap.NewNop(), nil, Config{Cache: cache.Config{Enabled: true, CompileEnabled: true, TypecheckEnabled: true, Mode: cache.ModeReadWrite, Dir: t.TempDir(), ToolchainIdentity: "test"}})
 	require.NoError(t, err)
 	id := registry.NewID("bee", "module")
@@ -63,69 +44,31 @@ func TestCompileByteCacheIsolation(t *testing.T) {
 	require.True(t, ok)
 	first.SetTypeInfo([]byte("first-isolate"))
 	first.Constants[0] = nil
-	// Corrupt the store's backing bytes. The memory cache owns a separate copy.
-	store.entry.Proto[0] ^= 0xff
 	second, ok := cm.loadCompileCache(id, "fp")
 	require.True(t, ok)
 	require.NotSame(t, first, second)
 	require.Empty(t, second.TypeInfo)
 	require.NotNil(t, second.Constants[0])
 	require.Equal(t, "original", executeCompiledString(t, second))
-	require.EqualValues(t, 1, store.reads.Load())
+	// The warmed store is the only copy of compiled bytes: every load reads it.
+	require.EqualValues(t, 2, store.reads.Load())
 	require.EqualValues(t, 2, cm.CacheStats().CompileHits)
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Go(func() {
 			proto, ok := cm.loadCompileCache(id, "fp")
 			if !ok {
-				t.Error("memory cache miss")
+				t.Error("compile cache miss")
 				return
 			}
 			require.Equal(t, "original", executeCompiledString(t, proto))
 		})
 	}
 	wg.Wait()
-	require.EqualValues(t, 1, store.reads.Load())
+	require.EqualValues(t, 18, store.reads.Load())
 	// The entry ID is validated independently of the fingerprint.
 	_, ok = cm.loadCompileCache(registry.NewID("bee", "other"), "fp")
 	require.False(t, ok)
-}
-
-func TestCompileBytesCacheBoundsAndLRU(t *testing.T) {
-	c := newCompileBytesCache(6, 2)
-	key := func(fp string) compileBytesKey { return compileBytesKey{fingerprint: fp} }
-	c.put(key("a"), []byte("aa"))
-	c.put(key("b"), []byte("bb"))
-	_, ok := c.get(key("a"))
-	require.True(t, ok)
-	c.put(key("c"), []byte("cc"))
-	_, ok = c.get(key("b"))
-	require.False(t, ok)
-	c.put(key("d"), []byte("dddddd"))
-	require.Equal(t, 6, c.bytes)
-	require.Equal(t, 1, c.entries.Len())
-	c.put(key("oversize"), []byte("oversize"))
-	require.Equal(t, 6, c.bytes)
-	require.Equal(t, 1, c.entries.Len())
-}
-
-func TestCompileBytesCacheConcurrent(t *testing.T) {
-	c := newCompileBytesCache(64, 4)
-	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
-		wg.Go(func() {
-			for n := 0; n < 100; n++ {
-				key := compileBytesKey{fingerprint: string(rune('a' + n%8))}
-				c.put(key, []byte("bytecode"))
-				if data, ok := c.get(key); ok && string(data) != "bytecode" {
-					t.Errorf("data: %q", data)
-				}
-			}
-		})
-	}
-	wg.Wait()
-	require.LessOrEqual(t, c.bytes, 64)
-	require.LessOrEqual(t, c.entries.Len(), 4)
 }
 
 func TestPersistentCacheWriteFailureWarnsOnce(t *testing.T) {
@@ -170,7 +113,6 @@ func TestCompileBytesRejectInvalidArtifacts(t *testing.T) {
 			proto, ok := cm.loadCompileCache(id, "fp")
 			require.False(t, ok)
 			require.Nil(t, proto)
-			require.Zero(t, cm.compileBytes.entries.Len())
 			require.EqualValues(t, 1, cm.CacheStats().CompileMisses)
 		})
 	}
