@@ -49,10 +49,9 @@ import (
 type Executable struct {
 	Data         map[string]string
 	Host         Host
+	LuaCacheSeed *LuaCacheSeed
 	Name         string
 	Command      string
-	Bundle       Bundle
-	LuaCacheSeed *LuaCacheSeed
 	Components   []boot.Component
 	// State is the default state directory when the invocation names none. A
 	// relative path resolves against the working directory, so each folder
@@ -62,6 +61,7 @@ type Executable struct {
 	// state when the selected state is already owned by a live invocation,
 	// instead of refusing with ErrOwned. It applies to the run operation only.
 	OwnedCommand string
+	Bundle       Bundle
 }
 
 var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
