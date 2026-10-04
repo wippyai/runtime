@@ -30,9 +30,14 @@ func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger
 		return nil, nil, nil, nil, err
 	}
 
-	parent := context.Background()
+	caller := context.Background()
 	if cmd != nil {
-		parent = cmd.Context()
+		caller = cmd.Context()
+	}
+	parent, err := detachFromCaller(caller)
+	if err != nil {
+		baseLogger.Error("failed to initialize bootstrap context", zap.Error(err))
+		return nil, nil, nil, nil, NewInitializeBootstrapContextError(err)
 	}
 	ctx, err := bootpkg.NewBootstrapContextWithParent(parent, baseLogger, cfg)
 	if err != nil {
