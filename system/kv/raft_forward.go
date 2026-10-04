@@ -233,6 +233,9 @@ func (e *RaftEngine) forwardRead(key string) (kvapi.Entry, error) {
 func (e *RaftEngine) forwardReadHop(key string, hop byte) (readResult, error) {
 	for attempt := 0; attempt < maxForwardRetries; attempt++ {
 		leaderID, _, err := e.raft.Leader()
+		if errors.Is(err, errNoRaftMember) {
+			return readResult{}, errNoForwardLeader
+		}
 		if err != nil || leaderID == "" {
 			time.Sleep(50 * time.Millisecond)
 			continue
