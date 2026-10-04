@@ -3,13 +3,11 @@
 package app
 
 import (
-	"archive/tar"
+	"archive/zip"
 	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,8 +21,9 @@ import (
 
 const maxEmbeddedLuaCacheBytes = 1 << 30
 
-// LuaCacheSeed is a compressed cache snapshot created while assembling an
-// application. The archive digest covers every embedded cache file.
+// LuaCacheSeed is a cache snapshot created while assembling an application: a
+// zip archive with one compressed member per cache file. The archive digest
+// covers every embedded cache file.
 type LuaCacheSeed struct {
 	Digest            string
 	SchemaVersion     string
@@ -39,10 +38,12 @@ func LuaCacheIdentity() (schema, toolchain string, err error) {
 	return code.CacheSchemaVersion(), toolchain, err
 }
 
-// seedLuaCache authenticates the complete embedded set once, then indexes its
-// bytes in memory. Entry metadata is decoded on demand; no entry is installed,
-// rehashed, or pruned on disk. The runtime still checks fingerprints and decodes
-// artifacts before use, falling back to compilation on a mismatch.
+// seedLuaCache authenticates the complete embedded set once, then indexes the
+// archive's directory. Members stay compressed in the embedded bytes and are
+// decompressed only when the runtime asks for an entry, so adopting the seed
+// keeps no decompressed copy. No entry is installed, rehashed, or pruned on
+// disk. The runtime still checks fingerprints and decodes artifacts before use,
+// falling back to compilation on a mismatch.
 func seedLuaCache(seed *LuaCacheSeed) (cache.Reader, error) {
 	if seed == nil || len(seed.Archive) == 0 {
 		return nil, nil
@@ -61,41 +62,53 @@ func seedLuaCache(seed *LuaCacheSeed) (cache.Reader, error) {
 	if seed.Digest != "sha256:"+hex.EncodeToString(hash[:]) {
 		return nil, fmt.Errorf("embedded cache digest mismatch")
 	}
-	store := embeddedLuaCache{files: make(map[string][]byte)}
-	if err := readLuaCacheArchive(seed.Archive, func(name string, data []byte) error {
-		if _, exists := store.files[name]; exists {
-			return fmt.Errorf("duplicate embedded cache file %q", name)
-		}
-		store.files[name] = data
-		return nil
-	}); err != nil {
+	files, err := indexLuaCacheArchive(seed.Archive)
+	if err != nil {
 		return nil, err
 	}
-	return &store, nil
+	return &embeddedLuaCache{files: files}, nil
 }
 
-type embeddedLuaCache struct{ files map[string][]byte }
+type embeddedLuaCache struct{ files map[string]*zip.File }
+
+// read decompresses one member, or reports that the archive has none by name.
+func (s *embeddedLuaCache) read(name string) ([]byte, bool) {
+	file := s.files[name]
+	if file == nil {
+		return nil, false
+	}
+	data, err := readLuaCacheMember(file)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
 
 func (s *embeddedLuaCache) Get(key string) (*cache.Entry, bool, error) {
 	if !isCacheKey(key) {
 		return nil, false, nil
 	}
 	prefix := "v1/entries/" + key + "/"
+	raw, ok := s.read(prefix + "meta.json")
+	if !ok {
+		return nil, false, nil
+	}
 	var meta cache.Meta
-	if err := json.Unmarshal(s.files[prefix+"meta.json"], &meta); err != nil {
+	if err := json.Unmarshal(raw, &meta); err != nil {
 		return nil, false, nil
 	}
 	entry := &cache.Entry{Meta: meta}
 	// The archive digest authenticates these immutable bytes, including metadata.
 	// Unlike mutable disk files, they need no individual hash check on each read.
 	if meta.ProtoHash != "" {
-		entry.Proto = bytes.Clone(s.files[prefix+"proto.luac"])
+		entry.Proto, _ = s.read(prefix + "proto.luac")
 	}
 	if meta.ManifestHash != "" {
-		entry.Manifest = bytes.Clone(s.files[prefix+"manifest.bin"])
+		entry.Manifest, _ = s.read(prefix + "manifest.bin")
 	}
 	if meta.DiagnosticsHash != "" {
-		if err := json.Unmarshal(s.files[prefix+"diags.json"], &entry.Diagnostics); err != nil {
+		diagnostics, ok := s.read(prefix + "diags.json")
+		if !ok || json.Unmarshal(diagnostics, &entry.Diagnostics) != nil {
 			return nil, false, nil
 		}
 	}
@@ -167,58 +180,66 @@ func isCacheKey(key string) bool {
 	return true
 }
 
-func readLuaCacheArchive(archive []byte, consume func(string, []byte) error) error {
-	gz, err := gzip.NewReader(bytes.NewReader(archive))
+// indexLuaCacheArchive validates every member of the archive's directory and
+// maps each cache file to its member, without decompressing any of them.
+func indexLuaCacheArchive(archive []byte) (map[string]*zip.File, error) {
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
 	if err != nil {
-		return fmt.Errorf("open embedded cache archive: %w", err)
+		return nil, fmt.Errorf("open embedded cache archive: %w", err)
 	}
-	defer func() { _ = gz.Close() }()
-	reader := tar.NewReader(gz)
-	var total int64
-	for {
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("read embedded cache archive: %w", err)
-		}
-		name := path.Clean(header.Name)
-		if name != header.Name || strings.HasPrefix(name, "/") || name == "." {
-			return fmt.Errorf("invalid embedded cache path %q", header.Name)
+	files := make(map[string]*zip.File, len(reader.File))
+	var total uint64
+	for _, file := range reader.File {
+		name := path.Clean(file.Name)
+		if name != strings.TrimSuffix(file.Name, "/") || strings.HasPrefix(name, "/") || name == "." {
+			return nil, fmt.Errorf("invalid embedded cache path %q", file.Name)
 		}
 		parts := strings.Split(name, "/")
-		if len(parts) < 1 || parts[0] != "v1" || (len(parts) > 1 && parts[1] != "entries") || len(parts) > 4 {
-			return fmt.Errorf("invalid embedded cache path %q", header.Name)
+		if parts[0] != "v1" || (len(parts) > 1 && parts[1] != "entries") || len(parts) > 4 {
+			return nil, fmt.Errorf("invalid embedded cache path %q", file.Name)
 		}
 		if len(parts) >= 3 && !isCacheKey(parts[2]) {
-			return fmt.Errorf("invalid embedded cache key in %q", header.Name)
+			return nil, fmt.Errorf("invalid embedded cache key in %q", file.Name)
 		}
-		if header.Typeflag == tar.TypeDir {
-			if len(parts) > 3 || header.Size != 0 {
-				return fmt.Errorf("invalid embedded cache directory %q", header.Name)
+		if file.FileInfo().IsDir() {
+			if len(parts) > 3 || file.UncompressedSize64 != 0 {
+				return nil, fmt.Errorf("invalid embedded cache directory %q", file.Name)
 			}
 			continue
 		}
-		if header.Typeflag != tar.TypeReg || len(parts) != 4 || !allowedCacheFile(parts[3]) || header.Size < 0 {
-			return fmt.Errorf("invalid embedded cache file %q", header.Name)
+		if !file.Mode().IsRegular() || len(parts) != 4 || !allowedCacheFile(parts[3]) {
+			return nil, fmt.Errorf("invalid embedded cache file %q", file.Name)
 		}
-		if header.Size > maxEmbeddedLuaCacheBytes-total {
-			return fmt.Errorf("embedded cache files exceed %d bytes", maxEmbeddedLuaCacheBytes)
+		if file.Method != zip.Store && file.Method != zip.Deflate {
+			return nil, fmt.Errorf("unsupported compression for embedded cache file %q", file.Name)
 		}
-		total += header.Size
-
-		data, err := io.ReadAll(io.LimitReader(reader, header.Size))
-		if err != nil {
-			return err
+		if file.UncompressedSize64 > uint64(maxEmbeddedLuaCacheBytes)-total {
+			return nil, fmt.Errorf("embedded cache files exceed %d bytes", maxEmbeddedLuaCacheBytes)
 		}
-		if int64(len(data)) != header.Size {
-			return io.ErrUnexpectedEOF
+		total += file.UncompressedSize64
+		if _, exists := files[name]; exists {
+			return nil, fmt.Errorf("duplicate embedded cache file %q", name)
 		}
-		if err := consume(name, data); err != nil {
-			return err
-		}
+		files[name] = file
 	}
+	return files, nil
+}
+
+// readLuaCacheMember decompresses one member; the zip reader checks its CRC.
+func readLuaCacheMember(file *zip.File) ([]byte, error) {
+	reader, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = reader.Close() }()
+	data, err := io.ReadAll(io.LimitReader(reader, int64(file.UncompressedSize64)+1))
+	if err != nil {
+		return nil, err
+	}
+	if uint64(len(data)) != file.UncompressedSize64 {
+		return nil, fmt.Errorf("embedded cache file %q has the wrong size", file.Name)
+	}
+	return data, nil
 }
 
 func allowedCacheFile(name string) bool {
