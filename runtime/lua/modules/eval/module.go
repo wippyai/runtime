@@ -92,8 +92,7 @@ func moduleSpawn(l *lua.LState) int {
 	return pushError(l, lua.Invalid, "eval.spawn requires source string or eval.Program")
 }
 
-// cached is an eval program not found error.
-// the program was not cached.
+// moduleEvict is eval.evict(program) -> true, err.
 func moduleEvict(l *lua.LState) int {
 	program, ok := programArg(l, 1)
 	if !ok {

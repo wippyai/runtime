@@ -558,6 +558,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	proc.releaseIncarnation()
 	s.uncount()
 }
 

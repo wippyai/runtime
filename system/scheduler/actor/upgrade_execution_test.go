@@ -4,6 +4,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -177,5 +178,67 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 	}
 	if got := port.closed.Load(); got != 1 {
 		t.Fatalf("an execution resource is closed once, by the execution's frame, got %d", got)
+	}
+}
+
+type failingIncarnation struct {
+	incarnation
+	resource *countingCloser
+	err      error
+}
+
+func (p *failingIncarnation) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	if err := ctxapi.FrameFromContext(ctx).Set(testLocalKey, p.resource); err != nil {
+		return err
+	}
+	return p.err
+}
+
+func TestFailedUpgradeReleasesTheNewFrameAndExecution(t *testing.T) {
+	wantErr := errors.New("replacement init failed")
+	rootResource, leafResource := newCountingCloser(), newCountingCloser()
+	completed := make(chan *runtime.Result, 1)
+	sched := newTestSchedulerWithLifecycle(1, &testLifecycle{
+		onComplete: func(ctx context.Context, _ pidapi.PID, result *runtime.Result) {
+			ctxapi.CompleteFrame(ctx)
+			ctxapi.ReleaseFrameContext(ctxapi.ExecutionFrame(ctx))
+			completed <- result
+		},
+	})
+	sched.Start()
+	defer testStopScheduler(sched)
+	appCtx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	process.WithFactory(appCtx, &mockFactory{
+		createFunc: func(registry.ID) (process.Process, *process.Meta, error) {
+			return &failingIncarnation{resource: leafResource, err: wantErr}, &process.Meta{}, nil
+		},
+	})
+	ctx, frame := ctxapi.OpenFrameContext(appCtx)
+	defer ctxapi.ReleaseFrameContext(frame)
+	if err := frame.Set(testPortKey, rootResource); err != nil {
+		t.Fatal(err)
+	}
+	frame.Seal()
+	first := &incarnation{next: &process.UpgradeRequest{Source: registry.NewID("app", "replacement")}}
+	if _, err := sched.Submit(ctx, pidapi.PID{UniqID: "failed-upgrade"}, first, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-completed:
+		if !errors.Is(result.Error, wantErr) {
+			t.Fatalf("upgrade must preserve the Init error: %v", result.Error)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("failed upgrade did not complete")
+	}
+	for _, resource := range []*countingCloser{rootResource, leafResource} {
+		select {
+		case <-resource.reclaimed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("failed upgrade retained a frame resource")
+		}
+		if got := resource.closed.Load(); got != 1 {
+			t.Fatalf("each resource must close once, got %d", got)
+		}
 	}
 }

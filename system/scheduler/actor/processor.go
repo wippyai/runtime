@@ -288,6 +288,7 @@ func releaseProcessor(p *Processor) {
 	// fail Ready->Running CAS and be ignored.
 	p.state.Store(int32(StateComplete))
 	p.Process = nil
+	p.releaseIncarnation()
 	p.root = nil
 	p.ctx = nil
 	p.cancel = nil

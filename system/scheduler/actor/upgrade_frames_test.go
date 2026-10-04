@@ -90,6 +90,7 @@ func TestUpgradeChainReleasesEveryIncarnationFrame(t *testing.T) {
 
 	self := pidapi.PID{UniqID: "chain"}
 	rootCtx, fc := ctxapi.OpenFrameContext(appCtx)
+	defer ctxapi.ReleaseFrameContext(fc)
 	if err := fc.SetMultiple(
 		ctxapi.Pair{Key: runtime.FrameIDKey, Value: registry.NewID("app", "first")},
 		ctxapi.Pair{Key: runtime.FramePIDKey, Value: self},
