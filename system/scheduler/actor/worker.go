@@ -502,19 +502,16 @@ func (w *Worker) executeOne(proc *Processor) {
 		if meta != nil && meta.Method != "" {
 			method = meta.Method
 		}
-		upgradeCtx, upgradeFrame := ctxapi.OpenFrameContext(proc.ctx)
+		upgradeCtx, upgradeFrame, carryErr := ctxapi.ContinueFrameContext(proc.root)
 		// Values owned by the process (pid, lifecycle options, terminal) move to
 		// the new frame; the frame id carries the resolved upgrade source so a
 		// cross-source upgrade classifies the process by its NEW definition
 		// (used by ListProcesses and OUTDATED notification).
-		var carryErr error
-		if oldFrame := ctxapi.FrameFromContext(proc.ctx); oldFrame != nil {
-			carryErr = upgradeFrame.SetMultiple(oldFrame.ProcessPairs()...)
-		}
 		if carryErr == nil {
 			carryErr = runtime.SetFrameID(upgradeCtx, source)
 		}
 		if carryErr != nil {
+			ctxapi.ReleaseFrameContext(upgradeFrame)
 			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
@@ -524,6 +521,7 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
+			ctxapi.ReleaseFrameContext(upgradeFrame)
 			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
@@ -532,6 +530,7 @@ func (w *Worker) executeOne(proc *Processor) {
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: init failed: %w", err))
 			return
 		}
+		proc.releaseIncarnation()
 		proc.ctx = upgradeCtx
 		// Re-publish the out-of-band snapshot so future invalidations classify
 		// the process by its (possibly new) upgraded source. The queue

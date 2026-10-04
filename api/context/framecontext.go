@@ -4,6 +4,7 @@ package context
 
 import (
 	"context"
+	"reflect"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -33,10 +34,6 @@ type FrameContext interface {
 	// Used for propagating context to child processes or tasks.
 	InheritablePairs() []Pair
 
-	// ProcessPairs returns all key-value pairs marked with Process: true.
-	// Used to carry values owned by a process across an in-place upgrade.
-	ProcessPairs() []Pair
-
 	// Seal marks this frame as immutable.
 	Seal()
 
@@ -49,6 +46,17 @@ type FrameContext interface {
 
 type frameValues map[any]any
 
+// borrowedValue keeps ownership in the same immutable snapshot as the value.
+// Ordinary frames store values directly; only continuations use this marker.
+type borrowedValue struct{ value any }
+
+func frameValue(value any) any {
+	if borrowed, ok := value.(*borrowedValue); ok {
+		return borrowed.value
+	}
+	return value
+}
+
 // frameContext stores values as immutable snapshots.
 // Reads stay lock-free; writes clone and swap the snapshot.
 type frameContext struct {
@@ -60,6 +68,12 @@ type frameContext struct {
 	refcount   atomic.Int32
 	sealed     atomic.Bool
 	writers    atomic.Int32
+	// execution is set on the frame of a later code incarnation: the
+	// execution's own frame, which owns and closes the Execution values.
+	execution FrameContext
+	// borrowed is immutable after publication. It retains the original shared
+	// handles so restoring one after a replacement restores borrowing too.
+	borrowed frameValues
 }
 
 type frameContextRef struct {
@@ -115,7 +129,7 @@ func (f *frameContext) endWrite() {
 func (f *frameContext) Get(key any) (any, bool) {
 	values := f.valuesSnapshot()
 	val, exists := values[key]
-	return val, exists
+	return frameValue(val), exists
 }
 
 func (f *frameContext) Set(key any, value any) error {
@@ -132,7 +146,7 @@ func (f *frameContext) Set(key any, value any) error {
 		}
 
 		next := cloneValues(current, 1)
-		next[key] = value
+		next[key] = f.storedValue(key, value)
 		nextPtr := &next
 		if f.values.CompareAndSwap(currentPtr, nextPtr) {
 			return nil
@@ -159,7 +173,7 @@ func (f *frameContext) SetMultiple(pairs ...Pair) error {
 
 		next := cloneValues(current, len(pairs))
 		for _, p := range pairs {
-			next[p.Key] = p.Value
+			next[p.Key] = f.storedValue(p.Key, p.Value)
 		}
 		nextPtr := &next
 		if f.values.CompareAndSwap(currentPtr, nextPtr) {
@@ -172,6 +186,18 @@ func (f *frameContext) SetMultiple(pairs ...Pair) error {
 	}
 }
 
+// Writes own their values, except when re-setting an identical comparable
+// handle borrowed from the parent. The marker is swapped with the value, not
+// updated separately, so concurrent writes cannot reorder ownership changes.
+func (f *frameContext) storedValue(key, value any) any {
+	if borrowed, ok := f.borrowed[key].(*borrowedValue); ok {
+		if reflect.ValueOf(borrowed.value).Comparable() && reflect.ValueOf(value).Comparable() && borrowed.value == value {
+			return borrowed
+		}
+	}
+	return value
+}
+
 func (f *frameContext) Has(key any) bool {
 	values := f.valuesSnapshot()
 	_, exists := values[key]
@@ -180,7 +206,7 @@ func (f *frameContext) Has(key any) bool {
 
 func (f *frameContext) Iterate(fn func(key any, value any)) {
 	for k, v := range f.valuesSnapshot() {
-		fn(k, v)
+		fn(k, frameValue(v))
 	}
 }
 
@@ -188,17 +214,7 @@ func (f *frameContext) InheritablePairs() []Pair {
 	var pairs []Pair
 	for k, v := range f.valuesSnapshot() {
 		if ctxKey, ok := k.(*Key); ok && ctxKey.Inherit {
-			pairs = append(pairs, Pair{Key: k, Value: v})
-		}
-	}
-	return pairs
-}
-
-func (f *frameContext) ProcessPairs() []Pair {
-	var pairs []Pair
-	for k, v := range f.valuesSnapshot() {
-		if ctxKey, ok := k.(*Key); ok && ctxKey.Process {
-			pairs = append(pairs, Pair{Key: k, Value: v})
+			pairs = append(pairs, Pair{Key: k, Value: frameValue(v)})
 		}
 	}
 	return pairs
@@ -286,14 +302,6 @@ func (r *frameContextRef) InheritablePairs() []Pair {
 		return nil
 	}
 	return frame.InheritablePairs()
-}
-
-func (r *frameContextRef) ProcessPairs() []Pair {
-	frame := r.resolveFrame()
-	if frame == nil {
-		return nil
-	}
-	return frame.ProcessPairs()
 }
 
 func (r *frameContextRef) Seal() {
@@ -419,6 +427,68 @@ func PropagatedPairs(ctx context.Context) []Pair {
 	return pairs
 }
 
+// ContinueFrameContext opens the frame of the next code incarnation of the
+// execution running in ctx, as when a process upgrades: a fork of the
+// execution's frame that also carries its Execution values, holding a
+// reference on that frame until it is released. The values stay owned by the
+// execution's frame: releasing the continuation does not close them. An
+// execution without a frame has no values to carry and continues in a new
+// root frame.
+func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, error) {
+	fc := FrameFromContext(ctx)
+	if fc == nil {
+		next, nfc := OpenFrameContext(ctx)
+		return next, nfc, nil
+	}
+	// The previous incarnation has finished with the execution's frame; it
+	// is sealed so the continuation is always a fork, never the frame itself.
+	fc.Seal()
+	if ref, ok := fc.(*frameContextRef); ok {
+		next, frame := forkFrameContextMode(ctx, ref, true)
+		return next, frame, nil
+	}
+	var carried []Pair
+	fc.Iterate(func(key, value any) {
+		if k, ok := key.(*Key); ok && k.Execution {
+			carried = append(carried, Pair{Key: key, Value: value})
+		}
+	})
+	next, nfc := OpenFrameContext(ctx)
+	if len(carried) > 0 {
+		if err := nfc.SetMultiple(carried...); err != nil {
+			ReleaseFrameContext(nfc)
+			return ctx, nil, err
+		}
+	}
+	if ref, ok := nfc.(*frameContextRef); ok {
+		if frame := ref.resolveFrame(); frame != nil {
+			frame.execution = ExecutionFrame(ctx)
+			values := cloneValues(frame.valuesSnapshot(), 0)
+			frame.borrowed = make(frameValues, len(carried))
+			for _, pair := range carried {
+				borrowed := &borrowedValue{value: pair.Value}
+				values[pair.Key] = borrowed
+				frame.borrowed[pair.Key] = borrowed
+			}
+			frame.values.Store(&values)
+		}
+	}
+	return next, nfc, nil
+}
+
+// ExecutionFrame returns the frame of the execution running in ctx: the
+// frame its host created, also when ctx belongs to a later code incarnation
+// (see ContinueFrameContext). It is nil when ctx has no frame.
+func ExecutionFrame(ctx context.Context) FrameContext {
+	fc := FrameFromContext(ctx)
+	if ref, ok := fc.(*frameContextRef); ok {
+		if frame := ref.resolveFrame(); frame != nil && frame.execution != nil {
+			return frame.execution
+		}
+	}
+	return fc
+}
+
 // ReleaseFrameContext decrements refcount and triggers chain collapse when zero.
 // Only pools the frame when all references (including children) are released.
 func ReleaseFrameContext(fc FrameContext) {
@@ -477,10 +547,14 @@ func releaseFrame(f *frameContext, expectedGeneration uint64) {
 	// refcount == 0 means exclusive access, no lock needed
 	var closers []Closer
 	for _, v := range f.valuesSnapshot() {
-		if closer, ok := v.(Closer); ok {
-			closers = append(closers, closer)
+		closer, ok := v.(Closer)
+		if !ok {
+			continue
 		}
+		closers = append(closers, closer)
 	}
+	f.execution = nil
+	f.borrowed = nil
 	values := make(frameValues, 8)
 	f.values.Store(&values)
 	parent := f.parent
@@ -543,6 +617,8 @@ func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc.refcount.Store(1)
 	fc.writers.Store(0)
 	fc.parent = nil
+	fc.execution = nil
+	fc.borrowed = nil
 	values := make(frameValues, 8)
 	fc.values.Store(&values)
 	ref := newFrameRef(fc)
@@ -554,6 +630,12 @@ func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 // a race where FrameFromContext returns a frame that is concurrently released.
 // Parent is always sealed when forking, so no lock needed for copying.
 func forkFrameContext(ctx context.Context, parentRef *frameContextRef) (context.Context, *frameContextRef) {
+	return forkFrameContextMode(ctx, parentRef, false)
+}
+
+// A continuation shares execution-owned values; a normal fork applies the
+// existing inheritance/Clone rules. Both acquire the same parent reference.
+func forkFrameContextMode(ctx context.Context, parentRef *frameContextRef, continuing bool) (context.Context, *frameContextRef) {
 	parent := parentRef.resolveFrame()
 	if parent != nil {
 		if !tryIncRef(parent, parentRef.generation) {
@@ -567,6 +649,8 @@ func forkFrameContext(ctx context.Context, parentRef *frameContextRef) (context.
 	fc.refcount.Store(1)
 	fc.writers.Store(0)
 	fc.parent = parent
+	fc.execution = nil
+	fc.borrowed = nil
 	values := make(frameValues, 8)
 
 	// Parent is sealed (checked in OpenFrameContext), safe to read without lock
@@ -574,13 +658,28 @@ func forkFrameContext(ctx context.Context, parentRef *frameContextRef) (context.
 		parentValues := parent.valuesSnapshot()
 		values = make(frameValues, len(parentValues))
 		for k, v := range parentValues {
-			if ctxKey, ok := k.(*Key); ok && ctxKey.Inherit {
+			v = frameValue(v)
+			ctxKey, ok := k.(*Key)
+			if !ok {
+				continue
+			}
+			if continuing && ctxKey.Execution {
+				if fc.borrowed == nil {
+					fc.borrowed = make(frameValues)
+				}
+				borrowed := &borrowedValue{value: v}
+				values[k] = borrowed
+				fc.borrowed[k] = borrowed
+			} else if ctxKey.Inherit {
 				if cloner, ok := v.(Cloner); ok {
 					values[k] = cloner.Clone()
 				} else {
 					values[k] = v
 				}
 			}
+		}
+		if continuing {
+			fc.execution = ExecutionFrame(ctx)
 		}
 	}
 	fc.values.Store(&values)

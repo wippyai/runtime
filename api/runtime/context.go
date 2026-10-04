@@ -17,10 +17,10 @@ var (
 	FrameIDKey = &ctxapi.Key{Name: "runtime.frame_id"}
 
 	// FramePIDKey stores the full PID (pid.PID)
-	FramePIDKey = &ctxapi.Key{Name: "runtime.frame_pid", Process: true}
+	FramePIDKey = &ctxapi.Key{Name: "runtime.frame_pid", Execution: true}
 
 	// FrameLifecycleOptionsKey stores lifecycle options (attrs.Attributes)
-	FrameLifecycleOptionsKey = &ctxapi.Key{Name: "runtime.frame_lifecycle_options", Process: true}
+	FrameLifecycleOptionsKey = &ctxapi.Key{Name: "runtime.frame_lifecycle_options", Execution: true}
 )
 
 // SetFrameID sets the registry ID in the FrameContext.

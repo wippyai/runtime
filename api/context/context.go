@@ -11,14 +11,18 @@ type (
 	// Key represents a context key used for storing and retrieving values.
 	// When Inherit is true, the value will be automatically copied to new frames
 	// created from sealed parent frames.
-	// When Process is true, the value belongs to the process incarnation: an
-	// in-place upgrade carries it to the replacement frame. Process is independent
-	// of Inherit; a process value is not copied to child frames unless Inherit is
-	// also set.
 	Key struct {
-		Name    string
+		Name string
+		// Inherit copies the value to every frame forked from the frame,
+		// including the frames of processes it spawns.
 		Inherit bool
-		Process bool
+		// Execution marks a value that belongs to the execution running in
+		// the frame rather than to the code it runs: ContinueFrameContext
+		// carries it, by reference, to the frame of the next code incarnation
+		// (a process upgrade). Frame forks receive it only when Inherit is also
+		// set, as a copy. The frame that set it owns
+		// it: a Closer value is closed when that frame is reclaimed.
+		Execution bool
 	}
 
 	// Pair represents a key-value pair for batch operations.
@@ -28,7 +32,8 @@ type (
 	}
 
 	// Cloner is implemented by types that can create a copy of themselves.
-	// Used during frame inheritance to prevent shared mutable state.
+	// Used during frame inheritance and cross-process propagation to prevent
+	// shared mutable state.
 	Cloner interface {
 		Clone() any
 	}

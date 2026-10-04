@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -76,6 +77,7 @@ const (
 //	- StateBlocked: no owner, CompleteYield can CAS to Ready and re-queue
 //	- Worker uses CAS loop to atomically check wakeup and transition state
 type Processor struct {
+	root       context.Context
 	ctx        context.Context
 	Process    process.Process
 	stats      atomic.Pointer[attrs.Bag]
@@ -94,6 +96,17 @@ type Processor struct {
 	state      atomic.Int32
 	lastWorker atomic.Int32
 	pooled     bool
+}
+
+// releaseIncarnation releases only frames created by an upgrade. The original
+// execution frame remains owned by the host that admitted the process.
+func (p *Processor) releaseIncarnation() {
+	if p.ctx == p.root {
+		return
+	}
+	if frame := ctxapi.FrameFromContext(p.ctx); frame != nil {
+		ctxapi.ReleaseFrameContext(frame)
+	}
 }
 
 // publishSignalRef publishes immutable identity, generation and the
@@ -262,6 +275,8 @@ func releaseProcessor(p *Processor) {
 	// fail Ready->Running CAS and be ignored.
 	p.state.Store(int32(StateComplete))
 	p.Process = nil
+	p.releaseIncarnation()
+	p.root = nil
 	p.ctx = nil
 	p.cancel = nil
 	p.scheduler = nil

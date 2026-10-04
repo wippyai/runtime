@@ -409,6 +409,10 @@ type upgradeProbe struct {
 	keys []any
 }
 
+type upgradeResource struct{ closed atomic.Int32 }
+
+func (r *upgradeResource) Close() error { r.closed.Add(1); return nil }
+
 func (p *upgradeProbe) Init(ctx context.Context, _ string, _ payload.Payloads) error {
 	values := make(map[any]any, len(p.keys))
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
@@ -434,18 +438,24 @@ func TestUpgradeCarriesProcessValues(t *testing.T) {
 	reg := scheduler.NewRegistry()
 	reg.Register(CmdComplete, CompleteHandler())
 	reg.Register(CmdYield, YieldHandler())
-	s := NewScheduler(reg, WithWorkers(1))
+	completed := make(chan struct{})
+	s := NewScheduler(reg, WithWorkers(1), WithLifecycle(&testLifecycle{onComplete: func(ctx context.Context, _ pidapi.PID, _ *runtime.Result) {
+		ctxapi.ReleaseFrameContext(ctxapi.FrameFromContext(ctx))
+		close(completed)
+	}}))
 	s.Start()
 	defer testStopScheduler(s)
 
-	processKey := &ctxapi.Key{Name: "test.process_value", Process: true}
+	processKey := &ctxapi.Key{Name: "test.process_value", Execution: true}
+	resourceKey := &ctxapi.Key{Name: "test.process_resource", Execution: true}
+	resource := &upgradeResource{}
 	plainKey := &ctxapi.Key{Name: "test.plain_value"}
 	selfPID := pidapi.PID{UniqID: "upgrade-carry"}
 	options := map[string]any{"upgradable": true}
 
 	probe := &upgradeProbe{
 		seen: make(chan map[any]any, 1),
-		keys: []any{runtime.FramePIDKey, runtime.FrameLifecycleOptionsKey, processKey, plainKey},
+		keys: []any{runtime.FramePIDKey, runtime.FrameLifecycleOptionsKey, processKey, resourceKey, plainKey},
 	}
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	process.WithFactory(ctx, &mockFactory{
@@ -454,7 +464,8 @@ func TestUpgradeCarriesProcessValues(t *testing.T) {
 		},
 	})
 
-	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
+	frameCtx, frame := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(frame)
 	src := registry.NewID("app", "carry")
 	if err := runtime.SetFrameID(frameCtx, src); err != nil {
 		t.Fatalf("SetFrameID: %v", err)
@@ -463,6 +474,7 @@ func TestUpgradeCarriesProcessValues(t *testing.T) {
 		ctxapi.Pair{Key: runtime.FramePIDKey, Value: selfPID},
 		ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: options},
 		ctxapi.Pair{Key: processKey, Value: "owned"},
+		ctxapi.Pair{Key: resourceKey, Value: resource},
 		ctxapi.Pair{Key: plainKey, Value: "dropped"},
 	); err != nil {
 		t.Fatalf("SetMultiple: %v", err)
@@ -491,5 +503,17 @@ func TestUpgradeCarriesProcessValues(t *testing.T) {
 	}
 	if v, ok := seen[plainKey]; ok {
 		t.Errorf("plain value carried across upgrade: %v", v)
+	}
+	select {
+	case <-completed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upgraded process did not complete")
+	}
+	if resource.closed.Load() != 0 {
+		t.Fatal("the continuing frame closed a resource it borrowed")
+	}
+	ctxapi.ReleaseFrameContext(frame)
+	if resource.closed.Load() != 1 {
+		t.Fatalf("the original owner must close the resource exactly once: got %d", resource.closed.Load())
 	}
 }

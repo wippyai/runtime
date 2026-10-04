@@ -1005,72 +1005,62 @@ func TestPropagatedPairs_PropagatorReturnsNil(t *testing.T) {
 	}
 }
 
-func pairSet(pairs []Pair) map[any]any {
-	out := make(map[any]any, len(pairs))
-	for _, p := range pairs {
-		out[p.Key] = p.Value
-	}
-	return out
-}
-
-func TestKey_ProcessIsIndependentOfInherit(t *testing.T) {
-	processKey := &Key{Name: "test.process", Process: true}
-	bothKey := &Key{Name: "test.both", Process: true, Inherit: true}
+func TestKey_ExecutionIsIndependentOfInherit(t *testing.T) {
+	executionKey := &Key{Name: "test.execution", Execution: true}
+	bothKey := &Key{Name: "test.both", Execution: true, Inherit: true}
 	inheritKey := &Key{Name: "test.inherit", Inherit: true}
 	plainKey := &Key{Name: "test.plain"}
-
-	_, fc := OpenFrameContext(NewRootContext())
-	defer fc.Close()
-	if err := fc.SetMultiple(
-		Pair{Key: processKey, Value: "p"},
+	ctx, frame := OpenFrameContext(NewRootContext())
+	defer frame.Close()
+	if err := frame.SetMultiple(
+		Pair{Key: executionKey, Value: "p"},
 		Pair{Key: bothKey, Value: "b"},
 		Pair{Key: inheritKey, Value: "i"},
 		Pair{Key: plainKey, Value: "x"},
 	); err != nil {
-		t.Fatalf("SetMultiple: %v", err)
+		t.Fatal(err)
 	}
-
-	got := pairSet(fc.ProcessPairs())
-	if len(got) != 2 || got[processKey] != "p" || got[bothKey] != "b" {
-		t.Errorf("ProcessPairs = %v, want process and both keys", got)
+	_, next, err := ContinueFrameContext(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	got = pairSet(fc.InheritablePairs())
-	if len(got) != 2 || got[bothKey] != "b" || got[inheritKey] != "i" {
-		t.Errorf("InheritablePairs = %v, want both and inherit keys", got)
+	defer next.Close()
+	for key, want := range map[*Key]string{executionKey: "p", bothKey: "b", inheritKey: "i"} {
+		if got, _ := next.Get(key); got != want {
+			t.Fatalf("%s = %v, want %s", key.Name, got, want)
+		}
 	}
-}
-
-func TestProcessPairs_NotInheritedByChildren(t *testing.T) {
-	processKey := &Key{Name: "test.process", Process: true}
-
-	parent, ref := OpenFrameContext(NewRootContext())
-	defer ref.Close()
-	if err := ref.Set(processKey, "p"); err != nil {
-		t.Fatalf("Set: %v", err)
+	if next.Has(plainKey) {
+		t.Fatal("frame-local value was carried")
 	}
-	ref.Seal()
-	if got := pairSet(FrameFromContext(parent).ProcessPairs()); got[processKey] != "p" {
-		t.Errorf("ProcessPairs = %v, want process key", got)
-	}
-
-	child, childRef := OpenFrameContext(parent)
-	defer childRef.Close()
-	if FrameFromContext(child).Has(processKey) {
-		t.Error("child frame inherited a process value")
-	}
-	if got := childRef.ProcessPairs(); len(got) != 0 {
-		t.Errorf("child ProcessPairs = %v, want empty", got)
+	if got := len(frame.InheritablePairs()); got != 2 {
+		t.Fatalf("inheritable pairs = %d, want 2", got)
 	}
 }
 
-func TestProcessPairs_ReleasedFrameIsEmpty(t *testing.T) {
-	processKey := &Key{Name: "test.process", Process: true}
-	_, ref := OpenFrameContext(NewRootContext())
-	if err := ref.Set(processKey, "p"); err != nil {
-		t.Fatalf("Set: %v", err)
+func TestExecutionValues_NotInheritedByChildren(t *testing.T) {
+	key := &Key{Name: "test.execution", Execution: true}
+	parent, frame := OpenFrameContext(NewRootContext())
+	defer frame.Close()
+	if err := frame.Set(key, "p"); err != nil {
+		t.Fatal(err)
 	}
-	_ = ref.Close()
-	if got := ref.ProcessPairs(); len(got) != 0 {
-		t.Errorf("released ProcessPairs = %v, want empty", got)
+	frame.Seal()
+	child, childFrame := OpenFrameContext(parent)
+	defer childFrame.Close()
+	if FrameFromContext(child).Has(key) {
+		t.Fatal("child inherited an execution-owned value")
+	}
+}
+
+func TestExecutionValues_ReleasedFrameIsEmpty(t *testing.T) {
+	key := &Key{Name: "test.execution", Execution: true}
+	_, frame := OpenFrameContext(NewRootContext())
+	if err := frame.Set(key, "p"); err != nil {
+		t.Fatal(err)
+	}
+	_ = frame.Close()
+	if frame.Has(key) {
+		t.Fatal("released frame exposes an execution-owned value")
 	}
 }

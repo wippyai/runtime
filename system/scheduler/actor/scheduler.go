@@ -324,6 +324,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.pid = pid
 	proc.Process = p
 	proc.state.Store(int32(StateReady))
+	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
@@ -426,6 +427,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	}
 
 	if proc.pooled {
+		proc.releaseIncarnation()
 		return
 	}
 
@@ -435,6 +437,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	proc.releaseIncarnation()
 
 	if allowPool && !stopping {
 		releaseProcessor(proc)
@@ -457,6 +460,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	proc.pid = pid
 	proc.Process = p
 	proc.state.Store(int32(StateReady))
+	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
@@ -489,6 +493,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	proc.releaseIncarnation()
 }
 
 // Send implements relay.Receiver. Routes package to target process.
