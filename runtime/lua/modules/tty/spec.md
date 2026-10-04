@@ -148,7 +148,9 @@ an error. A retired producer's port cannot present frames or change input.
 
 `handle()` returns a local viewport identifier. `tty.attach(handle)` adds a local
 viewer; a non-owner requires `tty.observe`, with input and resize granted only
-when permitted by its scope. Handles do not grant authority by themselves and
+when permitted by its scope. The creating process attaching its own handle,
+as after an in-place upgrade, keeps creator authority: it can issue grants,
+mount the viewport and change its page. Handles do not grant authority by themselves and
 do not cross nodes; use recipient-bound mounts for delegation.
 
 | Method | Purpose |
