@@ -4,8 +4,8 @@ package tty
 
 import (
 	lua "github.com/wippyai/go-lua"
-	termtext "github.com/wippyai/tty/text"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	termtext "github.com/wippyai/tty/text"
 )
 
 const styleTypeName = "tty.Style"

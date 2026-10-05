@@ -14,8 +14,8 @@ const responseQueueLimit = 64 << 10
 // child that is itself blocked writing output.
 type responseQueue struct {
 	cond   *sync.Cond
-	mu     sync.Mutex
 	chunks [][]byte
+	mu     sync.Mutex
 	size   int
 	closed bool
 }

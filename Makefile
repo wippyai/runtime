@@ -16,7 +16,6 @@ test:
 	go test --tags "$(WIPPY_BUILD_TAGS)" ./runtime/... -v -race -short
 	go test ./boot/... -v -race -short
 	go test --tags "$(WIPPY_BUILD_TAGS)" ./cmd/... -v -race -short
-	cd internal/thirdparty/ansi && go test ./... -v -race -short
 	$(MAKE) test-optional-features
 
 .PHONY: test-optional-features

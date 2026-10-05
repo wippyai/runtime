@@ -14,8 +14,8 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	tty "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/tty/input"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	"github.com/wippyai/tty/input"
 	xterm "golang.org/x/term"
 )
 

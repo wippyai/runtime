@@ -39,9 +39,9 @@ type Proxy struct {
 	closeCause      error
 	process         execapi.PTYProcess
 	screen          *vt.Terminal
-	responses       responseQueue
 	capture         *strings.Builder
 	closeNotify     chan struct{}
+	responses       responseQueue
 	shutdownGrace   time.Duration
 	height          atomic.Int64
 	viewOffset      int

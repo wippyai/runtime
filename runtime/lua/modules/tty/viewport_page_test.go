@@ -14,10 +14,10 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	ttyapi "github.com/wippyai/runtime/api/tty"
-	"github.com/wippyai/tty/canvas"
-	termtext "github.com/wippyai/tty/text"
 	relaysys "github.com/wippyai/runtime/system/relay"
 	ttysys "github.com/wippyai/runtime/system/tty"
+	"github.com/wippyai/tty/canvas"
+	termtext "github.com/wippyai/tty/text"
 )
 
 const (
