@@ -58,7 +58,7 @@ func (p *Proxy) run(ctx context.Context, events <-chan ttyapi.Event, ready chan<
 		reportReady(err)
 		return Result{Err: err, TerminalError: err}
 	}
-	if err := p.process.Resize(p.screen.Width(), p.screen.Height()); err != nil {
+	if err := p.process.Resize(p.screenSize()); err != nil {
 		failure := stopStartedProcess(p.process, err, p.shutdownTimeout())
 		reportReady(failure)
 		return Result{Err: failure, TerminalError: failure}
@@ -92,11 +92,8 @@ func (p *Proxy) run(ctx context.Context, events <-chan ttyapi.Event, ready chan<
 		p.watchShutdown(ctx, output, finished, shutdownErrors)
 	}()
 	defer func() {
-		// Closing the response pipe wakes copyResponses without racing x/vt's
-		// output parser through Emulator.Close's unsynchronized closed flag.
-		if closer, ok := p.screen.InputPipe().(io.Closer); ok {
-			_ = closer.Close()
-		}
+		// Closing the response queue wakes copyResponses.
+		p.responses.close()
 	}()
 
 	dirty := make(chan struct{}, 1)
@@ -104,8 +101,8 @@ func (p *Proxy) run(ctx context.Context, events <-chan ttyapi.Event, ready chan<
 	responseDone := make(chan error, 1)
 	waitDone := make(chan error, 1)
 	// Terminal applications issue synchronous capability and cursor queries.
-	// x/vt answers them through its input pipe; that pipe must be drained while
-	// output is parsed or io.Pipe correctly blocks the parser forever.
+	// The emulator answers them through the response queue; the queue must be
+	// drained while output is parsed or it fills and blocks the parser.
 	go p.copyResponses(responseDone)
 	go p.copyOutput(output, dirty, outputDone)
 	go func() { waitDone <- p.process.Wait() }()
@@ -322,16 +319,16 @@ func cancelProcessWait(process execapi.Process) {
 }
 
 func (p *Proxy) copyResponses(done chan<- error) {
-	buf := make([]byte, 4096)
 	for {
-		n, err := p.screen.Read(buf)
-		if n > 0 {
-			if writeErr := p.writeBytes(buf[:n]); writeErr != nil {
-				done <- writeErr
-				return
-			}
+		data, ok := p.responses.next()
+		if !ok {
+			done <- io.EOF
+			return
 		}
-		if err != nil {
+		if err := p.writeBytes(data); err != nil {
+			// No writer remains to release blocked reply producers. Retire the
+			// queue before reporting failure to the potentially blocked Run.
+			p.responses.close()
 			done <- err
 			return
 		}
@@ -361,16 +358,16 @@ func (p *Proxy) copyOutput(reader io.Reader, dirty chan<- struct{}, done chan<- 
 }
 
 // writeOutput updates the emulator and keeps a scrolled primary viewport on
-// the same lines while history grows. Once the fixed-size x/vt buffer evicts
-// an old line its length no longer changes, and its public API has no stable
-// line identity to retain that anchor without a second terminal parser.
+// the same lines while history grows. Once the fixed-size history evicts an
+// old line its length no longer changes, and the buffer exposes no stable line
+// identity to retain that anchor.
 func (p *Proxy) writeOutput(data []byte) (int, error) {
 	p.screenMu.Lock()
 	defer p.screenMu.Unlock()
-	before := p.screen.ScrollbackLen()
+	before := p.historyLenLocked()
 	n, err := p.screen.Write(data)
-	if added := p.screen.ScrollbackLen() - before; added > 0 && p.viewOffset > 0 && !p.input.altScreen.Load() {
-		p.viewOffset = min(p.viewOffset+added, p.screen.ScrollbackLen())
+	if added := p.historyLenLocked() - before; added > 0 && p.viewOffset > 0 && !p.screen.Screen().Alternate() {
+		p.viewOffset = min(p.viewOffset+added, p.historyLenLocked())
 	}
 	return n, err
 }

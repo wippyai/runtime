@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
@@ -24,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -899,12 +899,12 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("12")).
+	titleStyle := style.New().
+		Foreground(12).
 		Bold(true)
 
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	labelStyle := style.New().Foreground(14)
+	dimStyle := style.New().Foreground(8)
 
 	fmt.Println(titleStyle.Render("\nAvailable fs.directory entries:"))
 	fmt.Println()

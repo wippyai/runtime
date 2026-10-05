@@ -15,7 +15,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
-	_ "github.com/mattn/go-sqlite3" // Register SQLite3 database driver
+	_ "github.com/rqlite/go-sqlite3" // Register SQLite3 database driver
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"

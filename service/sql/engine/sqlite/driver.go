@@ -12,7 +12,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/mattn/go-sqlite3"
+	"github.com/rqlite/go-sqlite3"
 )
 
 // observedConn delegates all normal SQL behavior while ensuring every physical

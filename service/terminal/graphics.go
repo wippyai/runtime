@@ -10,8 +10,24 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/charmbracelet/x/ansi"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/tty/text"
+)
+
+// Kitty graphics protocol commands, each terminated by ST (ESC \\) with quiet
+// mode q=2 so the terminal sends no responses.
+const (
+	kittyDeleteImage     = "\x1b_Ga=d,d=I,i=%d,q=2\x1b\\"
+	kittyDeletePlacement = "\x1b_Ga=d,d=p,i=%d,p=%d,q=2\x1b\\"
+	kittyPlace           = "\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,x=%d,y=%d,w=%d,h=%d,z=%d,C=1,q=2\x1b\\"
+	kittyUploadFirst     = "\x1b_Ga=t,f=100,i=%d,q=2,m=%d;"
+	kittyUploadNext      = "\x1b_Gm=%d;"
+	stringTerminator     = "\x1b\\"
+
+	// sgrFaintLabel starts the dim style of image placeholder cells and
+	// sgrReset ends it.
+	sgrFaintLabel = "\x1b[0;2m"
+	sgrReset      = "\x1b[0m"
 )
 
 var nextGraphicsID atomic.Uint32
@@ -40,10 +56,10 @@ func graphicsID() (uint32, error) {
 }
 
 func deleteHostImage(out []byte, id uint32) []byte {
-	return fmt.Appendf(out, "\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", id)
+	return fmt.Appendf(out, kittyDeleteImage, id)
 }
 func deleteHostPlacement(out []byte, p hostPlacement) []byte {
-	return fmt.Appendf(out, "\x1b_Ga=d,d=p,i=%d,p=%d,q=2\x1b\\", p.imageID, p.placementID)
+	return fmt.Appendf(out, kittyDeletePlacement, p.imageID, p.placementID)
 }
 
 func (s *Surface) appendGraphics(out []byte, images []ttyapi.PlacedImage, enabled bool) ([]byte, map[string]hostPlacement, error) {
@@ -100,7 +116,7 @@ func (s *Surface) appendGraphics(out []byte, images []ttyapi.PlacedImage, enable
 			if exists && !s.invalid {
 				out = deleteHostPlacement(out, previous)
 			}
-			out = fmt.Appendf(out, "\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,x=%d,y=%d,w=%d,h=%d,z=%d,C=1,q=2\x1b\\",
+			out = fmt.Appendf(out, kittyPlace,
 				p.Destination.Y+1, p.Destination.X+1, imageID, placementID, p.Destination.Cols, p.Destination.Rows, p.Source.X, p.Source.Y, p.Source.Width, p.Source.Height, p.Z)
 			desired[p.ID] = hostPlacement{placement: p, imageID: imageID, placementID: placementID}
 		}
@@ -138,13 +154,13 @@ func appendImageUpload(out []byte, img *ttyapi.Image, id uint32) ([]byte, error)
 			more = 1
 		}
 		if offset == 0 {
-			out = fmt.Appendf(out, "\x1b_Ga=t,f=100,i=%d,q=2,m=%d;", id, more)
+			out = fmt.Appendf(out, kittyUploadFirst, id, more)
 		} else {
-			out = fmt.Appendf(out, "\x1b_Gm=%d;", more)
+			out = fmt.Appendf(out, kittyUploadNext, more)
 		}
 		base64.StdEncoding.Encode(encoded, raw[:n])
 		out = append(out, encoded[:base64.StdEncoding.EncodedLen(n)]...)
-		out = append(out, "\x1b\\"...)
+		out = append(out, stringTerminator...)
 		offset += n
 	}
 	return out, nil
@@ -165,7 +181,7 @@ func placeholderRows(rows []string, images []ttyapi.PlacedImage, width, height i
 	desiredHeight := len(rows)
 	inferredWidth := 0
 	for _, row := range rows {
-		inferredWidth = max(inferredWidth, ansi.StringWidth(row))
+		inferredWidth = max(inferredWidth, text.Width(row))
 	}
 	for _, item := range images {
 		d := item.Placement.Destination
@@ -195,7 +211,7 @@ func placeholderRows(rows []string, images []ttyapi.PlacedImage, width, height i
 		}
 		label := "[image]"
 		if p.Alt != "" {
-			label = "[image: " + ansi.Strip(p.Alt) + "]"
+			label = "[image: " + text.Strip(p.Alt) + "]"
 		}
 		// Strip C0/C1 controls that are not escape sequences from alternative text.
 		label = strings.Map(func(r rune) rune {
@@ -205,14 +221,14 @@ func placeholderRows(rows []string, images []ttyapi.PlacedImage, width, height i
 			return r
 		}, label)
 		for y := max(0, d.Y); y < min(len(out), d.Y+d.Rows); y++ {
-			text := strings.Repeat("▄", right-left)
+			cells := strings.Repeat("▄", right-left)
 			if y == max(0, d.Y) {
-				text = ansi.Truncate(label, right-left, "")
-				text += strings.Repeat(" ", right-left-ansi.StringWidth(text))
+				cells = text.Truncate(label, right-left, "")
+				cells += strings.Repeat(" ", right-left-text.Width(cells))
 			}
-			prefix := ansi.Cut(out[y], 0, left)
-			prefix += strings.Repeat(" ", max(0, left-ansi.StringWidth(prefix)))
-			out[y] = prefix + "\x1b[0;2m" + text + "\x1b[0m" + ansi.Cut(out[y], right, width)
+			prefix := text.Cut(out[y], 0, left)
+			prefix += strings.Repeat(" ", max(0, left-text.Width(prefix)))
+			out[y] = prefix + sgrFaintLabel + cells + sgrReset + text.Cut(out[y], right, width)
 		}
 	}
 	return out, nil

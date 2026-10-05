@@ -4,46 +4,32 @@
 package terminal
 
 import (
-	"context"
 	"errors"
 	"os"
 
-	"github.com/charmbracelet/x/input"
 	"github.com/muesli/cancelreader"
+	"github.com/wippyai/tty/input"
 )
 
-// Keep the established x/input Console API reader on Windows. Ultraviolet's
-// Windows stream selects native console records through an unexported concrete
-// reader type, which a bounded io.Reader wrapper would hide.
-func newTerminalInputReader(stdin *os.File, termType string) (terminalInputReader, error) {
-	return input.NewReader(stdin, termType, 0)
+// consoleInput adapts the console record reader to terminalInputReader. Its
+// events come from ReadEvents; Read exists only to satisfy the interface.
+type consoleInput struct {
+	*input.ConsoleReader
 }
 
-func streamTerminalInput(ctx context.Context, reader terminalInputReader, sink inputEventSink, graphics graphicsEventSink) error {
-	legacy, ok := reader.(*input.Reader)
-	if !ok {
-		return errors.New("windows terminal input reader is not x/input")
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
+func (consoleInput) Read([]byte) (int, error) {
+	return 0, errors.New("console input delivers records, not bytes")
+}
 
-		events, err := legacy.ReadEvents()
-		for _, event := range events {
-			if reply, ok := event.(input.KittyGraphicsEvent); ok && graphics != nil && graphics(reply.Options.ID, reply.Payload) {
-				continue
-			}
-			sink(ConvertInputEvent(event))
-		}
-		if err == nil {
-			continue
-		}
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, cancelreader.ErrCanceled) {
-			return nil
-		}
-		return err
+// newTerminalInputReader reads console records when stdin is a console and a
+// byte stream when it is redirected.
+func newTerminalInputReader(stdin *os.File, _ string) (terminalInputReader, error) {
+	console, err := input.NewConsoleReader(stdin, false)
+	if err == nil {
+		return consoleInput{console}, nil
 	}
+	if !errors.Is(err, input.ErrNotConsole) {
+		return nil, err
+	}
+	return cancelreader.NewReader(stdin)
 }
