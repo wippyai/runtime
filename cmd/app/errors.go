@@ -37,6 +37,18 @@ func NewMissingApplicationCommandError() apierror.Error {
 		WithRetryable(apierror.False)
 }
 
+// NewInvalidApplicationStateError reports a declared state path containing NUL.
+func NewInvalidApplicationStateError() apierror.Error {
+	return apierror.New(apierror.Invalid, "application state directory must not contain NUL").
+		WithRetryable(apierror.False)
+}
+
+// NewInvalidOwnedCommandError reports an owned-state command containing NUL.
+func NewInvalidOwnedCommandError() apierror.Error {
+	return apierror.New(apierror.Invalid, "owned-state command must not contain NUL").
+		WithRetryable(apierror.False)
+}
+
 // NewMissingStateDirectoryError reports a --state flag that names no directory.
 func NewMissingStateDirectoryError() apierror.Error {
 	return apierror.New(apierror.Invalid, "--state requires a state directory").

@@ -58,6 +58,8 @@ func operateTransient(ctx context.Context, e Executable, l Launch, prepare func(
 		}
 	}()
 	l.State = state
+	// A private transient state is never redirected to another transient state.
+	e.OwnedCommand = ""
 	return operate(ctx, e, l, prepare)
 }
 
@@ -100,6 +102,10 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 	}
 	unlock, err := lockState(l.State)
 	if err != nil {
+		if l.Op == OpRun && e.OwnedCommand != "" && errors.Is(err, ErrOwned) {
+			l.Command = e.OwnedCommand
+			return operateTransient(ctx, e, l, prepare)
+		}
 		return err
 	}
 	defer func() { result = errors.Join(result, unlock()) }()

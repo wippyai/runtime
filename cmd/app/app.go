@@ -16,6 +16,18 @@
 // the only argument the runner reads and it precedes the verb; everything
 // after the verb belongs to the verb, including an argument shaped like a
 // flag. Owned reports whether a state directory has an owner right now.
+//
+// State selection precedes boot configuration: an explicit --state wins over
+// the host plan's DefaultState, then Executable.State, then the user's
+// configuration directory. Boot continues through the normal boot.Config
+// path, using published pack defaults, the selected state's .wippy.yaml,
+// profiles and runtime overrides.
+//
+// OwnedCommand is chosen only when the actual state lock is busy. It starts
+// the application's command in private temporary state seeded from the shipped
+// bundle, without inheriting the owner's .wippy.yaml, history, data bindings
+// or selected deployment. Host preparation and normal runtime overrides still
+// apply; the application implements any connection to the owner itself.
 package app
 
 import (
@@ -46,11 +58,20 @@ import (
 type Executable struct {
 	Data         map[string]string
 	Host         Host
+	LuaCacheSeed *LuaCacheSeed
 	Name         string
 	Command      string
-	Bundle       Bundle
-	LuaCacheSeed *LuaCacheSeed
 	Components   []boot.Component
+	// State is the default state directory when the invocation names none. A
+	// relative path resolves against the working directory, so each folder
+	// holds its own state. Empty selects the user configuration directory.
+	State string
+	// OwnedCommand, when set, runs that application command in a transient
+	// state if acquiring the selected state's lock returns ErrOwned. It applies
+	// only to run, after host planning; a plan's Run or Transient takes precedence.
+	// Empty preserves the ordinary refusal. No owner readiness or IPC is implied.
+	OwnedCommand string
+	Bundle       Bundle
 }
 
 var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -123,6 +144,12 @@ func (e Executable) validate() error {
 	}
 	if e.Command == "" {
 		return NewMissingApplicationCommandError()
+	}
+	if strings.ContainsRune(e.State, 0) {
+		return NewInvalidApplicationStateError()
+	}
+	if strings.ContainsRune(e.OwnedCommand, 0) {
+		return NewInvalidOwnedCommandError()
 	}
 	for _, name := range slices.Sorted(maps.Keys(e.Data)) {
 		path := e.Data[name]
