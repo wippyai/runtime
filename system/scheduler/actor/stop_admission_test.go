@@ -220,9 +220,10 @@ func TestLateRejectedAdmissionKeepsCallerOwnership(t *testing.T) {
 	sched.lifecycle = lc
 	sched.Start()
 	p := &closeCountingProcess{}
+	self := pidapi.PID{UniqID: "late-rejection"}
 	submitted := make(chan error, 1)
 	go func() {
-		_, err := sched.Submit(context.Background(), pidapi.PID{UniqID: "late-rejection"}, p, "", nil)
+		_, err := sched.Submit(context.Background(), self, p, "", nil)
 		submitted <- err
 	}()
 	<-lc.entered
@@ -249,7 +250,7 @@ func TestLateRejectedAdmissionKeepsCallerOwnership(t *testing.T) {
 	if sched.processorCount.Load() != 0 {
 		t.Fatal("rejected admission retained process count")
 	}
-	if _, ok := sched.byPID.Load("late-rejection"); ok {
+	if _, ok := sched.byPID.Load(self.String()); ok {
 		t.Fatal("rejected admission retained routing")
 	}
 	sched.admitMu.Lock()
