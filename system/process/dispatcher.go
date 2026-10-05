@@ -46,6 +46,34 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(api.Link, dispatcher.HandlerFunc(d.handleLink))
 	register(api.Unlink, dispatcher.HandlerFunc(d.handleUnlink))
 	register(api.Exec, dispatcher.HandlerFunc(d.handleExec))
+	register(api.LookupWait, dispatcher.HandlerFunc(d.handleLookupWait))
+}
+
+// handleLookupWait completes when the name is bound in this node's eventual
+// registry, when the timeout passes (not found), or when the waiting process
+// ends. The wait runs off the worker; the registry wakes it without polling.
+func (d *Dispatcher) handleLookupWait(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	waitCmd := cmd.(*api.LookupWaitCmd)
+	awaiter, ok := topapi.GetEventualRegistry(ctx).(topapi.EventualAwaiter)
+	if !ok {
+		receiver.CompleteYield(tag, nil, topapi.ErrNameRegistryUnavailable)
+		return nil
+	}
+	name, timeout := waitCmd.Name, waitCmd.Timeout
+	go func() {
+		waitCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		p, err := awaiter.Await(waitCtx, name)
+		switch {
+		case err == nil:
+			receiver.CompleteYield(tag, api.LookupWaitResult{PID: p, Found: true}, nil)
+		case errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil:
+			receiver.CompleteYield(tag, api.LookupWaitResult{}, nil)
+		default:
+			receiver.CompleteYield(tag, nil, err)
+		}
+	}()
+	return nil
 }
 
 func (d *Dispatcher) handleSend(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

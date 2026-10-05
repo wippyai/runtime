@@ -442,7 +442,7 @@ so a removed observer does not block Strong names forever.
 - `Internal` — registry not available, raft not ready, or transport error.
 - `StrongRegistrationTimeoutError` / `StrongConflictError` — `STRONG` specifically (observer timeout or an existing global owner).
 
-### process.registry.lookup(name: string, scope?: number) -> string, error
+### process.registry.lookup(name: string, scope?: number, options?: table) -> string, error
 
 Looks up a PID by registered name. The global binding takes precedence, then
 EVENTUAL, then LOCAL. If a higher scope cannot be read, lookup can still return
@@ -461,12 +461,21 @@ freshness or proves that a binding was registered with `STRONG`.
 |-------|------|----------|---------|-------|
 | name | string | yes | - | Registered name |
 | scope | number | no | nil | `process.registry.LOCAL`, `EVENTUAL`, `CONSISTENT`, or `STRONG`; omitted/nil preserves default precedence |
+| options.timeout | string | no | nil | With `EVENTUAL` only: a duration such as `"5s"` to wait for a name that is not bound in this replica yet |
 
 **Returns:** `string` - PID string, or `nil, error` if not found
 
+**Waiting for an eventual name:** eventual bindings reach a replica some time
+after they are registered elsewhere, for example right after this node joins.
+With `options.timeout`, a lookup of a name that is not bound yet yields until
+the registry binds it or the timeout passes; a bound name returns at once
+without yielding. The wait is woken by the registry when the name arrives; it
+does not poll. The caller's context ending also ends the wait.
+
 **Errors (kinds):**
 - `NotFound` — name absent from the selected namespace, or all namespaces for default lookup.
-- `Invalid` — scope is not one of the four numeric constants.
+- `Invalid` — scope is not one of the four numeric constants, or `options` is not a table with a positive duration `timeout`, or `timeout` is used with a scope other than `EVENTUAL`.
+- `NotFound` (retryable) — with `timeout`, the name was not bound within it.
 - `Unavailable` — the explicitly selected registry is unavailable.
 - Lookup failures and caller cancellation are returned as errors.
 
@@ -476,6 +485,13 @@ Resolve a scoped name to a PID before sending:
 local pid, err = process.registry.lookup("cache", process.registry.LOCAL)
 if not pid then return nil, err end
 return process.send(pid, "get", {key = "example"})
+```
+
+Wait for a service another node registers, right after joining it:
+
+```lua
+local pid, err = process.registry.lookup("bee.hive.supervisor/alpha", process.registry.EVENTUAL, {timeout = "5s"})
+if not pid then return nil, err end
 ```
 
 The PID identifies the resolved process, not a name lease. Sending to it does
