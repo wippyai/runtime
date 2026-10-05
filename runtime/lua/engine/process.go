@@ -94,6 +94,9 @@ type Process struct {
 	ctx           context.Context
 	linkDownError error
 	execErr       error
+	// argumentError preserves a conversion failure until the deferred bootstrap
+	// knows whether the selected handler declares an argument contract.
+	argumentError apierror.Error
 	result        payload.Payload
 	// Message queue limits apply only to messages that opt into bounded
 	// retention through relay metadata. Ordinary process messages preserve
@@ -123,6 +126,7 @@ type Process struct {
 	// exportFn is the Go function the module bootstrap calls to cache the
 	// requested method; created on first use.
 	exportFn               *lua.LFunction
+	argumentCheckFn        *lua.LFunction
 	messageQueueDiscarded  map[string]struct{}
 	messageQueueOverflowed map[string]struct{}
 	channelQueue           *TaskQueue
@@ -566,6 +570,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.queue.Drain()
 	p.mainTask = nil
 	p.pendingYields = nil
+	p.argumentError = nil
 
 	budgets, err := p.executionBudgets(ctx)
 	if err != nil {
@@ -647,7 +652,11 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		if method != "" {
 			export, name = p.exportFunction(), lua.LString(method)
 		}
-		bootstrap = []lua.LValue{chunk, advance, export, name}
+		check := lua.LValue(lua.LFalse)
+		if p.factory.validateArguments {
+			check = p.argumentCheckFunction()
+		}
+		bootstrap = []lua.LValue{chunk, advance, export, name, check}
 	} else if fn == nil {
 		var err error
 		if fn, err = p.loadMain(); err != nil {
@@ -655,38 +664,59 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		}
 	}
 
-	// Create main task
-	p.mainTask = p.createTask(fn)
-
 	// Convert input payloads to Lua values as arguments
-	if len(input) > 0 || bootstrap != nil {
-		args := make([]lua.LValue, 0, len(bootstrap)+len(input))
-		args = append(args, bootstrap...)
-		for _, pl := range input {
+	validateArguments := p.shouldValidateArguments(fn) && bootstrap == nil
+	deferredValidation := bootstrap != nil && p.factory.validateArguments
+	args := make([]lua.LValue, 0, len(bootstrap)+len(input))
+	args = append(args, bootstrap...)
+	for i, pl := range input {
+		if validateArguments || deferredValidation {
+			value, err := transcodeArgumentToLua(ctx, pl)
+			if err != nil {
+				if validateArguments {
+					return argumentConversionError(i, err)
+				}
+				if p.argumentError == nil {
+					p.argumentError = argumentConversionError(i, err)
+				}
+				value = lua.LNil // Untyped handlers retain legacy conversion behavior.
+			}
+			args = append(args, value)
+		} else {
 			args = append(args, transcodeToLua(ctx, pl))
 		}
-		p.mainTask.Resumed = args
 	}
+	if validateArguments {
+		if err := fn.Proto.CheckArguments(p.state, args); err != nil {
+			return toAPIError(err)
+		}
+	}
+	// No method body has run when argument validation fails.
+	p.mainTask = p.createTask(fn)
+	p.mainTask.Resumed = args
 
 	return nil
 }
 
 // entryBootstrapProto runs the deferred initializers, then the entry chunk. It
 // receives the chunk function, the initializer iterator, the export function
-// and the method name, followed by the process input. A false method runs the
-// chunk itself with the input; otherwise the chunk returns the module the
+// and the method name, an optional argument check, then the process input.
+// A false method runs the chunk itself with the input; otherwise the chunk returns the module the
 // method is exported from. The code uses no global, so guest code cannot
 // change it.
 var entryBootstrapProto = mustCompileBootstrap(`
-return (function(chunk, advance, export, method, ...)
+return (function(chunk, advance, export, method, check, ...)
 	local init = advance()
 	while init do
 		init = advance(init())
 	end
 	if not method then
+		if check then check(chunk, ...) end
 		return chunk(...)
 	end
-	return export(method, (chunk()))(...)
+	local fn = export(method, (chunk()))
+	if check then check(fn, ...) end
+	return fn(...)
 end)(...)
 `, "=entry_bootstrap")
 
@@ -2031,6 +2061,8 @@ func (p *Process) Close() {
 	p.result = nil
 	p.execErr = nil
 	p.factory = nil
+	p.argumentError = nil
+	p.argumentCheckFn = nil
 	p.pendingYields = nil
 	p.exported = nil
 	p.exportFn = nil
@@ -2176,6 +2208,7 @@ func (p *Process) clearExecution() {
 	p.pendingYields = nil
 	p.result = nil
 	p.execErr = nil
+	p.argumentError = nil
 
 	// Clear channel state. Subscription maps were already emptied under the
 	// subs mutex by drainSubscriptionChannels above; clearing them here again
@@ -2203,26 +2236,9 @@ func (p *Process) clearExecution() {
 
 // transcodeToLua converts a payload to Lua value using context transcoder.
 func transcodeToLua(ctx context.Context, pl payload.Payload) lua.LValue {
-	if pl == nil {
-		return lua.LNil
-	}
-
-	// Already a Lua value
-	if pl.Format() == payload.Lua {
-		if lv, ok := pl.Data().(lua.LValue); ok {
-			return lv
-		}
-	}
-
-	// Try transcoding via context transcoder
-	dtt := payload.GetTranscoder(ctx)
-	if dtt != nil {
-		transcoded, err := dtt.Transcode(pl, payload.Lua)
-		if err == nil {
-			if lv, ok := transcoded.Data().(lua.LValue); ok {
-				return lv
-			}
-		}
+	value, err := transcodeArgumentToLua(ctx, pl)
+	if err == nil {
+		return value
 	}
 
 	return lua.LNil
