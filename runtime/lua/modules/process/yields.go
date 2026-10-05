@@ -475,7 +475,13 @@ func (y *LookupWaitYield) HandleResult(l *lua.LState, data any, err error) []lua
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	result, ok := data.(process.LookupWaitResult)
-	if !ok || !result.Found {
+	if !ok {
+		luaErr := lua.NewLuaError(l, "lookup wait returned an invalid result").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+	if !result.Found {
 		luaErr := lua.NewLuaError(l, "name not registered within "+y.Timeout.String()).
 			WithKind(lua.NotFound).
 			WithRetryable(true)

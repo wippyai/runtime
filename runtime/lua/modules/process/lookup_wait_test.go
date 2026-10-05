@@ -39,6 +39,7 @@ func TestRegistryLookup_TimeoutYieldsForAnUnboundName(t *testing.T) {
 	require.Equal(t, -1, registryLookup(l))
 	yield, ok := l.Get(-1).(*LookupWaitYield)
 	require.True(t, ok, "lookup must yield a LookupWaitYield for an unbound name")
+	t.Cleanup(yield.Release)
 	require.Equal(t, "service", yield.Name)
 	require.Equal(t, 250*time.Millisecond, yield.Timeout)
 	require.Equal(t, process.LookupWait, yield.CmdID())
@@ -91,6 +92,12 @@ func TestLookupWaitYield_HandleResult(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, lua.NotFound, notFound.Kind())
 	require.Contains(t, notFound.Error(), "within 2s")
+
+	invalid := y.HandleResult(l, nil, nil)
+	require.Equal(t, lua.LNil, invalid[0])
+	invalidResult, ok := invalid[1].(*lua.Error)
+	require.True(t, ok)
+	require.Equal(t, lua.Internal, invalidResult.Kind())
 
 	failed := y.HandleResult(l, nil, errors.New("registry stopped"))
 	require.Equal(t, lua.LNil, failed[0])

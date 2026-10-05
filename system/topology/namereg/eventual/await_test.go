@@ -140,3 +140,54 @@ func TestAwait_ManyWaitersOnOneNameAllWake(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return svc.Waiting() == 0 }, time.Second, time.Millisecond)
 }
+
+func TestAwait_CancelingOneWaiterDoesNotRemoveAnother(t *testing.T) {
+	svc := startedService(t, "node-A")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	canceled := make(chan error, 1)
+	go func() { _, err := svc.Await(ctx, "svc.shared"); canceled <- err }()
+	remaining := make(chan pid.PID, 1)
+	go func() {
+		p, err := svc.Await(context.Background(), "svc.shared")
+		if err == nil {
+			remaining <- p
+		}
+	}()
+	require.Eventually(t, func() bool { return svc.Waiting() == 2 }, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("canceled waiter did not leave")
+	}
+	require.Equal(t, 1, svc.Waiting())
+	p := pid.PID{Node: "node-A", Host: "workers", UniqID: "sup"}
+	_, err := svc.Register("svc.shared", p)
+	require.NoError(t, err)
+	select {
+	case got := <-remaining:
+		require.Equal(t, p, got)
+	case <-time.After(time.Second):
+		t.Fatal("canceling a sibling removed the remaining waiter")
+	}
+	require.Zero(t, svc.Waiting())
+}
+
+func TestAwait_ConcurrentRegistrationCannotLoseTheWakeup(t *testing.T) {
+	svc := startedService(t, "node-A")
+	p := pid.PID{Node: "node-A", Host: "workers", UniqID: "sup"}
+	for range 100 {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		result := make(chan error, 1)
+		go func() { _, err := svc.Await(ctx, "svc.racing"); result <- err }()
+		_, err := svc.Register("svc.racing", p)
+		require.NoError(t, err)
+		awaitErr := <-result
+		cancel()
+		require.NoError(t, awaitErr)
+		require.Zero(t, svc.Waiting())
+		require.True(t, svc.Unregister("svc.racing"))
+	}
+}
