@@ -30,9 +30,14 @@ func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger
 		return nil, nil, nil, nil, err
 	}
 
-	parent := context.Background()
+	caller := context.Background()
 	if cmd != nil {
-		parent = cmd.Context()
+		caller = cmd.Context()
+	}
+	parent, err := detachFromCaller(caller)
+	if err != nil {
+		baseLogger.Error("failed to initialize bootstrap context", zap.Error(err))
+		return nil, nil, nil, nil, NewInitializeBootstrapContextError(err)
 	}
 	ctx, err := bootpkg.NewBootstrapContextWithParent(parent, baseLogger, cfg)
 	if err != nil {
@@ -47,14 +52,6 @@ func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger
 	ctx = embedapi.WithRegistry(ctx, embedReg)
 
 	components := selectedComponents()
-	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
-	if err != nil {
-		logger.Error("failed to load extensions", zap.Error(err))
-		embedReg.Close()
-		return nil, nil, nil, nil, err
-	}
-
-	components = append(components, extensionComponents...)
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)

@@ -157,8 +157,13 @@ func (t *Task) String() string {
 
 // ResumeWith sets the Resumed slice using the internal buffer.
 func (t *Task) ResumeWith(values ...lua.LValue) {
+	previous := t.resumeBuf
 	t.resumeBuf = t.resumeBuf[:0]
 	t.resumeBuf = append(t.resumeBuf, values...)
+	// Copy first: values may be a view of the previous resume buffer.
+	if len(values) < len(previous) {
+		clear(previous[len(values):])
+	}
 	t.Resumed = t.resumeBuf
 }
 
@@ -178,5 +183,7 @@ func (t *Task) Close() {
 	clear(t.resumeBuf[:cap(t.resumeBuf)])
 	t.resumeBuf = t.resumeBuf[:0]
 	t.State = 0
+	clear(t.resumeBuf)
+	clear(t.retBuf[:cap(t.retBuf)])
 	taskPool.Put(t)
 }

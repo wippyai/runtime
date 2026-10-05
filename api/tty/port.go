@@ -98,7 +98,9 @@ type Binding interface {
 	Close() error
 }
 
-var portKey = &ctxapi.Key{Name: "tty.port"} // deliberately non-inheritable
+// portKey is a process value: an in-place upgrade keeps the terminal, while
+// child processes never inherit it.
+var portKey = &ctxapi.Key{Name: "tty.port", Execution: true}
 
 func PortKey() *ctxapi.Key { return portKey }
 

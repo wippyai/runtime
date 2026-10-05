@@ -536,7 +536,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 		topo.HandleNodeExit("remote", errors.New("node disconnected"))
 
 		pkgs := router.getSends(localPID1)
-		require.Len(t, pkgs, 1, "should send LinkDown to local watcher")
+		require.Len(t, pkgs, 1, "should send MonitorDown to local watcher")
 
 		var exitEvent *topology.ExitEvent
 		for _, msg := range pkgs[0].Messages {
@@ -549,7 +549,7 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 		}
 
 		require.NotNil(t, exitEvent)
-		assert.Equal(t, topology.LinkDown, exitEvent.Kind)
+		assert.Equal(t, topology.MonitorDown, exitEvent.Kind, "a monitor learns its target is unreachable; it is not a link")
 		assert.Equal(t, remotePID1, exitEvent.From)
 	})
 
@@ -568,6 +568,16 @@ func TestTopology_HandleNodeExit(t *testing.T) {
 
 		pkgs := router.getSends(localPID1)
 		require.Len(t, pkgs, 1, "should send LinkDown to linked process")
+		var exitEvent *topology.ExitEvent
+		for _, msg := range pkgs[0].Messages {
+			for _, p := range msg.Payloads {
+				if evt, ok := p.Data().(*topology.ExitEvent); ok {
+					exitEvent = evt
+				}
+			}
+		}
+		require.NotNil(t, exitEvent)
+		assert.Equal(t, topology.LinkDown, exitEvent.Kind)
 	})
 
 	t.Run("HandleNodeExit does not affect other nodes", func(t *testing.T) {

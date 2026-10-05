@@ -166,7 +166,9 @@ func (q *EventQueue) RetireYieldCompletions() {
 	q.yieldEpoch.Add(1)
 	kept := q.events[:0]
 	for _, e := range q.events {
-		if e.Type != EventYieldComplete {
+		if e.Type == EventYieldComplete {
+			discardEvent(e)
+		} else {
 			kept = append(kept, e)
 		}
 	}
@@ -267,6 +269,21 @@ func (q *EventQueue) admitPackageLocked(pkg *relay.Package) bool {
 	original := pkg.Messages
 	if len(original) == 0 {
 		return true
+	}
+	// Ordinary traffic needs neither topic accounting nor compaction. Keep
+	// its existing package slice; bounded traffic still follows the full
+	// admission path, including inherited limits and overflow tombstones.
+	if len(q.messageTopics) == 0 {
+		bounded := false
+		for _, msg := range original {
+			if msg != nil && (msg.MaxItems > 0 || msg.MaxBytes > 0) {
+				bounded = true
+				break
+			}
+		}
+		if !bounded {
+			return true
+		}
 	}
 
 	accepted := make([]*relay.Message, 0, len(original)+1)
@@ -536,14 +553,18 @@ func (q *EventQueue) discardPending() {
 	for i := range q.events {
 		e := &q.events[i]
 		q.retireEventTopicsLocked(*e)
-		if d, ok := e.Data.(EventDiscarder); ok {
-			d.DiscardEvent()
-		} else if e.Type == EventMessage {
-			if pkg, ok := e.Data.(*relay.Package); ok {
-				relay.ReleasePackage(pkg)
-			}
-		}
+		discardEvent(*e)
 		*e = Event{}
+	}
+}
+
+func discardEvent(e Event) {
+	if d, ok := e.Data.(EventDiscarder); ok {
+		d.DiscardEvent()
+	} else if e.Type == EventMessage {
+		if pkg, ok := e.Data.(*relay.Package); ok {
+			relay.ReleasePackage(pkg)
+		}
 	}
 }
 func (q *EventQueue) retireEventTopicsLocked(event Event) {

@@ -48,12 +48,50 @@ func getStructFields(rt reflect.Type) []fieldInfo {
 
 // GoToLua converts a Go value to its Lua equivalent.
 func GoToLua(v any) (lua.LValue, error) {
+	converter := goToLuaConverter{}
+	return converter.convert(v)
+}
+
+// goToLuaConverter builds Lua values directly. FromGolang enables its special
+// value conventions without first copying the input into a normalized Go tree.
+type goToLuaConverter struct {
+	context   *payload.TranscodeContext
+	normalize bool
+	// Nested transcoder failures historically pass through without container
+	// conversion wrappers; keep that distinction in the single-pass walk.
+	nestedError bool
+}
+
+func (c *goToLuaConverter) conversionError(message string, err error) error {
+	if c.nestedError {
+		return err
+	}
+	return runtimelua.NewConversionError(message, err)
+}
+
+func (c *goToLuaConverter) convert(v any) (lua.LValue, error) {
 	if v == nil {
 		return lua.LNil, nil
 	}
 
 	// Handle basic types first
 	switch val := v.(type) {
+	case payload.Payload:
+		if !c.normalize {
+			// GoToLua prefers existing Lua values; FromGolang resolves payload
+			// wrappers first, including types implementing both interfaces.
+			if lv, ok := val.(lua.LValue); ok {
+				return lv, nil
+			}
+			return c.convert(val.Data())
+		}
+		data, err := normalizeNestedPayload(c.context, val)
+		if err != nil {
+			c.nestedError = true
+			return nil, err
+		}
+		// Direct use without a parent retains the raw-data fallback.
+		return GoToLua(data)
 	case lua.LValue:
 		return val, nil
 	case string:
@@ -88,8 +126,10 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LBool(val), nil
 	case time.Time:
 		return lua.LNumber(val.Unix()), nil
-	case payload.Payload:
-		return GoToLua(val.Data())
+	case time.Duration:
+		if c.normalize {
+			return lua.LInteger(val), nil
+		}
 	case pid.PID:
 		return lua.LString(val.String()), nil
 	case []byte:
@@ -97,20 +137,43 @@ func GoToLua(v any) (lua.LValue, error) {
 	case error:
 		// lua.Error implements LValue, metatable is set via builtinMts[LTUserData]
 		return lua.WrapError(val, ""), nil
+	case map[string]any:
+		table := lua.CreateTable(0, max(1, len(val)))
+		for key, value := range val {
+			lv, err := c.convert(value)
+			if err != nil {
+				return nil, c.conversionError(fmt.Sprintf("error converting map value for key %s", key), err)
+			}
+			table.RawSetString(key, lv)
+		}
+		return table, nil
+	case []any:
+		if val == nil {
+			return lua.LNil, nil
+		}
+		table := lua.CreateTable(max(1, len(val)), 0)
+		for i, value := range val {
+			lv, err := c.convert(value)
+			if err != nil {
+				return nil, c.conversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
+			}
+			table.RawSetInt(i+1, lv)
+		}
+		return table, nil
 	}
 
 	// Use reflection for complex types
 	rv := reflect.ValueOf(v)
 	//exhaustive:ignore
 	switch rv.Kind() {
-	case reflect.Pointer:
+	case reflect.Pointer, reflect.Interface:
 		if rv.IsNil() {
 			return lua.LNil, nil
 		}
-		return GoToLua(rv.Elem().Interface())
+		return c.convert(rv.Elem().Interface())
 
 	case reflect.Slice, reflect.Array:
-		if rv.IsNil() {
+		if rv.Kind() == reflect.Slice && rv.IsNil() {
 			// Return nil for nil slices
 			return lua.LNil, nil
 		}
@@ -118,9 +181,9 @@ func GoToLua(v any) (lua.LValue, error) {
 		// slot even when the slice has no elements.
 		table := lua.CreateTable(max(1, rv.Len()), 0)
 		for i := 0; i < rv.Len(); i++ {
-			lval, err := GoToLua(rv.Index(i).Interface())
+			lval, err := c.convert(rv.Index(i).Interface())
 			if err != nil {
-				return nil, runtimelua.NewConversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
+				return nil, c.conversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
 			}
 			table.RawSetInt(i+1, lval)
 		}
@@ -141,9 +204,9 @@ func GoToLua(v any) (lua.LValue, error) {
 			key := iter.Key()
 			keyStr := fmt.Sprint(key.Interface())
 
-			lval, err := GoToLua(iter.Value().Interface())
+			lval, err := c.convert(iter.Value().Interface())
 			if err != nil {
-				return nil, runtimelua.NewConversionError(fmt.Sprintf("error converting map value for key %s", keyStr), err)
+				return nil, c.conversionError(fmt.Sprintf("error converting map value for key %s", keyStr), err)
 			}
 			table.RawSetString(keyStr, lval)
 		}
@@ -153,7 +216,11 @@ func GoToLua(v any) (lua.LValue, error) {
 		typ := rv.Type()
 
 		fields := getStructFields(typ)
-		table := lua.CreateTable(0, len(fields))
+		size := len(fields)
+		if c.normalize {
+			size = max(1, size)
+		}
+		table := lua.CreateTable(0, size)
 		for _, field := range fields {
 			fieldValue := rv.Field(field.index)
 			var lval lua.LValue
@@ -166,21 +233,24 @@ func GoToLua(v any) (lua.LValue, error) {
 					lval = lua.CreateTable(0, 1) // Empty object for nil maps
 					err = nil
 				} else {
-					lval, err = GoToLua(fieldValue.Interface())
+					lval, err = c.convert(fieldValue.Interface())
 				}
 			case reflect.Pointer, reflect.Slice, reflect.Interface:
 				if fieldValue.IsNil() {
 					lval = lua.LNil // Explicit nil for other nil fields
 					err = nil
 				} else {
-					lval, err = GoToLua(fieldValue.Interface())
+					lval, err = c.convert(fieldValue.Interface())
 				}
 			default:
-				lval, err = GoToLua(fieldValue.Interface())
+				lval, err = c.convert(fieldValue.Interface())
 			}
 
 			if err != nil {
-				return nil, runtimelua.NewConversionError(fmt.Sprintf("error converting struct field %s", field.name), err)
+				if c.normalize {
+					return nil, c.conversionError(fmt.Sprintf("error converting map value for key %s", field.name), err)
+				}
+				return nil, c.conversionError(fmt.Sprintf("error converting struct field %s", field.name), err)
 			}
 
 			table.RawSetString(field.name, lval)

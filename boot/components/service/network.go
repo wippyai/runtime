@@ -17,12 +17,11 @@ import (
 	netservice "github.com/wippyai/runtime/service/net"
 	"github.com/wippyai/runtime/service/net/i2p"
 	"github.com/wippyai/runtime/service/net/socks5"
-	"github.com/wippyai/runtime/service/net/tailscale"
 	netsystem "github.com/wippyai/runtime/system/net"
 )
 
 // Network creates the network overlay service boot component.
-// It creates the driver manager that handles SOCKS5, I2P, and Tailscale
+// It creates the driver manager that handles SOCKS5, I2P, and optional Tailscale
 // overlay entries from the registry, delegating storage to the
 // system-level network Registry.
 func Network() boot.Component {
@@ -67,7 +66,7 @@ func Network() boot.Component {
 				netservice.WithDriver(
 					socks5.NewDriver(),
 					i2p.NewDriver(),
-					tailscale.NewDriver(),
+					newTailscaleDriver(),
 				),
 			)
 			if err != nil {

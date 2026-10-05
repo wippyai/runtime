@@ -87,6 +87,23 @@ func TestProcessPreemptsLongRunningStep(t *testing.T) {
 	}
 }
 
+func TestCPUPreemptionDoesNotAllocatePendingYields(t *testing.T) {
+	proc := initPreemptProcess(t, `while true do end`, 100)
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatal(err)
+		}
+		if output.Status() != process.StepPreempted {
+			t.Fatalf("expected preemption, got %v", output.Status())
+		}
+		if proc.pendingYields != nil {
+			t.Fatal("CPU-only preemption allocated external-yield bookkeeping")
+		}
+	}
+}
+
 func TestProcessNegativeTickBudgetRunsStepToCompletion(t *testing.T) {
 	proc := initPreemptProcess(t, `
 		local s = 0

@@ -955,6 +955,8 @@ func (be *benchExecutor) Execute(ctx context.Context, p pidapi.PID, proc process
 
 	_, err := be.sched.Submit(ctx, p, proc, method, input)
 	if err != nil {
+		// Failed admission leaves ownership with the caller, as in service/host.
+		proc.Close()
 		be.mu.Lock()
 		delete(be.pending, p.UniqID)
 		be.mu.Unlock()

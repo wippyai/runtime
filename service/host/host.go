@@ -321,7 +321,7 @@ func (h *Host) OnStart(_ context.Context, _ pid.PID, _ process.Process) error { 
 
 // OnComplete implements scheduler.Lifecycle.
 func (h *Host) OnComplete(ctx context.Context, _ pid.PID, _ *runtime.Result) {
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+	if fc := ctxapi.ExecutionFrame(ctx); fc != nil {
 		ctxapi.ReleaseFrameContext(fc)
 	}
 }

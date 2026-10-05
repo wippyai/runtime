@@ -3,6 +3,7 @@
 package kv
 
 import (
+	"fmt"
 	"time"
 
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
@@ -13,7 +14,8 @@ import (
 // and the engine forwards it over the relay to the member returned by Resolve.
 // Resolve need not return the leader — that member re-forwards to the leader it
 // can resolve (see maxForwardHops). Resolve returns ok=false when no eligible
-// member is visible yet, which the engine treats as "no leader" and retries.
+// member is visible, which Leader reports as errNoRaftMember: a forwarded
+// write retries while membership converges, a forwarded read answers at once.
 type ClientSubmitter struct {
 	Resolve func() (raftapi.ServerID, bool)
 }
@@ -24,13 +26,17 @@ func (c ClientSubmitter) Apply([]byte, time.Duration) (*raftapi.ApplyResponse, e
 
 func (c ClientSubmitter) IsLeader() bool { return false }
 
+// errNoRaftMember is the not-leader answer of a client that sees no raft
+// member to forward to.
+var errNoRaftMember = fmt.Errorf("%w: no raft member visible", raftapi.ErrNotLeader)
+
 func (c ClientSubmitter) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
 	if c.Resolve == nil {
-		return "", "", raftapi.ErrNotLeader
+		return "", "", errNoRaftMember
 	}
 	id, ok := c.Resolve()
 	if !ok || id == "" {
-		return "", "", raftapi.ErrNotLeader
+		return "", "", errNoRaftMember
 	}
 	return id, "", nil
 }

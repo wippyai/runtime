@@ -108,13 +108,17 @@ func matchSegments(pattern, str []string) bool {
 // matchSegment handles exact matches and alternations like (a|b).
 func matchSegment(patternSegment, strSegment string) bool {
 	if strings.HasPrefix(patternSegment, "(") && strings.HasSuffix(patternSegment, ")") {
-		options := strings.Split(patternSegment[1:len(patternSegment)-1], "|")
-		for _, opt := range options {
+		remaining := patternSegment[1 : len(patternSegment)-1]
+		for {
+			opt, tail, more := strings.Cut(remaining, "|")
 			if opt == strSegment {
 				return true
 			}
+			if !more {
+				return false
+			}
+			remaining = tail
 		}
-		return false
 	}
 	return patternSegment == strSegment
 }

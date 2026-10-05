@@ -38,12 +38,17 @@ type configEntry struct {
 	component bool
 }
 
+func (cfg *configEntry) usesIsolatedModule() bool {
+	return cfg.component && cfg.limits.EffectiveMaxRetainedMemoryBytes() > 0
+}
+
 // poolEntry is one callable generation. Relay host registration is non-replacing,
 // so every generation gets a unique host and retired generations stay alive until
 // active calls release them.
 type poolEntry struct {
 	drained  chan struct{}
 	pool     funcpool.Pool
+	module   *wasmrt.Module
 	method   string
 	hostID   string
 	mu       sync.Mutex
@@ -240,7 +245,7 @@ func (m *Manager) runtimeInstance(component bool) *wasmrt.Runtime {
 }
 
 func (m *Manager) processFactory(cfg *configEntry, module *wasmrt.Module) *wasmengine.Factory {
-	if cfg.component && cfg.limits.EffectiveMaxRetainedMemoryBytes() > 0 {
+	if cfg.usesIsolatedModule() {
 		return wasmengine.NewFactoryWithModuleFactory(func() (*wasmrt.Module, error) {
 			return m.loadIsolatedModule(m.ctx, cfg)
 		}, cfg.transport, cfg.wasi, cfg.limits, m.fsRegistry)

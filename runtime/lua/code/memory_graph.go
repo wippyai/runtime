@@ -731,55 +731,38 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		Main: entryNode,
 	}
 
-	// Pre-build edge map for efficient alias lookup (O(1) instead of O(n²))
-	edgeMap := make(map[registry.ID]map[registry.ID]string) // from -> to -> alias
+	// Collect direct imports and incoming aliases in one edge traversal. Keep
+	// imports scoped per chunk, even when different chunks reuse an alias.
+	imports := make(map[registry.ID][]Import, len(ordered))
+	aliasMap := make(map[registry.ID]map[string]bool)
 	for _, node := range ordered {
 		neighbors, err := m.graph.GetNeighbors(node.ID)
 		if err != nil {
 			continue
 		}
-		edgeMap[node.ID] = make(map[registry.ID]string, len(neighbors))
+		var direct []Import
+		if len(neighbors) > 0 {
+			direct = make([]Import, 0, len(neighbors))
+		}
 		for _, neighbor := range neighbors {
 			if edge, ok := m.graph.GetEdge(node.ID, neighbor); ok {
-				edgeMap[node.ID][neighbor] = edge.Data.As
+				alias := edge.Data.As
+				if alias != "" {
+					if aliasMap[neighbor] == nil {
+						aliasMap[neighbor] = make(map[string]bool)
+					}
+					aliasMap[neighbor][alias] = true
+				} else {
+					alias = neighbor.Name
+				}
+				direct = append(direct, Import{ID: neighbor, Alias: alias})
 			}
 		}
-	}
-
-	// Build per-chunk direct imports from the edge map. Each code node (the
-	// entrypoint and every library) maps to the aliases it itself declared,
-	// so the runtime can scope each chunk to its own imports instead of the
-	// flattened closure.
-	imports := make(map[registry.ID][]Import, len(edgeMap))
-	for from, targets := range edgeMap {
-		for to, alias := range targets {
-			if alias == "" {
-				alias = to.Name
-			}
-			imports[from] = append(imports[from], Import{ID: to, Alias: alias})
+		if len(direct) > 0 {
+			imports[node.ID] = direct
 		}
 	}
 	rt.Imports = imports
-
-	// Build alias map: collect ALL aliases for each node from ALL edges pointing to it
-	// A node can have multiple aliases if different parents import it with different names
-	aliasMap := make(map[registry.ID]map[string]bool)
-	for _, node := range ordered {
-		if node.ID.Equal(entrypoint) {
-			continue
-		}
-		aliasMap[node.ID] = make(map[string]bool)
-
-		// Collect all aliases from all edges pointing to this node
-		for _, edgeTargets := range edgeMap {
-			if alias, hasEdge := edgeTargets[node.ID]; hasEdge && alias != "" {
-				aliasMap[node.ID][alias] = true
-			}
-		}
-	}
-
-	// Track modules we've already processed to avoid duplicates
-	processedModules := make(map[string]bool)
 
 	// Build dependency nodes in correct order
 	depNodes := make([]Dependency, 0, len(ordered))
@@ -802,10 +785,6 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 					Name: alias,
 					Node: node,
 				})
-			}
-			// Mark module as processed if present
-			if node.Module != nil {
-				processedModules[node.Module.Info().Name] = true
 			}
 		} else {
 			// No aliases - use node name as default

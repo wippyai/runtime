@@ -511,30 +511,17 @@ func (s *linkStage) findTargetEntries(
 	entries *[]registry.Entry,
 ) []*registry.Entry {
 	var results []*registry.Entry
-
-	for i := range *entries {
-		e := &(*entries)[i]
-
-		// Empty entry is not supported
-		if targetEntry == "" {
-			continue
-		}
-
-		// Check for cross-namespace reference (ns:name)
-		if strings.Contains(targetEntry, ":") {
-			parts := strings.SplitN(targetEntry, ":", 2)
-			if len(parts) == 2 {
-				targetNS := parts[0]
-				targetName := parts[1]
-				if e.ID.NS == targetNS && e.ID.Name == targetName {
-					results = append(results, e)
-				}
-			}
-			continue
-		}
-
-		// Local namespace reference (just name)
-		if e.ID.NS == requirementNS && e.ID.Name == targetEntry {
+	items := *entries
+	if targetEntry == "" {
+		return results
+	}
+	targetNS, targetName, qualified := strings.Cut(targetEntry, ":")
+	if !qualified {
+		targetNS, targetName = requirementNS, targetEntry
+	}
+	for i := range items {
+		e := &items[i]
+		if e.ID.NS == targetNS && e.ID.Name == targetName {
 			results = append(results, e)
 		}
 	}
