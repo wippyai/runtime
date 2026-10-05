@@ -704,9 +704,9 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 // entryBootstrapProto runs the deferred initializers, then the entry chunk. It
 // receives the chunk function, the initializer iterator, the export function
 // and the method name, an optional argument check, then the process input.
-// A false method runs the chunk itself with the input; otherwise the chunk returns the module the
-// method is exported from. The code uses no global, so guest code cannot
-// change it.
+// A false method runs the chunk itself with the input; otherwise the chunk
+// returns the module the method is exported from. The code uses no global,
+// so guest code cannot change it.
 var entryBootstrapProto = mustCompileBootstrap(`
 return (function(chunk, advance, export, method, check, ...)
 	local init = advance()
@@ -2361,6 +2361,17 @@ func toAPIError(err error) error {
 	} else if msg == "" {
 		msg = luaErr.Error()
 	}
+	// A native API error wrapped without added Lua context already has a clean
+	// message and a cause. Keep that cause without repeating its text in the
+	// outer message; metadata still comes from Lua, including explicit overrides.
+	var nativeCause error
+	var native apierror.Error
+	if luaErr.Context == "" && errors.As(luaErr.Unwrap(), &native) && luaErr.Message == native.Error() {
+		if clean, ok := native.(apierror.MessageProvider); ok {
+			msg = clean.Msg()
+			nativeCause = errors.Unwrap(native)
+		}
+	}
 
 	builder := apierror.New(kind, msg).WithRetryable(retryable)
 	if details := luaErr.Details(); len(details) > 0 {
@@ -2368,6 +2379,9 @@ func toAPIError(err error) error {
 	}
 	if wraps {
 		return builder.WithCause(toAPIError(inner))
+	}
+	if nativeCause != nil {
+		return builder.WithCause(nativeCause)
 	}
 	return builder
 }

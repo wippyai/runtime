@@ -134,3 +134,82 @@ func TestDeferredArgumentCheckSurvivesInitializerPreemption(t *testing.T) {
 		t.Fatal("cached call repeated initializer")
 	}
 }
+
+func TestDeferredAndCachedArgumentArity(t *testing.T) {
+	cases := []struct {
+		name    string
+		params  string
+		valid   []lua.LValue
+		invalid []lua.LValue
+	}{
+		{"required", "id: string", []lua.LValue{lua.LString("ok")}, nil},
+		{"optional", "id: string?", nil, []lua.LValue{lua.LInteger(1)}},
+		{"variadic", "...: string", []lua.LValue{lua.LString("a"), lua.LString("b")}, []lua.LValue{lua.LString("a"), lua.LInteger(1)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			proto := compileArgumentEntry(t, `return {run=function(`+tc.params+`) _G.handled=true; return true end}`)
+			p, err := NewFactory(FactoryConfig{Proto: proto, ValidateArguments: true, Budgets: luaapi.ExecutionBudgets{TickBudget: 10, TickBudgetSet: true}})()
+			if err != nil {
+				t.Fatal(err)
+			}
+			proc := p.(*Process)
+			defer proc.Close()
+			proc.EnablePreemption()
+			call := func(values []lua.LValue) error {
+				ctx, frame := ctxapi.OpenFrameContext(context.Background())
+				defer ctxapi.ReleaseFrameContext(frame)
+				input := make(payload.Payloads, len(values))
+				for i, v := range values {
+					input[i] = payload.NewPayload(v, payload.Lua)
+				}
+				_, err := executeArgumentEntry(ctx, t, proc, "run", input)
+				return err
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				proc.state.SetGlobal("handled", lua.LNil)
+				var apiErr apierror.Error
+				if err := call(tc.invalid); !errors.As(err, &apiErr) || apiErr.Kind() != apierror.Invalid {
+					t.Fatalf("attempt %d: rejection=%v", attempt, err)
+				}
+				if proc.state.GetGlobal("handled") != lua.LNil {
+					t.Fatal("rejected argument entered handler")
+				}
+				if err := call(tc.valid); err != nil {
+					t.Fatal(err)
+				}
+				if proc.state.GetGlobal("handled") != lua.LTrue {
+					t.Fatal("valid argument did not enter handler")
+				}
+			}
+		})
+	}
+}
+
+func TestArgumentChecksFollowSelectedMethod(t *testing.T) {
+	proto := compileArgumentEntry(t, `return {run=function(id: string) return true end, other=function(id: integer) _G.handled=true; return true end}`)
+	p, err := NewFactory(FactoryConfig{Proto: proto, ValidateArguments: true})()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proc := p.(*Process)
+	defer proc.Close()
+	for _, method := range []string{"run", "other", "other"} {
+		ctx, frame := ctxapi.OpenFrameContext(context.Background())
+		_, err := executeArgumentEntry(ctx, t, proc, method, payload.Payloads{payload.NewPayload(lua.LString("ok"), payload.Lua)})
+		ctxapi.ReleaseFrameContext(frame)
+		if method == "run" {
+			if err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		var apiErr apierror.Error
+		if !errors.As(err, &apiErr) || apiErr.Kind() != apierror.Invalid {
+			t.Fatalf("selected method rejection=%v", err)
+		}
+		if proc.state.GetGlobal("handled") != lua.LNil {
+			t.Fatal("another method's contract was used")
+		}
+	}
+}

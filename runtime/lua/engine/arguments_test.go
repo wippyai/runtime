@@ -4,6 +4,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -116,6 +117,16 @@ func TestFunctionArgumentConversionFailureIsNotNil(t *testing.T) {
 	require.Equal(t, apierror.Invalid, apiErr.Kind())
 	require.Equal(t, apierror.False, apiErr.Retryable())
 	require.Equal(t, 1, apiErr.Details().GetInt("argument", 0))
+}
+
+func TestDeferredArgumentConversionKeepsCause(t *testing.T) {
+	cause := errors.New("conversion failed")
+	native := argumentConversionError(0, cause)
+	wrapped := lua.WrapError(native, "").WithKind(lua.Invalid).WithRetryable(false).
+		WithDetails(map[string]any{"argument": 1})
+	err := toAPIError(wrapped)
+	require.ErrorIs(t, err, cause, "deferred validation must not discard the transcoder's cause")
+	require.Equal(t, native.Error(), err.Error(), "do not duplicate the conversion context")
 }
 
 func TestUntypedFunctionArgumentsKeepExistingConversion(t *testing.T) {
