@@ -24,12 +24,10 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/wippyai/runtime/api/boot"
 )
@@ -67,13 +65,15 @@ type Executable struct {
 var applicationName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
-// Main runs the executable with the process arguments under a context that
-// ends on os.Interrupt or SIGTERM, reports a failure on stderr and exits 1.
+// Main runs the executable with the process arguments. Until the runner
+// hands the process to the Wippy CLI, os.Interrupt and SIGTERM cancel the
+// invocation; afterwards the CLI owns them. A failure is reported on stderr
+// and exits 1.
 func Main(e Executable) {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	ctx, signals := captureSignals(context.Background())
+	defer signals.close()
 	if err := Run(ctx, e, os.Args[1:]); err != nil {
-		stop()
+		signals.close()
 		fmt.Fprintf(os.Stderr, "%s: %v\n", e.Name, err)
 		os.Exit(1)
 	}

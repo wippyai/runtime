@@ -59,7 +59,10 @@ func ReleasePackage(p *Package) {
 	if p == nil {
 		return
 	}
-	for _, msg := range p.Messages {
+	for i, msg := range p.Messages {
+		// The message may be reused for another payload after release. Do not
+		// leave its pointer in this package's retained backing array.
+		p.Messages[i] = nil
 		ReleaseMessage(msg)
 	}
 	p.Source = pid.PID{}
@@ -98,6 +101,8 @@ func NewServicePackage(sourceNode pid.NodeID, sourceHost pid.HostID, targetNode 
 }
 
 // NewMessagePackage creates a new package with pre-built messages.
+// The package takes ownership of both the messages and the variadic slice's
+// backing array; release and reuse may clear or overwrite them.
 func NewMessagePackage(source, target pid.PID, msgs ...*Message) *Package {
 	p := AcquirePackage()
 	p.Source = source

@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/security"
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
 	"github.com/wippyai/runtime/system/eventbus"
+	policyregistry "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -46,17 +47,21 @@ func (m *mockPolicy) Evaluate(_ security.Actor, _, _ string, _ attrs.Bag) securi
 	return security.Allow
 }
 
-func setupManagerTest() (*Manager, *eventbus.Bus) {
+func setupManagerTest(t *testing.T) (*Manager, *eventbus.Bus) {
 	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
 	factory := &mockFactory{}
 	logger := zap.NewNop()
-	manager := NewManager(bus, factory, logger)
+	owner := policyregistry.NewPolicyRegistry(bus, logger)
+	require.NoError(t, owner.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, owner.Stop()) })
+	manager := NewManager(owner, factory, logger)
 	return manager, bus
 }
 
 func TestManager_Add_ConditionPolicy(t *testing.T) {
 	ctx := context.Background()
-	manager, bus := setupManagerTest()
+	manager, bus := setupManagerTest(t)
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -84,7 +89,7 @@ func TestManager_Add_ConditionPolicy(t *testing.T) {
 
 func TestManager_Add_ExprPolicy(t *testing.T) {
 	ctx := context.Background()
-	manager, bus := setupManagerTest()
+	manager, bus := setupManagerTest(t)
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -110,7 +115,7 @@ func TestManager_Add_ExprPolicy(t *testing.T) {
 
 func TestManager_Add_UnsupportedKind(t *testing.T) {
 	ctx := context.Background()
-	manager, bus := setupManagerTest()
+	manager, bus := setupManagerTest(t)
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -135,7 +140,8 @@ func TestManager_Add_UnsupportedKind(t *testing.T) {
 
 func TestManager_Update_ConditionPolicy(t *testing.T) {
 	ctx := context.Background()
-	manager, bus := setupManagerTest()
+	manager, bus := setupManagerTest(t)
+	require.NoError(t, manager.Add(ctx, registry.Entry{ID: registry.NewID("test", "policy1"), Kind: policyapi.Policy}))
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -161,7 +167,8 @@ func TestManager_Update_ConditionPolicy(t *testing.T) {
 
 func TestManager_Update_ExprPolicy(t *testing.T) {
 	ctx := context.Background()
-	manager, bus := setupManagerTest()
+	manager, bus := setupManagerTest(t)
+	require.NoError(t, manager.Add(ctx, registry.Entry{ID: registry.NewID("test", "expr1"), Kind: policyapi.ExprKind}))
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -187,7 +194,8 @@ func TestManager_Update_ExprPolicy(t *testing.T) {
 
 func TestManager_Delete_ConditionPolicy(t *testing.T) {
 	ctx := context.Background()
-	manager, bus := setupManagerTest()
+	manager, bus := setupManagerTest(t)
+	require.NoError(t, manager.Add(ctx, registry.Entry{ID: registry.NewID("test", "policy1"), Kind: policyapi.Policy}))
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -206,7 +214,7 @@ func TestManager_Delete_ConditionPolicy(t *testing.T) {
 	case evt := <-eventCh:
 		assert.Equal(t, security.PolicyDelete, evt.Kind)
 		assert.Equal(t, "test:policy1", evt.Path)
-		assert.Nil(t, evt.Data)
+		assert.NotNil(t, evt.Data)
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for event")
 	}
@@ -214,7 +222,8 @@ func TestManager_Delete_ConditionPolicy(t *testing.T) {
 
 func TestManager_Delete_ExprPolicy(t *testing.T) {
 	ctx := context.Background()
-	manager, bus := setupManagerTest()
+	manager, bus := setupManagerTest(t)
+	require.NoError(t, manager.Add(ctx, registry.Entry{ID: registry.NewID("test", "expr1"), Kind: policyapi.ExprKind}))
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -247,7 +256,7 @@ func TestManager_Add_FactoryError(t *testing.T) {
 		},
 	}
 	logger := zap.NewNop()
-	manager := NewManager(bus, factory, logger)
+	manager := NewManager(nil, factory, logger)
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)
@@ -279,7 +288,7 @@ func TestManager_Update_FactoryError(t *testing.T) {
 		},
 	}
 	logger := zap.NewNop()
-	manager := NewManager(bus, factory, logger)
+	manager := NewManager(nil, factory, logger)
 
 	eventCh := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(ctx, security.System, eventCh)

@@ -221,13 +221,13 @@ func DecodeShardRequest(data []byte) ([]uint16, error) {
 	if len(data) < 2 {
 		return nil, errors.New("eventualreg: shard request header truncated")
 	}
-	n := binary.LittleEndian.Uint16(data[0:2])
-	if len(data) < int(2+2*n) {
+	n := int(binary.LittleEndian.Uint16(data[0:2]))
+	if len(data) < 2+2*n {
 		return nil, errors.New("eventualreg: shard request body truncated")
 	}
 	out := make([]uint16, n)
 	off := 2
-	for i := uint16(0); i < n; i++ {
+	for i := 0; i < n; i++ {
 		id := binary.LittleEndian.Uint16(data[off : off+2])
 		if id >= ShardCount {
 			return nil, fmt.Errorf("eventualreg: shard request out-of-range id: %d", id)

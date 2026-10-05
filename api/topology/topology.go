@@ -67,6 +67,10 @@ const (
 	Exit Kind = "pid.exit"
 	// LinkDown indicates a linked process is down.
 	LinkDown Kind = "pid.link.down"
+	// MonitorDown tells a monitor that its target became unreachable because
+	// the target's node left. The target may still be running; only Exit
+	// reports that it stopped.
+	MonitorDown Kind = "pid.monitor.down"
 	// Outdated indicates a process's source code (or a transitively imported
 	// dependency) changed in the registry and the process may hot-swap.
 	Outdated Kind = "pid.outdated"
@@ -127,6 +131,9 @@ type (
 	EventualRegistry interface {
 		Register(name string, p pid.PID) (pid.PID, error)
 		Unregister(name string) bool
+		// ReleasePID withdraws every name this node holds for p. Names bound to
+		// any other PID are left untouched.
+		ReleasePID(p pid.PID)
 		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 	}
 

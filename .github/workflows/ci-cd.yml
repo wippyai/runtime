@@ -132,6 +132,69 @@ jobs:
           GORACE: halt_on_error=1
         run: go test -race -count=1 ./api/service/exec/... ./service/exec/native/...
 
+  test-build-features:
+    name: Build features (${{ matrix.os }}, ${{ matrix.features || 'default' }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, features: '' }
+          - { os: ubuntu-latest, features: tailscale }
+          - { os: ubuntu-latest, features: treesitter }
+          - { os: ubuntu-latest, features: 'tailscale treesitter' }
+          - { os: macos-26, features: '' }
+          - { os: macos-26, features: 'tailscale treesitter' }
+          - { os: windows-latest, features: '' }
+          - { os: windows-latest, features: 'tailscale treesitter' }
+    env:
+      CGO_ENABLED: '1'
+      WIPPY_FEATURES: ${{ matrix.features }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up MSYS2 (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
+          path-type: inherit
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.0'
+          cache: true
+        env:
+          MSYSTEM: MINGW64
+      - name: Check feature dependencies and boot tests
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          bash .github/scripts/test-build-features.sh "$WIPPY_FEATURES"
+          go test -race -short -tags "fts5 sqlite_vec sqlite_preupdate_hook $WIPPY_FEATURES" ./boot ./boot/components/service ./boot/components/runtime/lua
+      - name: Check feature dependencies and boot tests (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          bash .github/scripts/test-build-features.sh "$WIPPY_FEATURES"
+          go test -race -short -tags "fts5 sqlite_vec sqlite_preupdate_hook $WIPPY_FEATURES" ./boot ./boot/components/service ./boot/components/runtime/lua
+      - name: Test optional modules (macOS)
+        if: matrix.os == 'macos-26' && matrix.features != ''
+        run: make test-optional-features
+      - name: Build and smoke check
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          make build-wippy-local WIPPY_VERSION=feature-ci
+          "./dist/wippy-$(go env GOOS)-$(go env GOARCH)" --help
+      - name: Build and smoke check (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          make build-wippy-local WIPPY_VERSION=feature-ci
+          "./dist/wippy-$(go env GOOS)-$(go env GOARCH)" --help
+
   test-native-app:
     name: Test native Wippy Lua application
     runs-on: ubuntu-latest

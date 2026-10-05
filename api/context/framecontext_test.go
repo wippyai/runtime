@@ -1004,3 +1004,63 @@ func TestPropagatedPairs_PropagatorReturnsNil(t *testing.T) {
 		t.Errorf("expected 0 pairs when propagator returns nil, got %d", len(pairs))
 	}
 }
+
+func TestKey_ExecutionIsIndependentOfInherit(t *testing.T) {
+	executionKey := &Key{Name: "test.execution", Execution: true}
+	bothKey := &Key{Name: "test.both", Execution: true, Inherit: true}
+	inheritKey := &Key{Name: "test.inherit", Inherit: true}
+	plainKey := &Key{Name: "test.plain"}
+	ctx, frame := OpenFrameContext(NewRootContext())
+	defer frame.Close()
+	if err := frame.SetMultiple(
+		Pair{Key: executionKey, Value: "p"},
+		Pair{Key: bothKey, Value: "b"},
+		Pair{Key: inheritKey, Value: "i"},
+		Pair{Key: plainKey, Value: "x"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	_, next, err := ContinueFrameContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	for key, want := range map[*Key]string{executionKey: "p", bothKey: "b", inheritKey: "i"} {
+		if got, _ := next.Get(key); got != want {
+			t.Fatalf("%s = %v, want %s", key.Name, got, want)
+		}
+	}
+	if next.Has(plainKey) {
+		t.Fatal("frame-local value was carried")
+	}
+	if got := len(frame.InheritablePairs()); got != 2 {
+		t.Fatalf("inheritable pairs = %d, want 2", got)
+	}
+}
+
+func TestExecutionValues_NotInheritedByChildren(t *testing.T) {
+	key := &Key{Name: "test.execution", Execution: true}
+	parent, frame := OpenFrameContext(NewRootContext())
+	defer frame.Close()
+	if err := frame.Set(key, "p"); err != nil {
+		t.Fatal(err)
+	}
+	frame.Seal()
+	child, childFrame := OpenFrameContext(parent)
+	defer childFrame.Close()
+	if FrameFromContext(child).Has(key) {
+		t.Fatal("child inherited an execution-owned value")
+	}
+}
+
+func TestExecutionValues_ReleasedFrameIsEmpty(t *testing.T) {
+	key := &Key{Name: "test.execution", Execution: true}
+	_, frame := OpenFrameContext(NewRootContext())
+	if err := frame.Set(key, "p"); err != nil {
+		t.Fatal(err)
+	}
+	_ = frame.Close()
+	if frame.Has(key) {
+		t.Fatal("released frame exposes an execution-owned value")
+	}
+}

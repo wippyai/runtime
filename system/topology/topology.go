@@ -887,8 +887,8 @@ func (t *Topology) Remove(p pid.PID) {
 	t.recycleState(state)
 }
 
-// HandleNodeExit handles node failure by notifying all local processes
-// that were watching or linked to PIDs on the failed node.
+// HandleNodeExit handles node failure: local processes monitoring PIDs on the
+// failed node receive MonitorDown, and processes linked to them LinkDown.
 func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 	// Detach the old index before sweeping. Concurrent registrations publish in
 	// a fresh bucket; addToNodeIndex revalidates any bucket captured before this
@@ -901,6 +901,7 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 	type notification struct {
 		caller pid.PID
 		target pid.PID
+		kind   topology.Kind
 	}
 	var toNotify []notification
 	for i := range t.shards {
@@ -909,13 +910,13 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 		for key, state := range sh.processes {
 			for targetKey, targetPID := range state.watching {
 				if targetPID.Node == nodeID {
-					toNotify = append(toNotify, notification{state.pid, targetPID.PID})
+					toNotify = append(toNotify, notification{state.pid, targetPID.PID, topology.MonitorDown})
 					delete(state.watching, targetKey)
 				}
 			}
 			for linkedKey, linkedPID := range state.links {
 				if linkedPID.Node == nodeID {
-					toNotify = append(toNotify, notification{state.pid, linkedPID})
+					toNotify = append(toNotify, notification{state.pid, linkedPID, topology.LinkDown})
 					delete(state.links, linkedKey)
 				}
 			}
@@ -937,15 +938,15 @@ func (t *Topology) HandleNodeExit(nodeID pid.NodeID, exitErr error) {
 	// its own sweep boundary; this is not a distributed incarnation fence.
 	// Routing and user callbacks must never execute while topology is locked.
 	for _, n := range toNotify {
-		linkDownPayload := payload.New(&topology.ExitEvent{
+		downPayload := payload.New(&topology.ExitEvent{
 			At:   time.Now(),
 			From: n.target,
-			Kind: topology.LinkDown,
+			Kind: n.kind,
 			Result: &runtime.Result{
 				Error: exitErr,
 			},
 		})
-		pkg := relay.NewPackage(topology.SystemPID, n.caller, topology.TopicEvents, linkDownPayload)
+		pkg := relay.NewPackage(topology.SystemPID, n.caller, topology.TopicEvents, downPayload)
 		_ = t.router.Send(pkg)
 	}
 }

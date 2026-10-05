@@ -77,7 +77,11 @@ func TestTimerFireDeliveryFailureIsReported(t *testing.T) {
 	target := samplePID("fire-target")
 	startTimer(ctx, t, d, clockapi.TimerStartCmd{Duration: time.Millisecond, PID: target, Topic: "after@1"})
 
-	require.Eventually(t, func() bool { return logs.FilterMessage("clock fire not delivered").Len() == 1 }, time.Second, time.Millisecond)
+	// Logging and counting are successive callback effects, not one atomic
+	// observation. Wait for both before inspecting the report.
+	require.Eventually(t, func() bool {
+		return logs.FilterMessage("clock fire not delivered").Len() == 1 && coll.count(fireFailedMetric) == 1
+	}, time.Second, time.Millisecond)
 	entry := logs.FilterMessage("clock fire not delivered").All()[0]
 	require.Equal(t, target.String(), entry.ContextMap()["target"])
 	require.Contains(t, entry.ContextMap()["error"], "mailbox unavailable")
@@ -114,7 +118,9 @@ func TestTimerFirePanicIsReportedWithoutCrashing(t *testing.T) {
 	startTimer(ctx, t, d, clockapi.TimerStartCmd{Duration: time.Millisecond, PID: samplePID("panics"), Topic: "after@3",
 		Build: func(time.Time, uint64) payload.Payload { panic("build exploded") }})
 
-	require.Eventually(t, func() bool { return logs.FilterMessage("clock fire panicked").Len() == 1 }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		return logs.FilterMessage("clock fire panicked").Len() == 1 && coll.count(fireFailedMetric) == 1
+	}, time.Second, time.Millisecond)
 	entry := logs.FilterMessage("clock fire panicked").All()[0]
 	require.Contains(t, entry.ContextMap()["panic"], "build exploded")
 	require.NotEmpty(t, entry.ContextMap()["stack"])

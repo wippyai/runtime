@@ -22,6 +22,12 @@ func NewCommandNotAllowedError(cmd string) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"command": cmd}))
 }
 
+func NewDockerLabelSourceError(source string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("docker label source %s is missing, empty or invalid", source)).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"source": source}))
+}
+
 // ExitError represents a container exit with non-zero code
 type ExitError struct {
 	details attrs.Attributes

@@ -107,6 +107,7 @@ var eventType = typ.NewRecord().
 	Field("CANCEL", typ.String).
 	Field("EXIT", typ.String).
 	Field("LINK_DOWN", typ.String).
+	Field("MONITOR_DOWN", typ.String).
 	Field("OUTDATED", typ.String).
 	Build()
 

@@ -116,6 +116,8 @@ type Process struct {
 	script            string
 	scriptName        string
 	messageQueue      []queuedMessage
+	// Transient single-topic data-burst state, scoped to one Step.
+	messageBatchTopic string
 	yieldBuf          []*Task
 	externalTasks     []*Task
 	outTasks          []*Task
@@ -126,10 +128,11 @@ type Process struct {
 	// every SubscriptionFrame with the epoch they were registered under;
 	// deliverMessage compares atomically so frames from prior incarnations
 	// are dropped without locking.
-	epoch            atomic.Uint64
-	flushingMessages bool
-	trapLinks        bool
-	upgradable       bool
+	epoch              atomic.Uint64
+	flushingMessages   bool
+	messageBatchActive bool
+	trapLinks          bool
+	upgradable         bool
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -701,23 +704,23 @@ func (p *Process) extractMethod(method string) error {
 // events contains yield completions and messages from the scheduler.
 // out is the scheduler-owned buffer where the process writes yields and status.
 func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
-	// Collect messages from events
-	var messages []*relay.Package
+	// Distribute completions before admitting messages, as before. Two passes
+	// preserve that ordering without an intermediate package slice per Step.
 	for _, ev := range events {
-		switch ev.Type {
-		case process.EventYieldComplete:
-			if len(p.pendingYields) > 0 {
-				p.distributeEvent(ev)
-			}
-		case process.EventMessage:
-			if pkg, ok := ev.Data.(*relay.Package); ok {
-				messages = append(messages, pkg)
-			}
+		if ev.Type == process.EventYieldComplete && len(p.pendingYields) > 0 {
+			p.distributeEvent(ev)
 		}
 	}
 
 	// Add incoming messages to queue first (before any processing)
-	for _, pkg := range messages {
+	for _, ev := range events {
+		if ev.Type != process.EventMessage {
+			continue
+		}
+		pkg, ok := ev.Data.(*relay.Package)
+		if !ok {
+			continue
+		}
 		for _, msg := range pkg.Messages {
 			if msg == nil {
 				continue
@@ -733,6 +736,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 			})
 		}
 		relay.ReleasePackage(pkg)
+	}
+	if base := p.beginMessageBatch(); base != nil {
+		defer p.finishMessageBatch(base)
 	}
 
 	// Process in a loop until stable (no new subscriptions trigger channel work)
@@ -1103,16 +1109,17 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 // then held until the backlog drains. Pure data is not held, so an
 // undeliverable message does not block unrelated later sends to the channel.
 func (p *Process) flushMessageQueue(subs *subscribeContext) {
-	if len(p.messageQueue) > 0 {
+	if len(p.messageQueue) > 0 && !p.flushMessageBatch(subs) {
 		// stalledChans tracks per-pass stalled channels. clear(nil) is a no-op;
 		// the map is created lazily on the first stall to avoid an allocation on
 		// the common no-stall flush.
 		clear(p.stalledChans)
 
 		// Process queue, retaining undelivered messages in order.
-		remaining := p.messageQueue[:0]
+		queued := p.messageQueue
+		remaining := queued[:0]
 		p.flushingMessages = true
-		for _, qm := range p.messageQueue {
+		for _, qm := range queued {
 			if p.deliverMessage(subs, qm) {
 				remaining = append(remaining, qm) // retain in queue
 			} else {
@@ -1121,7 +1128,7 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 		}
 		p.flushingMessages = false
 		p.messageQueue = remaining
-		clear(p.messageQueue[len(remaining):])
+		clear(queued[len(remaining):])
 		p.finishDiscardedTopics()
 	}
 
@@ -1518,6 +1525,14 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 			return false
 		}
 	} else {
+		// Ordinary queued messages retry until a receiver or buffer slot is
+		// available. Do not construct and discard the same Lua tree on every
+		// blocked retry. Handlers still run above (they may consume messages),
+		// and routed frames retain their existing drop/terminal handling below.
+		if !hasFrame && !sub.channel.IsClosed() && !sub.channel.CanSend() {
+			p.markStalled(sub.channel)
+			return true
+		}
 		value = PayloadsToLua(p.ctx, p.state, payloads)
 	}
 
@@ -1714,7 +1729,16 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 		}
 
 		thread := task.Thread()
+		previousReturns := task.retBuf
 		state, values, err := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
+		// ResumeInto copied the arguments into the VM. The task must not keep
+		// the consumed payload alive while its next operation is blocked.
+		clear(task.resumeBuf)
+		// Clear only the formerly occupied tail, not the whole high-water
+		// capacity on every resume. Arguments may alias it, so clear afterwards.
+		if len(values) < len(previousReturns) {
+			clear(previousReturns[len(values):])
+		}
 		if err != nil {
 			// Wrap error BEFORE removing task - removeTask closes the thread
 			// which returns it to pool, causing race if another goroutine reuses it
@@ -1725,7 +1749,7 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 
 		task.State = state
 		task.Yielded = values
-		task.retBuf = values[:0:cap(values)]
+		task.retBuf = values
 		task.Resumed = nil
 
 		switch state {
@@ -1919,6 +1943,8 @@ func (p *Process) Close() {
 	p.messageQueueOverflowed = nil
 	p.messageQueueDiscarded = nil
 	p.flushingMessages = false
+	p.messageBatchTopic = ""
+	p.messageBatchActive = false
 	p.stalledChans = nil
 	p.trapLinks = false
 	p.upgradable = false

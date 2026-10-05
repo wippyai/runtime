@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
+	"github.com/wippyai/runtime/api/pid"
 )
 
 func TestUnregisterTargetsHiddenLocalOrigin(t *testing.T) {
@@ -106,5 +108,28 @@ func TestDistinctNameWithdrawalsRunConcurrently(t *testing.T) {
 	wg.Wait()
 	if remaining := len(s.owned); remaining != 0 {
 		t.Fatalf("%d withdrawn intents remain", remaining)
+	}
+}
+
+func TestReleasePIDWithdrawsOnlyBoundNames(t *testing.T) {
+	s := NewService(Config{LocalNodeID: "local"})
+	a := makePID("local", "process", "a")
+	b := makePID("local", "process", "b")
+	for name, p := range map[string]pid.PID{"one": a, "two": a, "other": b} {
+		if _, err := s.Register(name, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.ReleasePID(a)
+	for _, name := range []string{"one", "two"} {
+		if _, found := s.state.Lookup(name); found {
+			t.Fatalf("%s still resolves", name)
+		}
+		if _, owned := s.owned[name]; owned {
+			t.Fatalf("%s still owned", name)
+		}
+	}
+	if got, found := s.state.Lookup("other"); !found || !got.Equal(b) {
+		t.Fatal("name of another pid was released")
 	}
 }
