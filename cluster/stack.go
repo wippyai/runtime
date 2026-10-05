@@ -286,8 +286,10 @@ func (s *Stack) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop shuts internode down, then membership. Safe to call exactly once
-// after Start. A stopped stack cannot start again.
+// Stop leaves membership, then shuts internode down: the leave is broadcast
+// while sessions still reach live peers, and the transport that may carry
+// gossip outlives it. Safe to call exactly once after Start. A stopped stack
+// cannot start again.
 func (s *Stack) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -296,13 +298,13 @@ func (s *Stack) Stop() error {
 	}
 	s.started = false
 
-	if err := s.Internode.Stop(); err != nil {
-		// Continue tearing membership down even on error.
-		_ = s.Membership.Stop()
-		return fmt.Errorf("cluster: stop internode: %w", err)
-	}
 	if err := s.Membership.Stop(); err != nil {
+		// Continue tearing internode down even on error.
+		_ = s.Internode.Stop()
 		return fmt.Errorf("cluster: stop membership: %w", err)
+	}
+	if err := s.Internode.Stop(); err != nil {
+		return fmt.Errorf("cluster: stop internode: %w", err)
 	}
 	return nil
 }

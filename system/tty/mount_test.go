@@ -465,3 +465,38 @@ func (t *testSurfaceTransport) setHook(hook func(string, []byte) error) {
 	t.onSend = hook
 	t.network.mu.Unlock()
 }
+
+// TestCreatorReattachKeepsMountAndGrantAuthority covers an in-place upgrade:
+// the creating process drops its viewport object and reattaches the handle,
+// and it can still mount the viewport for a recipient and issue producer
+// grants, while another process attaching the same handle cannot.
+func TestCreatorReattachKeepsMountAndGrantAuthority(t *testing.T) {
+	s := NewService()
+	defer s.Close()
+	ctx, frame, _ := processContextFor(t, s, "owner")
+	defer frame.Close()
+	agent, af, _ := processContextFor(t, s, "agent")
+	defer af.Close()
+	other, of, _ := processContextFor(t, s, "other")
+	defer of.Close()
+	allowTTY(ctx, t, "tty.mount", ttyapi.RightObserve)
+	allowTTY(other, t, "tty.mount", ttyapi.RightObserve)
+	v, err := s.Create(ctx, 80, 24)
+	require.NoError(t, err)
+	target, _ := runtime.GetFramePID(agent)
+
+	reattached, err := s.Attach(ctx, v.Handle())
+	require.NoError(t, err)
+	ref, err := reattached.(ttyapi.MountableViewport).Mount(ctx, target, ttyapi.MountRights{Observe: true})
+	require.NoError(t, err, "the creator mounts through its reattached handle")
+	mounted, err := s.Attach(agent, ref)
+	require.NoError(t, err)
+	require.NoError(t, mounted.(ttyapi.CheckedViewport).Check(agent, ttyapi.RightObserve))
+	require.NotEmpty(t, reattached.Grant(), "the creator issues producer grants through its reattached handle")
+
+	outsider, err := s.Attach(other, v.Handle())
+	require.NoError(t, err)
+	_, err = outsider.(ttyapi.MountableViewport).Mount(other, target, ttyapi.MountRights{Observe: true})
+	require.ErrorIs(t, err, ttyapi.ErrPermissionDenied, "another process attaching the handle cannot mount")
+	require.Empty(t, outsider.Grant())
+}

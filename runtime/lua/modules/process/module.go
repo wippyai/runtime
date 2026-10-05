@@ -84,10 +84,11 @@ func init() {
 	moduleTable.RawSetString("upgrade", lua.LGoFunc(upgrade))
 	moduleTable.RawSetString("exec", lua.LGoFunc(exec))
 
-	eventsTbl := lua.CreateTable(0, 4)
+	eventsTbl := lua.CreateTable(0, 5)
 	eventsTbl.RawSetString("CANCEL", lua.LString(topology.Cancel))
 	eventsTbl.RawSetString("EXIT", lua.LString(topology.Exit))
 	eventsTbl.RawSetString("LINK_DOWN", lua.LString(topology.LinkDown))
+	eventsTbl.RawSetString("MONITOR_DOWN", lua.LString(topology.MonitorDown))
 	eventsTbl.RawSetString("OUTDATED", lua.LString(topology.Outdated))
 	eventsTbl.Immutable = true
 	moduleTable.RawSetString("event", eventsTbl)

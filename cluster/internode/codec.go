@@ -175,7 +175,7 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 		for j, encP := range encMsg.Payloads {
 			decoded, err := c.decodePayload(encP)
 			if err != nil {
-				// Slots past i still hold pooled pointers from an earlier use.
+				// Only the populated prefix owns messages acquired for this decode.
 				finalPkg.Messages = finalPkg.Messages[:i+1]
 				relay.ReleasePackage(finalPkg)
 				return nil, newDecodePayloadError(j, err)

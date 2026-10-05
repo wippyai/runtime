@@ -113,18 +113,19 @@ func Cluster() boot.Component {
 	var current *execution
 	// The lifecycle lock also serializes context cancellation with boot calls.
 	// Clear ownership before cleanup so a failed Start followed by shutdown
-	// cannot stop a service twice.
+	// cannot stop a service twice. Membership stops first so its leave reaches
+	// live peers over sessions that internode still holds open.
 	stopServices := func() {
-		if internodeActive {
-			internodeActive = false
-			if err := internodeSvc.Stop(); err != nil {
-				logger.Error("failed to stop internode service", zap.Error(err))
-			}
-		}
 		if membershipActive {
 			membershipActive = false
 			if err := membershipSvc.Stop(); err != nil {
 				logger.Error("failed to stop membership service", zap.Error(err))
+			}
+		}
+		if internodeActive {
+			internodeActive = false
+			if err := internodeSvc.Stop(); err != nil {
+				logger.Error("failed to stop internode service", zap.Error(err))
 			}
 		}
 	}

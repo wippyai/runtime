@@ -77,6 +77,7 @@ func operateStateFree(ctx context.Context, e Executable, l Launch) error {
 	if err != nil {
 		return err
 	}
+	releaseSignals(ctx)
 	return execute(ctx, cmd.ExecuteOptions{
 		Args:        l.Args,
 		LockFile:    filepath.Join(deploymentsPath(l.State), e.Bundle.ID(), lock.DefaultFilename),
@@ -175,6 +176,7 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 		return err
 	}
 	bootPhase(e, "runtime_boot", "begin")
+	releaseSignals(ctx)
 	return execute(ctx, cmd.ExecuteOptions{
 		Args:        runtimeArgs(l),
 		LockFile:    lockPath,

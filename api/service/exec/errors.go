@@ -10,6 +10,12 @@ import (
 // ErrImageRequired indicates a missing container image.
 var ErrImageRequired = apierror.New(apierror.Invalid, "docker image is required").WithRetryable(apierror.False)
 
+func NewInvalidDockerLabelMappingError(reason string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid docker ownership label mapping: "+reason).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"field": "labels_from_env"}))
+}
+
 var ErrPTYUnavailable = apierror.New(apierror.Unavailable, "PTY is unavailable").WithRetryable(apierror.False)
 
 var ErrInvalidPTYSize = apierror.New(apierror.Invalid, "PTY dimensions must be positive, at most 65535, and within the cell limit").WithRetryable(apierror.False)

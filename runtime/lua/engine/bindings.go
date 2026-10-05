@@ -63,31 +63,64 @@ func PushChannel(l *lua.LState, ch *Channel) *lua.LUserData {
 func channelSelectFunc(l *lua.LState) int {
 	casesTable := l.CheckTable(1)
 	hasDefault := l.OptBool(2, false)
+	caseCount := casesTable.Len()
 
 	selectOp := &SelectOp{
 		Task:       l,
-		Cases:      make([]*ChannelOp, 0, casesTable.Len()),
+		Cases:      make([]*ChannelOp, 0, caseCount),
 		HasDefault: hasDefault,
 	}
+	// Allocate array-case operations in small invocation-owned batches. This
+	// reduces objects without a large sparse allocation or changing operation
+	// identity when callers share descriptors between concurrent selects.
+	const operationBatchSize = 8
+	var caseOps []ChannelOp
 
-	casesTable.ForEach(func(key, value lua.LValue) {
-		if key.Type() == lua.LTString && key.String() == "default" {
-			if v, ok := value.(lua.LBool); ok && bool(v) {
-				selectOp.HasDefault = true
-			}
-			return
-		}
+	appendCase := func(value lua.LValue) {
 		sc := checkSelectCaseValue(value)
 		if sc != nil {
-			selectOp.Cases = append(selectOp.Cases, &ChannelOp{
+			if len(caseOps) == 0 {
+				if n := min(operationBatchSize, caseCount-len(selectOp.Cases)); n > 0 {
+					caseOps = make([]ChannelOp, n)
+				}
+			}
+			var op *ChannelOp
+			if len(caseOps) > 0 {
+				op, caseOps = &caseOps[0], caseOps[1:]
+			} else {
+				// Sparse/named cases can exceed the array-length estimate.
+				// Allocate those separately so existing pointers stay stable.
+				op = &ChannelOp{}
+			}
+			*op = ChannelOp{
 				Kind:     sc.Kind,
 				Channel:  sc.Channel,
 				Value:    sc.Value,
 				Task:     l,
 				SelectOp: selectOp,
-			})
+			}
+			selectOp.Cases = append(selectOp.Cases, op)
 		}
-	})
+	}
+	if len(casesTable.Strdict) == 0 && len(casesTable.Dict) == 0 {
+		// Pure arrays have no "default" key and select ignores their indices.
+		// As in the value/JSON converters, walk the exported array directly to
+		// avoid ForEach boxing one unused numeric key per case.
+		for _, v := range casesTable.Array {
+			appendCase(v)
+		}
+	} else {
+		// Preserve the general iterator's order and keyed/default semantics.
+		casesTable.ForEach(func(key, value lua.LValue) {
+			if key.Type() == lua.LTString && key.String() == "default" {
+				if v, ok := value.(lua.LBool); ok && bool(v) {
+					selectOp.HasDefault = true
+				}
+				return
+			}
+			appendCase(value)
+		})
+	}
 
 	for _, caseOp := range selectOp.Cases {
 		var canExecute bool
@@ -115,9 +148,11 @@ func channelSelectFunc(l *lua.LState) int {
 						return -1
 					}
 					l.Push(res[0])
+					ReleaseResult(result)
 					return 1
 				}
 			}
+			ReleaseResult(result)
 		}
 	}
 
@@ -129,11 +164,8 @@ func channelSelectFunc(l *lua.LState) int {
 		return 1
 	}
 
-	nNext := &ChannelResult{
-		Yields:  true,
-		Block:   make([]*Channel, 0, len(selectOp.Cases)),
-		Release: make([]*Channel, 0),
-	}
+	nNext := acquireResult()
+	nNext.Yields = true
 
 	for _, caseOp := range selectOp.Cases {
 		var m *ChannelResult
@@ -144,6 +176,7 @@ func channelSelectFunc(l *lua.LState) int {
 		}
 		nNext.Block = append(nNext.Block, m.Block...)
 		nNext.Release = append(nNext.Release, m.Release...)
+		ReleaseResult(m)
 	}
 
 	l.Push(nNext)
@@ -183,6 +216,7 @@ func channelSend(l *lua.LState) int {
 		l.Push(result)
 		return -1
 	}
+	defer ReleaseResult(result)
 	updates := result.GetUpdates()
 	if len(updates) > 0 {
 		if updates[0].Error != nil {
@@ -210,6 +244,7 @@ func channelReceive(l *lua.LState) int {
 		l.Push(result)
 		return -1
 	}
+	defer ReleaseResult(result)
 	updates := result.GetUpdates()
 	if len(updates) > 0 {
 		res := updates[0].GetResult()
@@ -236,6 +271,7 @@ func channelClose(l *lua.LState) int {
 		l.Push(result)
 		return -1
 	}
+	ReleaseResult(result)
 	return 0
 }
 

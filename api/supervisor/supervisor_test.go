@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -212,31 +211,31 @@ func TestShutdownContext(t *testing.T) {
 		setExitCode(0) // reset
 	})
 
-	t.Run("SetSignalChannel_NoAppContext", func(_ *testing.T) {
+	t.Run("SetShutdownRequestChannel_NoAppContext", func(_ *testing.T) {
 		ctx := context.Background()
-		ch := make(chan os.Signal, 1)
-		SetSignalChannel(ctx, ch)
+		ch := make(chan struct{}, 1)
+		SetShutdownRequestChannel(ctx, ch)
 	})
 
 	t.Run("SetAndGetSignalChannel", func(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		ch := make(chan os.Signal, 1)
-		SetSignalChannel(ctx, ch)
+		ch := make(chan struct{}, 1)
+		SetShutdownRequestChannel(ctx, ch)
 
-		retrieved := getSignalChannel(ctx)
+		retrieved := getShutdownRequestChannel(ctx)
 		assert.NotNil(t, retrieved)
 	})
 
-	t.Run("SetSignalChannel_ResetsShutdownState", func(t *testing.T) {
+	t.Run("SetShutdownRequestChannel_ResetsShutdownState", func(t *testing.T) {
 		setExitCode(9)
 		shutdownSent.Store(true)
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		ch := make(chan os.Signal, 1)
-		SetSignalChannel(ctx, ch)
+		ch := make(chan struct{}, 1)
+		SetShutdownRequestChannel(ctx, ch)
 
 		assert.Equal(t, 0, GetExitCode())
 		TriggerShutdown(ctx, 3)
@@ -246,9 +245,9 @@ func TestShutdownContext(t *testing.T) {
 		shutdownSent.Store(false)
 	})
 
-	t.Run("getSignalChannel_NoAppContext", func(t *testing.T) {
+	t.Run("getShutdownRequestChannel_NoAppContext", func(t *testing.T) {
 		ctx := context.Background()
-		ch := getSignalChannel(ctx)
+		ch := getShutdownRequestChannel(ctx)
 		assert.Nil(t, ch)
 	})
 
@@ -258,15 +257,14 @@ func TestShutdownContext(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		ch := make(chan os.Signal, 1)
-		SetSignalChannel(ctx, ch)
+		ch := make(chan struct{}, 1)
+		SetShutdownRequestChannel(ctx, ch)
 
 		TriggerShutdown(ctx, 1)
 
 		assert.Equal(t, 1, GetExitCode())
 		select {
-		case sig := <-ch:
-			assert.NotNil(t, sig)
+		case <-ch:
 		default:
 			t.Fatal("expected signal to be sent")
 		}
@@ -293,8 +291,8 @@ func TestShutdownContext(t *testing.T) {
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
-		ch := make(chan os.Signal, 2)
-		SetSignalChannel(ctx, ch)
+		ch := make(chan struct{}, 2)
+		SetShutdownRequestChannel(ctx, ch)
 
 		TriggerShutdown(ctx, 0)
 		TriggerShutdown(ctx, 0)

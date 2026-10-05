@@ -16,6 +16,7 @@ process.spawn(...)  -- direct access
 process.event.CANCEL     -- "pid.cancel"
 process.event.EXIT       -- "pid.exit"
 process.event.LINK_DOWN  -- "pid.link.down"
+process.event.MONITOR_DOWN -- "pid.monitor.down"
 ```
 
 ## Dependencies
@@ -188,6 +189,9 @@ Requests graceful cancellation of a process. Sends CANCEL event to target.
 ### monitor(destination: string) -> boolean, error
 
 Starts monitoring a process. Parent will receive EXIT events when monitored process exits.
+When the monitored process's node leaves the cluster, the monitor receives MONITOR_DOWN
+instead: the process may still be running, and the monitor has ended. MONITOR_DOWN never
+fails the monitoring process, whatever its `trap_links` setting.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
@@ -287,7 +291,7 @@ Returns channel for receiving inbox messages. Messages are wrapped as Message ob
 
 ### events() -> channel
 
-Returns channel for receiving lifecycle events (CANCEL, EXIT, LINK_DOWN).
+Returns channel for receiving lifecycle events (CANCEL, EXIT, LINK_DOWN, MONITOR_DOWN, OUTDATED).
 
 **Returns:** `channel` - yields until subscribed
 
@@ -297,7 +301,7 @@ Returns channel for receiving lifecycle events (CANCEL, EXIT, LINK_DOWN).
 
 | Field | Type | Notes |
 |-------|------|-------|
-| kind | string | Event type (`process.event.CANCEL`, `EXIT`, `LINK_DOWN`) |
+| kind | string | Event type (`process.event.CANCEL`, `EXIT`, `LINK_DOWN`, `MONITOR_DOWN`, `OUTDATED`) |
 | from | string | Source PID |
 | result | table? | For EXIT: `{value: any}` or `{error: string}` |
 | deadline | string? | For CANCEL: deadline timestamp |
