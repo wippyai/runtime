@@ -130,7 +130,12 @@ func TestPlanDefaultStateSelectsStateWhenInvocationHasNoExplicitState(t *testing
 	}
 
 	require.NoError(t, Run(t.Context(), executable, nil))
-	require.Equal(t, filepath.Join(selected, deploymentsDir, executable.Bundle.ID(), "wippy.lock"), record.options.LockFile)
+	expectedLock, err := os.Stat(filepath.Join(selected, deploymentsDir, executable.Bundle.ID(), "wippy.lock"))
+	require.NoError(t, err)
+	actualLock, err := os.Stat(record.options.LockFile)
+	require.NoError(t, err)
+	// Getwd can resolve aliases such as macOS's /var -> /private/var.
+	require.True(t, os.SameFile(expectedLock, actualLock), "lock must belong to the state selected before host planning")
 	require.DirExists(t, selected)
 	require.NoDirExists(t, filepath.Join(other, "selected"))
 }
