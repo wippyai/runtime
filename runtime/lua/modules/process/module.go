@@ -847,6 +847,13 @@ func registryLookup(l *lua.LState) int {
 		l.Push(lua.LString(p.String()))
 		return 1
 	}
+	if l.GetTop() >= 3 {
+		// An unscoped lookup remains a snapshot. Waiting requires an
+		// explicit EVENTUAL selector instead of silently ignoring the option.
+		if _, invalid := lookupTimeout(l, topology.Local); invalid != "" {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, invalid))
+		}
+	}
 	checked := false
 	var firstErr error
 

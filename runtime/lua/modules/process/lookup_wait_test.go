@@ -49,6 +49,8 @@ func TestRegistryLookup_TimeoutOptionsAreValidated(t *testing.T) {
 	l, _ := newLuaWithPIDAndRegistry(t, systemtopology.NewPIDRegistry())
 	topology.WithEventualRegistry(l.Context(), &fakeEventualRegistry{})
 	for _, call := range []string{
+		`process.registry.lookup("service", nil, {timeout = "5s"})`,
+		`process.registry.lookup("service", nil, "5s")`,
 		`process.registry.lookup("service", process.registry.LOCAL, {timeout = "5s"})`,
 		`process.registry.lookup("service", process.registry.CONSISTENT, {timeout = "5s"})`,
 		`process.registry.lookup("service", process.registry.EVENTUAL, {timeout = "soon"})`,
@@ -67,11 +69,18 @@ func TestRegistryLookup_TimeoutOptionsAreValidated(t *testing.T) {
 func TestRegistryLookup_WithoutTimeoutStaysASnapshot(t *testing.T) {
 	l, _ := newLuaWithPIDAndRegistry(t, systemtopology.NewPIDRegistry())
 	topology.WithEventualRegistry(l.Context(), &fakeEventualRegistry{})
-	require.NoError(t, l.DoString(`
-        local owner, err = process.registry.lookup("service", process.registry.EVENTUAL, {})
-        assert(owner == nil)
-        assert(err ~= nil and err:kind() == "NotFound", tostring(err))
-    `))
+	for _, call := range []string{
+		`process.registry.lookup("service")`,
+		`process.registry.lookup("service", nil, nil)`,
+		`process.registry.lookup("service", nil, {})`,
+		`process.registry.lookup("service", process.registry.EVENTUAL, {})`,
+	} {
+		require.NoError(t, l.DoString(`
+            local owner, err = `+call+`
+            assert(owner == nil)
+            assert(err ~= nil and err:kind() == "NotFound", tostring(err))
+        `), call)
+	}
 }
 
 func TestLookupWaitYield_HandleResult(t *testing.T) {

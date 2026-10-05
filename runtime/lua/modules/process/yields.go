@@ -476,9 +476,7 @@ func (y *LookupWaitYield) HandleResult(l *lua.LState, data any, err error) []lua
 	}
 	result, ok := data.(process.LookupWaitResult)
 	if !ok {
-		luaErr := lua.NewLuaError(l, "lookup wait returned an invalid result").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		luaErr := newProcessError(l, lua.Internal, "lookup wait returned an invalid result")
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	if !result.Found {
