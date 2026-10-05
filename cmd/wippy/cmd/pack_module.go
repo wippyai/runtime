@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -230,8 +231,27 @@ func modulePackMetadata(modulePath lock.ModuleLoadPath, moduleName string) (attr
 }
 
 // modulePackMetadataFromConfig is shared by publish and lock-selected module
-// packing so both paths emit the same module identity and publication fields.
+// packing so both paths emit the same module identity, publication fields and
+// published runtime metadata.
 func modulePackMetadataFromConfig(
+	cfg *moduleconfig.ModuleConfig,
+	baseDir string,
+	moduleName string,
+	fallbackVersion string,
+) (attrs.Bag, error) {
+	metadata, err := modulePackIdentityFromConfig(cfg, baseDir, moduleName, fallbackVersion)
+	if err != nil {
+		return nil, err
+	}
+	if err := addPublishedRuntimeMetadata(metadata, baseDir, cfg.Publish); err != nil {
+		return nil, err
+	}
+	return metadata, nil
+}
+
+// modulePackIdentityFromConfig returns the identity and publication fields a
+// manifest declares, without runtime metadata.
+func modulePackIdentityFromConfig(
 	cfg *moduleconfig.ModuleConfig,
 	baseDir string,
 	moduleName string,
@@ -276,9 +296,6 @@ func modulePackMetadataFromConfig(
 			continue
 		}
 		metadata[key] = value
-	}
-	if err := addPublishedRuntimeMetadata(metadata, baseDir, cfg.Publish); err != nil {
-		return nil, err
 	}
 	return metadata, nil
 }
@@ -326,4 +343,48 @@ func validateModulePackIdentityOverride(metadata, selected attrs.Bag) error {
 		}
 	}
 	return nil
+}
+
+// rootPackMetadata gives a pack of the root application the identity and
+// publication fields its own wippy.yaml declares, as a lock-selected module
+// pack carries them. The pack adds its runtime metadata separately. A root
+// without an identified manifest gets none.
+func rootPackMetadata(root string) (attrs.Bag, error) {
+	manifestPath := filepath.Join(root, moduleconfig.DefaultConfigFile)
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return attrs.Bag{}, nil
+		}
+		return nil, fmt.Errorf("inspect application manifest %s: %w", manifestPath, err)
+	}
+	cfg, err := moduleconfig.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("load application manifest %s: %w", manifestPath, err)
+	}
+	if cfg.Organization == "" || cfg.ModuleName == "" {
+		return attrs.Bag{}, nil
+	}
+	return modulePackIdentityFromConfig(cfg, root, cfg.FullName(), "")
+}
+
+// packRootModules returns the root modules a pack can select: the deployment
+// roots the lock records, and the application identified by the wippy.yaml in
+// folder, whose entries load from the lock's source root.
+func packRootModules(lockRoots []string, folder string) ([]string, error) {
+	roots := append([]string(nil), lockRoots...)
+	manifestPath := filepath.Join(folder, moduleconfig.DefaultConfigFile)
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return roots, nil
+		}
+		return nil, fmt.Errorf("inspect application manifest %s: %w", manifestPath, err)
+	}
+	cfg, err := moduleconfig.Load(folder)
+	if err != nil {
+		return nil, fmt.Errorf("load application manifest %s: %w", manifestPath, err)
+	}
+	if cfg.Organization == "" || cfg.ModuleName == "" || slices.Contains(roots, cfg.FullName()) {
+		return roots, nil
+	}
+	return append(roots, cfg.FullName()), nil
 }

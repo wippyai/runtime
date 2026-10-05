@@ -172,13 +172,13 @@ jobs:
         shell: bash
         run: |
           bash .github/scripts/test-build-features.sh "$WIPPY_FEATURES"
-          go test -race -short -tags "fts5 sqlite_vec sqlite_preupdate_hook $WIPPY_FEATURES" ./boot ./boot/components/service ./boot/components/runtime/lua
+          go test -race -short -tags "fts5 sqlite_vec sqlite_preupdate_hook $WIPPY_FEATURES" ./boot ./boot/components/service ./boot/components/runtime/lua ./cmd/app
       - name: Check feature dependencies and boot tests (Windows)
         if: matrix.os == 'windows-latest'
         shell: msys2 {0}
         run: |
           bash .github/scripts/test-build-features.sh "$WIPPY_FEATURES"
-          go test -race -short -tags "fts5 sqlite_vec sqlite_preupdate_hook $WIPPY_FEATURES" ./boot ./boot/components/service ./boot/components/runtime/lua
+          go test -race -short -tags "fts5 sqlite_vec sqlite_preupdate_hook $WIPPY_FEATURES" ./boot ./boot/components/service ./boot/components/runtime/lua ./cmd/app
       - name: Test optional modules (macOS)
         if: matrix.os == 'macos-26' && matrix.features != ''
         run: make test-optional-features
