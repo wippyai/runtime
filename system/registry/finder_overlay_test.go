@@ -49,3 +49,38 @@ func TestFinderObservesOverlayChanges(t *testing.T) {
 	require.Len(t, found, 1)
 	require.Equal(t, "second", found[0].Meta["title"])
 }
+
+// A commit subscriber queries the finder as soon as registry.commit arrives,
+// while the transition still holds the registry; the query observes the
+// committed state, not the cached result from before it.
+func TestFinderQueryOnCommitObservesCommittedState(t *testing.T) {
+	ctx := context.Background()
+	reg, _, runner := newOverlayTestRegistryWithRunner(t)
+	require.NoError(t, reg.LoadState(ctx, nil, version.FromParent(nil, regapi.RootVersion)))
+	f := finder.NewFinder(reg, zap.NewNop())
+	query := attrs.Bag{"meta.type": "app"}
+	require.Empty(t, findIDs(t, f, query))
+
+	type found struct {
+		entries []regapi.Entry
+		err     error
+	}
+	results := make(chan found, 1)
+	runner.committed = func() {
+		started := make(chan struct{})
+		go func() {
+			close(started)
+			entries, err := f.Find(query)
+			results <- found{entries: entries, err: err}
+		}()
+		<-started
+	}
+	entry := regapi.Entry{ID: regapi.NewID("overlay.app", "main"), Kind: "test.resource",
+		Meta: attrs.Bag{"type": "app"}, Data: payload.New("live")}
+	_, err := reg.ApplyOverlay(ctx, "owner:a", 0, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: entry}})
+	require.NoError(t, err)
+	result := <-results
+	require.NoError(t, result.err)
+	require.Len(t, result.entries, 1)
+	require.Equal(t, entry.ID, result.entries[0].ID)
+}

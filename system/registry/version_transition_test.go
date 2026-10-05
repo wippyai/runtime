@@ -21,6 +21,9 @@ import (
 type TestRunner struct {
 	transitions []registry.ChangeSet
 	state       registry.State
+	// committed runs where the bus runner dispatches registry.commit: after
+	// the transition's operations and before the registry publishes its state.
+	committed func()
 }
 
 func NewTestRunner() *TestRunner {
@@ -56,6 +59,9 @@ func (m *TestRunner) Transition(_ context.Context, from registry.State, cs regis
 	}
 
 	m.state = result
+	if m.committed != nil {
+		m.committed()
+	}
 	return result, nil
 }
 
