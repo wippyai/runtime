@@ -40,6 +40,7 @@ type Reg struct {
 	overlayShadows    map[registry.ID]overlayShadow
 	overlayGeneration map[string]uint64
 	snapshot          atomic.Pointer[registry.Snapshot]
+	stateRevision     atomic.Uint64
 	state             registry.State
 	baseline          registry.State
 	overlayEpoch      uint64
@@ -175,6 +176,15 @@ func (r *Reg) publishSnapshot() {
 		Entries:  entries,
 		Registry: registry.StateMetadata{Resolution: r.currentResolution},
 	})
+	r.stateRevision.Add(1)
+}
+
+// StateRevision counts the states this registry has published. Durable
+// versions, overlay changes and rollbacks each advance it, so views derived
+// from the live state key on it; the history version changes only with
+// durable versions.
+func (r *Reg) StateRevision() uint64 {
+	return r.stateRevision.Load()
 }
 
 // --- StateWriter Interface Implementation ---
