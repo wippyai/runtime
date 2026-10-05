@@ -65,6 +65,9 @@ func (p *Proxy) RequestClose() { p.requestClose(nil) }
 func (p *Proxy) requestClose(cause error) {
 	p.recordCloseCause(cause)
 	p.closeRequested.Store(true)
+	// The output parser can hold screenMu while waiting for reply capacity.
+	// Release it independently of Run, which may need that same lock to exit.
+	p.responses.close()
 	p.closeNotifyOnce.Do(func() { close(p.closeNotify) })
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()

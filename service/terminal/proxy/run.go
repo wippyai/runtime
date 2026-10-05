@@ -326,6 +326,9 @@ func (p *Proxy) copyResponses(done chan<- error) {
 			return
 		}
 		if err := p.writeBytes(data); err != nil {
+			// No writer remains to release blocked reply producers. Retire the
+			// queue before reporting failure to the potentially blocked Run.
+			p.responses.close()
 			done <- err
 			return
 		}

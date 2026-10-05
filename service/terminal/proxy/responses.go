@@ -10,8 +10,8 @@ import "sync"
 const responseQueueLimit = 64 << 10
 
 // responseQueue carries emulator replies from the output parser to the
-// goroutine that writes them to the PTY, so the parser never blocks on a
-// child that is itself blocked writing output.
+// goroutine that writes them to the PTY. Saturation applies backpressure;
+// shutdown or loss of the writer must close the queue to release the parser.
 type responseQueue struct {
 	cond   *sync.Cond
 	chunks [][]byte
