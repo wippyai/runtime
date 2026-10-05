@@ -38,18 +38,25 @@ type FactoryOption func(*processConfig)
 
 // processConfig holds all configuration for process creation.
 type processConfig struct {
-	filter         func(name string, classes []string) (bool, error)
-	allowedIDs     []registry.ID
-	deniedIDs      []registry.ID
-	requiredIDs    []registry.ID
-	allowedClasses []string
-	forbidClasses  []string
-	excludeClasses []string
-	forbidModules  []string
-	excludeModules []string
-	extraModules   []*luaapi.ModuleDef
-	buildMode      code.AccessMode
-	budgets        luaapi.ExecutionBudgets
+	filter            func(name string, classes []string) (bool, error)
+	allowedIDs        []registry.ID
+	deniedIDs         []registry.ID
+	requiredIDs       []registry.ID
+	allowedClasses    []string
+	forbidClasses     []string
+	excludeClasses    []string
+	forbidModules     []string
+	excludeModules    []string
+	extraModules      []*luaapi.ModuleDef
+	buildMode         code.AccessMode
+	validateArguments bool
+	budgets           luaapi.ExecutionBudgets
+}
+
+// WithArgumentValidation enables declared-argument checks at the function entry
+// boundary. Process and workflow factories retain their existing semantics.
+func WithArgumentValidation() FactoryOption {
+	return func(c *processConfig) { c.validateArguments = true }
 }
 
 func newProcessConfig() *processConfig {
@@ -159,9 +166,10 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 	}
 
 	factoryCfg := FactoryConfig{
-		Proto:         compiled.Main,
-		ModuleBinders: binders,
-		Budgets:       cfg.budgets,
+		Proto:             compiled.Main,
+		ModuleBinders:     binders,
+		ValidateArguments: cfg.validateArguments,
+		Budgets:           cfg.budgets,
 	}
 
 	factory := NewFactory(factoryCfg)
@@ -418,35 +426,38 @@ func hasAnyClass(classes []string, set map[string]struct{}) bool {
 
 // FactoryConfig configures a Lua process factory.
 type FactoryConfig struct {
-	Proto         *lua.FunctionProto
-	StateOptions  *lua.Options
-	Script        string
-	ScriptName    string
-	ModuleBinders []ModuleBinder
-	Budgets       luaapi.ExecutionBudgets
+	Proto             *lua.FunctionProto
+	StateOptions      *lua.Options
+	Script            string
+	ScriptName        string
+	ModuleBinders     []ModuleBinder
+	ValidateArguments bool
+	Budgets           luaapi.ExecutionBudgets
 }
 
 // Factory creates Lua processes with shared configuration.
 // Holds binders and options - processes only store script/proto.
 type Factory struct {
-	proto         *lua.FunctionProto
-	stateOpts     *lua.Options
-	script        string
-	scriptName    string
-	moduleBinders []ModuleBinder
-	budgets       luaapi.ExecutionBudgets
+	proto             *lua.FunctionProto
+	stateOpts         *lua.Options
+	script            string
+	scriptName        string
+	moduleBinders     []ModuleBinder
+	validateArguments bool
+	budgets           luaapi.ExecutionBudgets
 }
 
 // NewFactory creates a ProcessFactory for Lua processes.
 // The factory returns processes that are already initialized.
 func NewFactory(cfg FactoryConfig) process.FactoryFunc {
 	f := &Factory{
-		proto:         cfg.Proto,
-		script:        cfg.Script,
-		scriptName:    cfg.ScriptName,
-		moduleBinders: cfg.ModuleBinders,
-		stateOpts:     cfg.StateOptions,
-		budgets:       cfg.Budgets,
+		validateArguments: cfg.ValidateArguments,
+		proto:             cfg.Proto,
+		script:            cfg.Script,
+		scriptName:        cfg.ScriptName,
+		moduleBinders:     cfg.ModuleBinders,
+		stateOpts:         cfg.StateOptions,
+		budgets:           cfg.Budgets,
 	}
 	return f.Create
 }

@@ -109,7 +109,7 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 }
 
 func (m *Manager) buildPool(id registry.ID, cfg *configEntry) (funcpool.Pool, error) {
-	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
+	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...), engine.WithArgumentValidation())
 	if err != nil {
 		return nil, err // Already has compile context from code.Manager
 	}
