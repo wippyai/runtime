@@ -129,6 +129,18 @@ func TestDeferredArgumentConversionKeepsCause(t *testing.T) {
 	require.Equal(t, native.Error(), err.Error(), "do not duplicate the conversion context")
 }
 
+func TestDeferredArgumentConversionKeepsTypedCauseMetadata(t *testing.T) {
+	cause := lua.NewError("typed conversion failure").WithKind(lua.Unavailable).WithRetryable(true)
+	native := argumentConversionError(0, cause)
+	wrapped := lua.WrapError(native, "").WithKind(lua.Invalid).WithRetryable(false)
+	chain := apierror.BuildChain(toAPIError(wrapped))
+	require.Len(t, chain.Errors, 2)
+	require.Equal(t, string(apierror.Invalid), chain.Errors[0].Kind)
+	require.Equal(t, string(apierror.Unavailable), chain.Errors[1].Kind)
+	require.NotNil(t, chain.Errors[1].Retryable)
+	require.True(t, *chain.Errors[1].Retryable)
+}
+
 func TestUntypedFunctionArgumentsKeepExistingConversion(t *testing.T) {
 	proto := compileArgumentEntry(t, `return {run=function(id) return id == nil end}`)
 	proc, err := NewFactory(FactoryConfig{Proto: proto, ValidateArguments: true})()

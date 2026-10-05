@@ -2381,7 +2381,7 @@ func toAPIError(err error) error {
 		return builder.WithCause(toAPIError(inner))
 	}
 	if nativeCause != nil {
-		return builder.WithCause(nativeCause)
+		return builder.WithCause(toAPIError(nativeCause))
 	}
 	return builder
 }
