@@ -62,8 +62,8 @@ func TestFinderQueryOnCommitObservesCommittedState(t *testing.T) {
 	require.Empty(t, findIDs(t, f, query))
 
 	type found struct {
-		entries []regapi.Entry
 		err     error
+		entries []regapi.Entry
 	}
 	results := make(chan found, 1)
 	runner.committed = func() {

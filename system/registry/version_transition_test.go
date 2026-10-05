@@ -19,11 +19,11 @@ import (
 
 // TestRunner implements registry.Runner for testing with transition tracking
 type TestRunner struct {
-	transitions []registry.ChangeSet
-	state       registry.State
 	// committed runs where the bus runner dispatches registry.commit: after
 	// the transition's operations and before the registry publishes its state.
-	committed func()
+	committed   func()
+	transitions []registry.ChangeSet
+	state       registry.State
 }
 
 func NewTestRunner() *TestRunner {

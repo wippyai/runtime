@@ -40,9 +40,9 @@ type Reg struct {
 	overlayShadows    map[registry.ID]overlayShadow
 	overlayGeneration map[string]uint64
 	snapshot          atomic.Pointer[registry.Snapshot]
-	stateRevision     uint64
 	state             registry.State
 	baseline          registry.State
+	stateRevision     uint64
 	overlayEpoch      uint64
 	overlayFloor      uint64
 	versionNum        atomic.Uint64
