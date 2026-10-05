@@ -53,11 +53,12 @@ func TestProxyOSCTitleWithFourByteRuneDoesNotLeakIntoGrid(t *testing.T) {
 	require.Equal(t, "xy", presentedRow(surface, 0))
 }
 
-// A standalone 0x9C that does not continue a rune is still the 8-bit ST and
-// must terminate the string. The fix must not disable that.
-func TestProxyEightBitStringTerminatorStillTerminatesOSC(t *testing.T) {
-	_, surface := oscTitleChild(t, 20, 2, "\x1b]0;hi\x9cZ")
-	require.Equal(t, "Z", presentedRow(surface, 0))
+// In UTF-8 mode a raw 0x9C is not the 8-bit String Terminator; it is an
+// invalid byte and is discarded, so the OSC string stays open until a 7-bit
+// terminator ends it.
+func TestProxyRawC1StringTerminatorDoesNotTerminateOSCInUTF8Mode(t *testing.T) {
+	_, surface := oscTitleChild(t, 20, 2, "\x1b]0;hi\x9cZ\x07xy")
+	require.Equal(t, "xy", presentedRow(surface, 0))
 }
 
 // ESC-still terminates an OSC string carrying a multi-byte rune.

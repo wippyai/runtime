@@ -42,6 +42,7 @@ type Reg struct {
 	snapshot          atomic.Pointer[registry.Snapshot]
 	state             registry.State
 	baseline          registry.State
+	stateRevision     uint64
 	overlayEpoch      uint64
 	overlayFloor      uint64
 	versionNum        atomic.Uint64
@@ -175,6 +176,18 @@ func (r *Reg) publishSnapshot() {
 		Entries:  entries,
 		Registry: registry.StateMetadata{Resolution: r.currentResolution},
 	})
+	r.stateRevision++
+}
+
+// StateRevision counts the states this registry has published. Durable
+// versions, overlay changes and rollbacks each advance it, so views derived
+// from the live state key on it; the history version changes only with
+// durable versions. Like the state it identifies, it is read under the
+// registry lock: a reader during a transition observes the committed state.
+func (r *Reg) StateRevision() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.stateRevision
 }
 
 // --- StateWriter Interface Implementation ---

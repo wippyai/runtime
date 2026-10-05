@@ -41,19 +41,43 @@ func WithRegexCacheSize(size int) Option {
 	}
 }
 
-// memoryFinder implements the Finder interface for in-memory registry state with version-aware caching
+// memoryFinder implements the Finder interface for in-memory registry state with state-aware caching
 type memoryFinder struct {
-	reg         registry.EntryReader
-	log         *zap.Logger
-	queryCache  *lru.Cache[queryCacheKey, queryResult]
-	regexCache  *lru.Cache[string, *regexp.Regexp]
-	lastVersion atomic.Uint64
-	cacheMu     sync.RWMutex
+	reg          registry.EntryReader
+	log          *zap.Logger
+	queryCache   *lru.Cache[queryCacheKey, queryResult]
+	regexCache   *lru.Cache[string, *regexp.Regexp]
+	lastRevision atomic.Uint64
+	cacheMu      sync.RWMutex
 }
 
 type queryCacheKey struct {
-	versionID uint64
+	revision  uint64
 	queryHash uint64
+}
+
+// stateRevisioned is a reader whose live state changes without a new history
+// version, such as the registry under overlays; its revision advances with
+// every published state.
+type stateRevisioned interface {
+	StateRevision() uint64
+}
+
+// revision identifies the reader's current state: its state revision when it
+// has one, otherwise its history version, which fixes the state of an
+// immutable snapshot reader.
+func (f *memoryFinder) revision() uint64 {
+	if live, ok := f.reg.(stateRevisioned); ok {
+		return live.StateRevision()
+	}
+	if versioned, ok := f.reg.(interface {
+		Current() (registry.Version, error)
+	}); ok {
+		if v, err := versioned.Current(); err == nil && v != nil {
+			return uint64(v.ID())
+		}
+	}
+	return 0
 }
 
 type queryResult struct {
@@ -130,35 +154,26 @@ func Fork(source registry.Finder, r registry.EntryReader, log *zap.Logger) regis
 //	Find({"~meta.description": ".*api.*", "*meta.tags": "backend"})
 //	  -> Find entries with description matching regex ".*api.*" and tags containing "backend"
 func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
-	// Get current version from registry
-	var currentVersion uint64
-	if versionedReg, ok := f.reg.(interface {
-		Current() (registry.Version, error)
-	}); ok {
-		v, err := versionedReg.Current()
-		if err == nil && v != nil {
-			currentVersion = uint64(v.ID())
-		}
-	}
+	revision := f.revision()
 
-	// Check version change - invalidate cache if changed
-	lastVer := f.lastVersion.Load()
-	if currentVersion != lastVer && currentVersion > 0 {
-		f.lastVersion.Store(currentVersion)
-		if lastVer > 0 {
+	// Invalidate the cache when the reader's state changed
+	lastRevision := f.lastRevision.Load()
+	if revision != lastRevision && revision > 0 {
+		f.lastRevision.Store(revision)
+		if lastRevision > 0 {
 			f.cacheMu.Lock()
 			f.queryCache = lru.New[queryCacheKey, queryResult](lru.WithCapacity(defaultQueryCacheSize))
 			f.cacheMu.Unlock()
-			f.log.Debug("finder cache invalidated due to version change",
-				zap.Uint64("old_version", lastVer),
-				zap.Uint64("new_version", currentVersion))
+			f.log.Debug("finder cache invalidated due to state change",
+				zap.Uint64("old_revision", lastRevision),
+				zap.Uint64("new_revision", revision))
 		}
 	}
 
 	// Generate cache key
 	queryHash := hashMetadata(meta)
 	cacheKey := queryCacheKey{
-		versionID: currentVersion,
+		revision:  revision,
 		queryHash: queryHash,
 	}
 

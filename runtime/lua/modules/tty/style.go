@@ -3,9 +3,9 @@
 package tty
 
 import (
-	"github.com/charmbracelet/lipgloss"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	termtext "github.com/wippyai/tty/text"
 )
 
 const styleTypeName = "tty.Style"
@@ -41,7 +41,7 @@ func init() {
 }
 
 type styleWrapper struct {
-	style lipgloss.Style
+	box termtext.Box
 }
 
 func checkStyle(l *lua.LState) *styleWrapper {
@@ -58,7 +58,7 @@ func pushStyle(l *lua.LState, s *styleWrapper) *lua.LUserData {
 }
 
 func ttyStyleNew(l *lua.LState) int {
-	s := &styleWrapper{style: lipgloss.NewStyle()}
+	s := &styleWrapper{box: termtext.Box{}}
 	pushStyle(l, s)
 	return 1
 }
@@ -78,13 +78,13 @@ func styleRender(l *lua.LState) int {
 	for i := 2; i <= n; i++ {
 		strs = append(strs, l.ToString(i))
 	}
-	result := s.style.Render(strs...)
+	result := s.box.Render(strs...)
 	l.Push(lua.LString(result))
 	return 1
 }
 
-func pushDerived(l *lua.LState, s lipgloss.Style) int {
-	pushStyle(l, &styleWrapper{style: s})
+func pushDerived(l *lua.LState, s termtext.Box) int {
+	pushStyle(l, &styleWrapper{box: s})
 	return 1
 }
 
@@ -93,7 +93,7 @@ func styleForeground(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Foreground(lipgloss.Color(l.CheckString(2))))
+	return pushDerived(l, s.box.Foreground(parseColor(l.CheckString(2))))
 }
 
 func styleBackground(l *lua.LState) int {
@@ -101,7 +101,7 @@ func styleBackground(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Background(lipgloss.Color(l.CheckString(2))))
+	return pushDerived(l, s.box.Background(parseColor(l.CheckString(2))))
 }
 
 func styleBold(l *lua.LState) int {
@@ -109,7 +109,7 @@ func styleBold(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Bold(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Bold(l.OptBool(2, true)))
 }
 
 func styleItalic(l *lua.LState) int {
@@ -117,7 +117,7 @@ func styleItalic(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Italic(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Italic(l.OptBool(2, true)))
 }
 
 func styleUnderline(l *lua.LState) int {
@@ -125,7 +125,7 @@ func styleUnderline(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Underline(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Underline(l.OptBool(2, true)))
 }
 
 func styleStrikethrough(l *lua.LState) int {
@@ -133,7 +133,7 @@ func styleStrikethrough(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Strikethrough(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Strikethrough(l.OptBool(2, true)))
 }
 
 func styleFaint(l *lua.LState) int {
@@ -141,7 +141,7 @@ func styleFaint(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Faint(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Faint(l.OptBool(2, true)))
 }
 
 func styleBlink(l *lua.LState) int {
@@ -149,7 +149,7 @@ func styleBlink(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Blink(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Blink(l.OptBool(2, true)))
 }
 
 func styleReverse(l *lua.LState) int {
@@ -157,7 +157,7 @@ func styleReverse(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Reverse(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Reverse(l.OptBool(2, true)))
 }
 
 func stylePadding(l *lua.LState) int {
@@ -165,7 +165,7 @@ func stylePadding(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Padding(readSpacingArgs(l, 2)...))
+	return pushDerived(l, s.box.Padding(readSpacingArgs(l, 2)...))
 }
 
 func styleMargin(l *lua.LState) int {
@@ -173,7 +173,7 @@ func styleMargin(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Margin(readSpacingArgs(l, 2)...))
+	return pushDerived(l, s.box.Margin(readSpacingArgs(l, 2)...))
 }
 
 func styleBorder(l *lua.LState) int {
@@ -186,7 +186,7 @@ func styleBorder(l *lua.LState) int {
 	for i := 3; i <= l.GetTop(); i++ {
 		sides = append(sides, l.ToBool(i))
 	}
-	return pushDerived(l, s.style.Border(border, sides...))
+	return pushDerived(l, s.box.Border(border, sides...))
 }
 
 func styleBorderForeground(l *lua.LState) int {
@@ -194,7 +194,7 @@ func styleBorderForeground(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.BorderForeground(readColorArgs(l, 2)...))
+	return pushDerived(l, s.box.BorderForeground(readColorArgs(l, 2)...))
 }
 
 func styleBorderBackground(l *lua.LState) int {
@@ -202,7 +202,7 @@ func styleBorderBackground(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.BorderBackground(readColorArgs(l, 2)...))
+	return pushDerived(l, s.box.BorderBackground(readColorArgs(l, 2)...))
 }
 
 func styleWidth(l *lua.LState) int {
@@ -210,7 +210,7 @@ func styleWidth(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Width(l.CheckInt(2)))
+	return pushDerived(l, s.box.Width(l.CheckInt(2)))
 }
 
 func styleHeight(l *lua.LState) int {
@@ -218,7 +218,7 @@ func styleHeight(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Height(l.CheckInt(2)))
+	return pushDerived(l, s.box.Height(l.CheckInt(2)))
 }
 
 func styleMaxWidth(l *lua.LState) int {
@@ -226,7 +226,7 @@ func styleMaxWidth(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.MaxWidth(l.CheckInt(2)))
+	return pushDerived(l, s.box.MaxWidth(l.CheckInt(2)))
 }
 
 func styleMaxHeight(l *lua.LState) int {
@@ -234,7 +234,7 @@ func styleMaxHeight(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.MaxHeight(l.CheckInt(2)))
+	return pushDerived(l, s.box.MaxHeight(l.CheckInt(2)))
 }
 
 func styleAlign(l *lua.LState) int {
@@ -242,7 +242,7 @@ func styleAlign(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Align(lipgloss.Position(l.CheckNumber(2))))
+	return pushDerived(l, s.box.Align(termtext.Position(l.CheckNumber(2))))
 }
 
 func styleAlignVertical(l *lua.LState) int {
@@ -250,7 +250,7 @@ func styleAlignVertical(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.AlignVertical(lipgloss.Position(l.CheckNumber(2))))
+	return pushDerived(l, s.box.AlignVertical(termtext.Position(l.CheckNumber(2))))
 }
 
 func styleInline(l *lua.LState) int {
@@ -258,7 +258,7 @@ func styleInline(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	return pushDerived(l, s.style.Inline(l.OptBool(2, true)))
+	return pushDerived(l, s.box.Inline(l.OptBool(2, true)))
 }
 
 func styleCopy(l *lua.LState) int {
@@ -266,25 +266,25 @@ func styleCopy(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	cp := &styleWrapper{style: s.style}
+	cp := &styleWrapper{box: s.box}
 	pushStyle(l, cp)
 	return 1
 }
 
-func resolveBorder(name string) lipgloss.Border {
+func resolveBorder(name string) termtext.Border {
 	switch name {
 	case "normal":
-		return lipgloss.NormalBorder()
+		return termtext.NormalBorder
 	case "rounded":
-		return lipgloss.RoundedBorder()
+		return termtext.RoundedBorder
 	case "thick":
-		return lipgloss.ThickBorder()
+		return termtext.ThickBorder
 	case "double":
-		return lipgloss.DoubleBorder()
+		return termtext.DoubleBorder
 	case "hidden":
-		return lipgloss.HiddenBorder()
+		return termtext.HiddenBorder
 	default:
-		return lipgloss.NormalBorder()
+		return termtext.NormalBorder
 	}
 }
 
@@ -297,11 +297,18 @@ func readSpacingArgs(l *lua.LState, startIdx int) []int {
 	return values
 }
 
-func readColorArgs(l *lua.LState, startIdx int) []lipgloss.TerminalColor {
+func readColorArgs(l *lua.LState, startIdx int) []termtext.Color {
 	n := l.GetTop()
-	colors := make([]lipgloss.TerminalColor, 0, n-startIdx+1)
+	colors := make([]termtext.Color, 0, n-startIdx+1)
 	for i := startIdx; i <= n; i++ {
-		colors = append(colors, lipgloss.Color(l.CheckString(i)))
+		colors = append(colors, parseColor(l.CheckString(i)))
 	}
 	return colors
+}
+
+// parseColor reads a hex or palette color; unparsable input selects the
+// terminal default color.
+func parseColor(s string) termtext.Color {
+	c, _ := termtext.ParseColor(s)
+	return c
 }

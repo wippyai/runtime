@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/semver"
@@ -25,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/entries"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	"github.com/wippyai/runtime/internal/cachedir"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
@@ -320,7 +319,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		return nil, fmt.Errorf("failed to create hub client for %s: %w", registryURL, err)
 	}
 
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	dimStyle := style.New().Foreground(8)
 	fmt.Printf("%s %s/%s", dimStyle.Render("Resolving dependencies for"), org, module)
 	if versionOrLabel != "" {
 		fmt.Printf("@%s", versionOrLabel)
@@ -467,7 +466,7 @@ func materializeHubRunPack(sourcePath, moduleName, version, digest string, size 
 }
 
 func ensureHubPackCached(ctx context.Context, client hubPackDownloader, m hub.ResolvedModule, packPath, moduleName, registryURL string) error {
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	dimStyle := style.New().Foreground(8)
 	if _, err := os.Stat(packPath); err == nil {
 		if err := hub.VerifyDownloadedArtifact(packPath, m.Digest, m.SizeBytes); err == nil {
 			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
@@ -693,8 +692,8 @@ func runPackEntriesWithShutdown(
 	hostID string,
 	runtimeShutdown *runShutdown,
 ) (result error) {
-	sigChan := setupSupervisorSignalChannel(ctx)
-	defer signal.Stop(sigChan)
+	sources := setupShutdownSources(ctx)
+	defer sources.stop()
 
 	appCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -734,7 +733,7 @@ func runPackEntriesWithShutdown(
 			}
 		}
 
-		shutdown, err := launchExecUntilShutdown(appCtx, sigChan, logger, entryID, hostID, args)
+		shutdown, err := launchExecUntilShutdown(appCtx, sources, logger, entryID, hostID, args)
 		if err != nil {
 			return err
 		}
@@ -743,7 +742,7 @@ func runPackEntriesWithShutdown(
 		}
 	}
 
-	waitForShutdownSignal(appCtx, sigChan, logger, nil)
+	waitForShutdown(appCtx, sources, logger, nil)
 	return appCtx.Err()
 }
 

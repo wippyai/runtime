@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/tty/canvas"
+	termtext "github.com/wippyai/tty/text"
 )
 
 const (
@@ -20,17 +20,13 @@ const (
 
 // canvasWrapper is a bounded styled-cell compositor. ANSI strings are parsed
 // once at the placement boundary, so clipped control sequences cannot leak or
-// multiply as independently rendered surfaces overlap.
+// multiply as independently rendered surfaces overlap. A canvas accepts styled
+// cells, not terminal commands: only SGR and hyperlinks survive placement.
 type canvasWrapper struct {
-	screen *canvasBuffer
-	region canvasRegion
+	screen *canvas.Buffer
 	width  int
 	height int
 }
-
-type canvasBuffer struct{ *uv.Buffer }
-
-func (b *canvasBuffer) WidthMethod() uv.WidthMethod { return ansi.GraphemeWidth }
 
 func init() {
 	value.RegisterTypeMethods(nil, canvasTypeName,
@@ -68,7 +64,7 @@ func ttyCanvasNew(l *lua.LState) int {
 	}
 	c := &canvasWrapper{
 		width: width, height: height,
-		screen: &canvasBuffer{Buffer: uv.NewBuffer(width, height)},
+		screen: canvas.NewBuffer(width, height),
 	}
 	value.PushTypedUserData(l, c, canvasTypeName)
 	return 1
@@ -94,20 +90,14 @@ func canvasClear(l *lua.LState) int {
 	c.screen.Clear()
 	fill := l.OptString(2, "")
 	if fill != "" {
-		fillWidth := ansi.StringWidth(fill)
+		fillWidth := termtext.Width(fill)
 		if fillWidth > 0 {
 			fill = strings.Repeat(fill, (c.width+fillWidth-1)/fillWidth)
 		}
-		// Decode one complete fill row, then copy its styled cells. StyledString
-		// uses the bounded shared ANSI parser pool and understands SGR and OSC 8.
-		row := &canvasBuffer{Buffer: uv.NewBuffer(c.width, 1)}
-		region := &canvasRegion{canvasBuffer: row, area: row.Bounds()}
-		uv.NewStyledString(ansi.Cut(fill, 0, c.width)).Draw(region, region.Bounds())
-		for y := 0; y < c.height; y++ {
-			for x := 0; x < c.width; x++ {
-				c.screen.SetCell(x, y, row.CellAt(x, 0))
-			}
-		}
+		// Decode one complete fill row, then copy its styled cells.
+		row := canvas.NewBuffer(c.width, 1)
+		row.DrawRow(0, 0, c.width, 0, fill)
+		c.screen.FillRows(row.Line(0))
 	}
 	l.Push(lua.LTrue)
 	return 1
@@ -191,19 +181,11 @@ func (c *canvasWrapper) put(x, y int, text string, limit int) {
 		limit -= sourceX
 	}
 	available := min(limit, c.width-x)
-	textWidth := ansi.StringWidth(text)
-	covered := min(available, textWidth-sourceX)
+	covered := min(available, termtext.Width(text)-sourceX)
 	if covered <= 0 {
 		return
 	}
-	// ansi.Cut may retain discarded trailing control sequences by design. The
-	// drawing target independently rejects control-only cells and writes outside
-	// the placement rectangle, including decoder tail writes.
-	clipped := ansi.Cut(text, sourceX, sourceX+covered)
-	// Canvas is owned by one Lua state. Reuse its drawing target rather than
-	// allocating a region for every row in an animated frame.
-	c.region.canvasBuffer, c.region.area = c.screen, uv.Rect(x, y, covered, 1)
-	uv.NewStyledString(clipped).Draw(&c.region, c.region.Bounds())
+	c.screen.DrawRow(x, y, covered, sourceX, text)
 }
 
 func canvasRows(l *lua.LState) int {

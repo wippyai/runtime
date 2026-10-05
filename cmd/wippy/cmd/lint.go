@@ -14,7 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
@@ -25,10 +24,10 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
-	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
@@ -87,12 +86,12 @@ func init() {
 // ----------------------------------------------------------------------------
 
 var (
-	styleError   = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-	styleWarning = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
-	styleHint    = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	styleSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	styleCode    = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	styleNS      = lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Bold(true)
+	styleError   = style.New().Foreground(9).Bold(true)
+	styleWarning = style.New().Foreground(11).Bold(true)
+	styleHint    = style.New().Foreground(14)
+	styleSuccess = style.New().Foreground(10).Bold(true)
+	styleCode    = style.New().Foreground(12).Bold(true)
+	styleNS      = style.New().Foreground(13).Bold(true)
 )
 
 // ----------------------------------------------------------------------------
@@ -140,7 +139,7 @@ func fromDiagSeverity(ds diag.Severity) severity {
 	}
 }
 
-func (s severity) style() lipgloss.Style {
+func (s severity) style() style.Style {
 	switch s {
 	case severityHint:
 		return styleHint
@@ -381,24 +380,6 @@ func bootstrapLintContext(cfg boot.Config) (ctx context.Context, loader *bootpkg
 	}
 
 	components := selectedComponents()
-	reservedNames := make(map[string]struct{}, len(components))
-	for _, comp := range components {
-		if comp == nil {
-			continue
-		}
-		name := comp.Name()
-		if name == "" {
-			continue
-		}
-		reservedNames[name] = struct{}{}
-	}
-
-	bctx, extensionResult, err := bootextensions.LoadWithReserved(bctx, cfg, reservedNames)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	components = append(components, extensionResult.Components...)
 	loader, err = bootpkg.NewLoader(components...)
 	if err != nil {
 		return nil, nil, NewCreateLoaderError(err)

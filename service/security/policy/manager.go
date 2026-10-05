@@ -16,13 +16,13 @@ import (
 // Manager handles security policy registration and lifecycle
 type Manager struct {
 	log     *zap.Logger
-	bus     event.Bus
+	owner   security.PolicyApplier
 	factory FactoryAPI
 }
 
 // NewManager creates a new policy manager
 func NewManager(
-	bus event.Bus,
+	owner security.PolicyApplier,
 	factory FactoryAPI,
 	logger *zap.Logger,
 ) *Manager {
@@ -31,7 +31,7 @@ func NewManager(
 	}
 	return &Manager{
 		log:     logger,
-		bus:     bus,
+		owner:   owner,
 		factory: factory,
 	}
 }
@@ -52,11 +52,9 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
-	m.bus.Send(ctx, event.Event{
-		System: security.System,
-		Kind:   security.PolicyDelete,
-		Path:   entry.ID.String(),
-	})
+	if err := m.applyPolicy(ctx, entry.ID, security.PolicyDelete, &security.PolicyEntry{}); err != nil {
+		return err
+	}
 
 	m.log.Info("security policy removed", zap.String("id", entry.ID.String()))
 
@@ -74,12 +72,9 @@ func (m *Manager) processPolicy(ctx context.Context, entry registry.Entry, event
 		return NewCreatePolicyEntryError(err)
 	}
 
-	m.bus.Send(ctx, event.Event{
-		System: security.System,
-		Kind:   eventKind,
-		Path:   entry.ID.String(),
-		Data:   policyEntry,
-	})
+	if err := m.applyPolicy(ctx, entry.ID, eventKind, policyEntry); err != nil {
+		return err
+	}
 
 	m.log.Info("security policy "+action,
 		zap.String("id", entry.ID.String()),
@@ -91,4 +86,16 @@ func (m *Manager) processPolicy(ctx context.Context, entry registry.Entry, event
 // isSupportedKind checks if the entry kind is a supported policy kind
 func (m *Manager) isSupportedKind(kind registry.Kind) bool {
 	return kind == policyapi.Policy || kind == policyapi.ExprKind
+}
+
+// applyPolicy waits for the policy owner, not merely event publication. The
+// registry entry acknowledgement therefore includes downstream visibility.
+func (m *Manager) applyPolicy(ctx context.Context, id registry.ID, kind event.Kind, entry *security.PolicyEntry) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.owner == nil {
+		return security.ErrRegistryNotFound
+	}
+	return m.owner.ApplyPolicy(ctx, id, kind, entry)
 }

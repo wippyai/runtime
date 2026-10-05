@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/runtime"
 	ttyapi "github.com/wippyai/runtime/api/tty"
+	"github.com/wippyai/tty/canvas"
+	termtext "github.com/wippyai/tty/text"
 )
 
 const (
@@ -30,12 +30,9 @@ func pageColors(t *testing.T) (color.Color, color.Color) {
 
 // rowCells decodes a rendered row back into styled cells without reusing the
 // resolver's own composition helpers.
-func rowCells(t *testing.T, row string, width int) uv.Line {
+func rowCells(t *testing.T, row string, width int) canvas.Line {
 	t.Helper()
-	screen := uv.NewScreenBuffer(width, 1)
-	screen.Method = ansi.GraphemeWidth
-	uv.NewStyledString(row).Draw(screen, screen.Bounds())
-	return screen.Line(0)
+	return canvas.Parse(row, width)
 }
 
 func sameColor(a, b color.Color) bool {
@@ -49,7 +46,7 @@ func sameColor(a, b color.Color) bool {
 
 func requirePageRow(t *testing.T, row string, width int, foreground, background color.Color) {
 	t.Helper()
-	require.Equal(t, width, ansi.StringWidth(row), "row %q must cover the viewport width", row)
+	require.Equal(t, width, termtext.Width(row), "row %q must cover the viewport width", row)
 	for index, cell := range rowCells(t, row, width) {
 		// Zero-width cells are wide-glyph placeholders and carry no style.
 		if cell.Width < 1 {
@@ -97,7 +94,7 @@ func TestViewportPageResolvesProducerDefaultCells(t *testing.T) {
 	for _, row := range rows {
 		requirePageRow(t, row, 6, foreground, background)
 	}
-	require.Equal(t, "ab    ", ansi.Strip(rows[0]))
+	require.Equal(t, "ab    ", termtext.Strip(rows[0]))
 	require.Equal(t, page, view.(*viewport).session.page)
 }
 
@@ -142,12 +139,12 @@ func TestViewportPageResolvesWideCellsAndClippedSequences(t *testing.T) {
 
 	foreground, background := pageColors(t)
 	rows := view.Snapshot().Rows
-	require.Equal(t, 6, ansi.StringWidth(rows[0]))
-	require.Equal(t, "世界  ", ansi.Strip(rows[0]))
+	require.Equal(t, 6, termtext.Width(rows[0]))
+	require.Equal(t, "世界  ", termtext.Strip(rows[0]))
 	requirePageRow(t, rows[0], 6, foreground, background)
 	require.NotContains(t, rows[1], "\x1b[31", "a clipped sequence must not reach a composited row")
 	requirePageRow(t, rows[1], 6, foreground, background)
-	require.Equal(t, "ok    ", ansi.Strip(rows[1]))
+	require.Equal(t, "ok    ", termtext.Strip(rows[1]))
 }
 
 func TestViewportWithoutPagePublishesProducerRows(t *testing.T) {
@@ -296,10 +293,10 @@ func TestPageOwnerAuthorityResizeAndCachedSnapshots(t *testing.T) {
 	for _, row := range view.Snapshot().Rows {
 		requirePageRow(t, row, 2, foreground, background)
 	}
-	require.Equal(t, "a   ", ansi.Strip(before.Rows[0]), "retained snapshots stay immutable")
+	require.Equal(t, "a   ", termtext.Strip(before.Rows[0]), "retained snapshots stay immutable")
 	_, err = surface.Present(ttyapi.Frame{Rows: []string{"a"}})
 	require.NoError(t, err)
-	require.Equal(t, "  ", ansi.Strip(view.Snapshot().Rows[1]), "omitted row clears stale content")
+	require.Equal(t, "  ", termtext.Strip(view.Snapshot().Rows[1]), "omitted row clears stale content")
 	require.Zero(t, testing.AllocsPerRun(100, func() { _ = view.Snapshot() }))
 	require.NoError(t, view.Close())
 	require.ErrorIs(t, view.(ttyapi.PageViewport).SetPage(ctx, nil), ttyapi.ErrViewportClosed)

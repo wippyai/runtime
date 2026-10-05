@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
@@ -24,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
+	"github.com/wippyai/runtime/cmd/internal/style"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -295,7 +295,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 	var moduleSource lock.ModuleLoadPath
 	rootModulePack := false
 	if moduleName != "" {
-		moduleSource, err = resolvePackModule(moduleName, modulePaths, lockObj.GetRootModules())
+		rootModules, rootErr := packRootModules(lockObj.GetRootModules(), folderPath)
+		if rootErr != nil {
+			return NewPackConfigError(rootErr)
+		}
+		moduleSource, err = resolvePackModule(moduleName, modulePaths, rootModules)
 		if err != nil {
 			return NewPackConfigError(err)
 		}
@@ -517,6 +521,14 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 		metadata["wippy_date"] = version.Date
 		metadata["packed_at"] = time.Now().UTC().Format(time.RFC3339)
 		metadata["entry_count"] = len(loadedEntries)
+	} else {
+		rootMetadata, metadataErr := rootPackMetadata(filepath.Dir(lockPath))
+		if metadataErr != nil {
+			return NewPackConfigError(metadataErr)
+		}
+		for key, value := range rootMetadata {
+			metadata[key] = value
+		}
 	}
 
 	if description != "" {
@@ -899,12 +911,12 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("12")).
+	titleStyle := style.New().
+		Foreground(12).
 		Bold(true)
 
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	labelStyle := style.New().Foreground(14)
+	dimStyle := style.New().Foreground(8)
 
 	fmt.Println(titleStyle.Render("\nAvailable fs.directory entries:"))
 	fmt.Println()

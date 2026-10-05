@@ -147,6 +147,16 @@ func (r *fakeEventualRegistry) Unregister(name string) bool {
 	return ok
 }
 
+func (r *fakeEventualRegistry) ReleasePID(p pid.PID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for name, bound := range r.entries {
+		if bound == p {
+			delete(r.entries, name)
+		}
+	}
+}
+
 func (r *fakeEventualRegistry) Lookup(_ context.Context, name string, opts ...globalapi.LookupOption) (globalapi.LookupResult, error) {
 	if r.lookupErr != nil {
 		return globalapi.LookupResult{}, r.lookupErr

@@ -77,6 +77,7 @@ type Bus struct {
 	subscribers       map[event.SubscriberID]sub
 	actionReady       chan struct{}
 	collector         atomic.Pointer[metrics.Collector]
+	done              chan struct{}
 	actionQueue       []action
 	spareQueue        []action
 	wg                sync.WaitGroup
@@ -93,6 +94,7 @@ func NewBus() *Bus {
 		actionQueue:    make([]action, 0, defaultQueueCap),
 		spareQueue:     make([]action, 0, defaultQueueCap),
 		actionReady:    make(chan struct{}, 1), // Buffered so signal never blocks
+		done:           make(chan struct{}),
 		maxSubscribers: DefaultMaxSubscribers,
 	}
 
@@ -262,6 +264,12 @@ func (b *Bus) HasSubscribers(system event.System, kind event.Kind) bool {
 	return <-req.doneCh
 }
 
+// Done closes when shutdown begins. It lets request/reply publishers release
+// waiters even though Send intentionally does not report failed delivery.
+func (b *Bus) Done() <-chan struct{} {
+	return b.done
+}
+
 // Stop gracefully shuts down the event bus.
 func (b *Bus) Stop() {
 	// Atomically set closed and enqueue stop action
@@ -273,6 +281,7 @@ func (b *Bus) Stop() {
 		b.wg.Wait()
 		return
 	}
+	close(b.done)
 	b.actionQueue = append(b.actionQueue, action{
 		kind: actStop,
 	})

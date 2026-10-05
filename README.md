@@ -277,10 +277,6 @@ cluster:
     identity_key_file: ""
     trusted_peer_keys: {} # node name to base64-encoded Ed25519 public key
 
-extensions:
-  enabled: true
-  paths: []
-
 override: {}
 
 disable:
@@ -373,7 +369,7 @@ and any variables they or the published profiles reference are carried into the
 application pack as defaults. Variable references are followed transitively.
 Use `publish.runtime.vars` only for intentionally public defaults which are not
 otherwise referenced; unlisted variables are not packaged. Publisher
-environment references and machine-local `boot`, `extensions`, and `workspace`
+environment references and machine-local `boot` and `workspace`
 sections are rejected.
 
 Existing `replacements:` in `wippy.lock` remain readable for compatibility but
@@ -383,6 +379,35 @@ workspace replacements should not be added to the portable lock.
 ## Requirements
 
 - Go 1.26+
+
+## Optional build features
+
+Default builds and official release binaries exclude Tailscale and Tree-sitter.
+SOCKS5/Tor and I2P overlays remain available in the default build. Enable optional
+features when building from source:
+
+```sh
+make build-wippy WIPPY_FEATURES=tailscale
+make build-wippy WIPPY_FEATURES=treesitter
+make build-wippy WIPPY_FEATURES="tailscale treesitter"
+```
+
+These are Go build tags. For a direct Go build, preserve the standard SQLite
+tags and add the requested features:
+
+```sh
+CGO_ENABLED=1 go build -tags "fts5 sqlite_vec sqlite_preupdate_hook tailscale treesitter" ./cmd/wippy
+```
+
+Use the Makefile targets for a complete executable with its embedded native
+confinement helper. Tree-sitter requires CGO. Without the corresponding tag,
+`network.tailscale` entries fail with an unsupported-kind error and
+`require("treesitter")` is unavailable. The feature choices also apply to
+`make run-wippy` and every `build-wippy-*` platform target.
+
+Native Go `.so` extensions are no longer supported. Remove the `extensions`
+configuration section; non-empty legacy configuration is rejected at startup.
+Lua modules, WebAssembly and statically supplied Go boot components are unaffected.
 
 ## License
 

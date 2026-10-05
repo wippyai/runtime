@@ -7,8 +7,6 @@ import (
 	"image/color"
 	"testing"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -18,6 +16,8 @@ import (
 	ttyapi "github.com/wippyai/runtime/api/tty"
 	relaysys "github.com/wippyai/runtime/system/relay"
 	ttysys "github.com/wippyai/runtime/system/tty"
+	"github.com/wippyai/tty/canvas"
+	termtext "github.com/wippyai/tty/text"
 )
 
 const (
@@ -73,12 +73,9 @@ func luaString(t *testing.T, l *lua.LState, name string) string {
 }
 
 // luaCells decodes a snapshot row back into styled cells.
-func luaCells(t *testing.T, row string, width int) uv.Line {
+func luaCells(t *testing.T, row string, width int) canvas.Line {
 	t.Helper()
-	screen := uv.NewScreenBuffer(width, 1)
-	screen.Method = ansi.GraphemeWidth
-	uv.NewStyledString(row).Draw(screen, screen.Bounds())
-	return screen.Line(0)
+	return canvas.Parse(row, width)
 }
 
 func luaSameColor(a, b color.Color) bool {
@@ -98,8 +95,11 @@ func luaPageColors(t *testing.T) (color.Color, color.Color) {
 
 func requireLuaPageRow(t *testing.T, row string, width int, foreground, background color.Color) {
 	t.Helper()
-	require.Equal(t, width, ansi.StringWidth(row), "row %q must cover the viewport width", row)
+	require.Equal(t, width, termtext.Width(row), "row %q must cover the viewport width", row)
 	for index, cell := range luaCells(t, row, width) {
+		if cell.Width < 1 {
+			continue
+		}
 		require.Truef(t, luaSameColor(cell.Style.Fg, foreground),
 			"cell %d of %q must carry the page foreground", index, row)
 		require.Truef(t, luaSameColor(cell.Style.Bg, background),
@@ -128,7 +128,7 @@ func TestLuaViewportPageResolvesDefaultCells(t *testing.T) {
 	for _, name := range []string{"row1", "row2", "row3"} {
 		requireLuaPageRow(t, luaString(t, l, name), 6, foreground, background)
 	}
-	require.Equal(t, "ab    ", ansi.Strip(luaString(t, l, "row1")))
+	require.Equal(t, "ab    ", termtext.Strip(luaString(t, l, "row1")))
 }
 
 func TestLuaViewportPagePreservesProducerColors(t *testing.T) {

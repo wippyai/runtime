@@ -4,16 +4,14 @@ package supervisor
 
 import (
 	"context"
-	"os"
 	"sync"
 	"sync/atomic"
-	"syscall"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 var (
-	signalChannelKey = &ctxapi.Key{Name: "supervisor.signal"}
+	shutdownRequestKey = &ctxapi.Key{Name: "supervisor.shutdown_requests"}
 	// exitCode is stored atomically since it's set at runtime during shutdown
 	exitCode     atomic.Int32
 	shutdownSent atomic.Bool
@@ -32,35 +30,37 @@ func GetExitCode() int {
 	return int(exitCode.Load())
 }
 
-// SetSignalChannel stores the signal channel in the application context.
+// SetShutdownRequestChannel stores the channel that receives programmatic
+// shutdown requests in the application context. It carries requests only; OS
+// termination signals travel on their own channel owned by the process runner.
 // Must be called during boot before AppContext is sealed.
-func SetSignalChannel(ctx context.Context, ch chan<- os.Signal) {
+func SetShutdownRequestChannel(ctx context.Context, ch chan<- struct{}) {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac != nil {
 		shutdownMu.Lock()
 		defer shutdownMu.Unlock()
 		setExitCode(0)
 		shutdownSent.Store(false)
-		ac.With(signalChannelKey, ch)
+		ac.With(shutdownRequestKey, ch)
 	}
 }
 
-func getSignalChannel(ctx context.Context) chan<- os.Signal {
+func getShutdownRequestChannel(ctx context.Context) chan<- struct{} {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
 	}
-	if ch := ac.Get(signalChannelKey); ch != nil {
-		if c, ok := ch.(chan<- os.Signal); ok {
+	if ch := ac.Get(shutdownRequestKey); ch != nil {
+		if c, ok := ch.(chan<- struct{}); ok {
 			return c
 		}
 	}
 	return nil
 }
 
-// TriggerShutdown sets the exit code and sends a SIGTERM signal to trigger
-// graceful application shutdown. Only the first call sends the signal;
-// subsequent calls update the exit code but do not send duplicate signals.
+// TriggerShutdown sets the exit code and sends a shutdown request to trigger
+// graceful application shutdown. Only the first call sends the request;
+// subsequent calls update the exit code but do not send duplicate requests.
 func TriggerShutdown(ctx context.Context, code int) {
 	shutdownMu.Lock()
 	setExitCode(code)
@@ -68,10 +68,10 @@ func TriggerShutdown(ctx context.Context, code int) {
 		shutdownMu.Unlock()
 		return
 	}
-	ch := getSignalChannel(ctx)
+	ch := getShutdownRequestChannel(ctx)
 	shutdownMu.Unlock()
 	if ch != nil {
-		ch <- syscall.SIGTERM
+		ch <- struct{}{}
 	}
 }
 
@@ -85,9 +85,9 @@ func TriggerShutdownIfIdle(ctx context.Context, code int) {
 		return
 	}
 	setExitCode(code)
-	ch := getSignalChannel(ctx)
+	ch := getShutdownRequestChannel(ctx)
 	shutdownMu.Unlock()
 	if ch != nil {
-		ch <- syscall.SIGTERM
+		ch <- struct{}{}
 	}
 }

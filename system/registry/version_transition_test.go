@@ -19,6 +19,9 @@ import (
 
 // TestRunner implements registry.Runner for testing with transition tracking
 type TestRunner struct {
+	// committed runs where the bus runner dispatches registry.commit: after
+	// the transition's operations and before the registry publishes its state.
+	committed   func()
 	transitions []registry.ChangeSet
 	state       registry.State
 }
@@ -56,6 +59,9 @@ func (m *TestRunner) Transition(_ context.Context, from registry.State, cs regis
 	}
 
 	m.state = result
+	if m.committed != nil {
+		m.committed()
+	}
 	return result, nil
 }
 

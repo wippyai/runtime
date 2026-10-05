@@ -26,7 +26,18 @@ import (
 	"go.uber.org/zap"
 )
 
-func (m *Manager) createPool(id registry.ID, cfg *configEntry, module *wasmrt.Module) error {
+func (m *Manager) createPool(id registry.ID, cfg *configEntry, module *wasmrt.Module) (err error) {
+	if cfg.usesIsolatedModule() {
+		// Isolated factories load their own modules. Keep registration-time
+		// validation, but do not retain its unused copy for the pool's lifetime.
+		m.releaseModule(module)
+		module = nil
+	}
+	defer func() {
+		if err != nil {
+			m.releaseModule(module)
+		}
+	}()
 	pool, err := m.buildPool(cfg, module)
 	if err != nil {
 		return err
@@ -49,7 +60,9 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry, module *wasmrt.Mo
 	}
 
 	m.mu.Lock()
-	m.pools[id] = newPoolEntry(pool, cfg.method, hostID)
+	entry := newPoolEntry(pool, cfg.method, hostID)
+	entry.module = module
+	m.pools[id] = entry
 	m.mu.Unlock()
 
 	return nil
@@ -80,7 +93,16 @@ func (m *Manager) buildPool(cfg *configEntry, module *wasmrt.Module) (funcpool.P
 	return pool, nil
 }
 
-func (m *Manager) replacePool(id registry.ID, cfg *configEntry, module *wasmrt.Module) error {
+func (m *Manager) replacePool(id registry.ID, cfg *configEntry, module *wasmrt.Module) (err error) {
+	if cfg.usesIsolatedModule() {
+		m.releaseModule(module)
+		module = nil
+	}
+	defer func() {
+		if err != nil {
+			m.releaseModule(module)
+		}
+	}()
 	pool, err := m.buildPool(cfg, module)
 	if err != nil {
 		return err
@@ -103,6 +125,7 @@ func (m *Manager) replacePool(id registry.ID, cfg *configEntry, module *wasmrt.M
 	}
 
 	newEntry := newPoolEntry(pool, cfg.method, hostID)
+	newEntry.module = module
 	m.mu.Lock()
 	oldEntry, exists := m.pools[id]
 	m.pools[id] = newEntry
@@ -186,7 +209,16 @@ func (m *Manager) retirePoolEntry(entry *poolEntry) {
 		if m.node != nil {
 			m.node.UnregisterHost(entry.hostID)
 		}
+		m.releaseModule(entry.module)
 	})
+}
+
+func (m *Manager) releaseModule(module *wasmrt.Module) {
+	if module != nil {
+		if err := module.Release(context.Background()); err != nil {
+			m.log.Warn("wasm module release failed", zap.Error(err))
+		}
+	}
 }
 
 func (m *Manager) nextPoolHostID(id registry.ID) string {

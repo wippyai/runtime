@@ -95,21 +95,25 @@ func parseLaunch(e Executable, args []string) (Launch, error) {
 		return Launch{}, err
 	}
 	launch := Launch{Command: e.Command, Explicit: state != ""}
-	if state == "" {
+	if launch.Dir, err = os.Getwd(); err != nil {
+		return Launch{}, NewApplicationStateError("resolve working directory", "", err)
+	}
+	switch {
+	case state != "":
+	case e.State != "":
+		state = e.State
+	default:
 		config, err := os.UserConfigDir()
 		if err != nil {
 			return Launch{}, NewApplicationStateError("resolve default state directory", e.Name, err)
 		}
 		state = filepath.Join(config, e.Name)
 	}
-	absolute, err := filepath.Abs(state)
+	absolute, err := resolveDefaultState(launch.Dir, state)
 	if err != nil {
 		return Launch{}, NewApplicationStateError("resolve state directory", state, err)
 	}
 	launch.State = absolute
-	if launch.Dir, err = os.Getwd(); err != nil {
-		return Launch{}, NewApplicationStateError("resolve working directory", "", err)
-	}
 	launch.Op, launch.Args = OpRun, remaining
 	if len(remaining) > 0 {
 		switch remaining[0] {

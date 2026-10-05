@@ -13,10 +13,14 @@ test:
 	go test ./system/... -v -race -short
 	go test ./service/... -v -race -short
 	go test ./cluster/... -v -race -short
-	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race -short
+	go test --tags "$(WIPPY_BUILD_TAGS)" ./runtime/... -v -race -short
 	go test ./boot/... -v -race -short
-	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/... -v -race -short
-	cd internal/thirdparty/ansi && go test ./... -v -race -short
+	go test --tags "$(WIPPY_BUILD_TAGS)" ./cmd/... -v -race -short
+	$(MAKE) test-optional-features
+
+.PHONY: test-optional-features
+test-optional-features:
+	go test -tags "$(WIPPY_BUILD_TAGS) tailscale treesitter" -race -short ./boot/components/service ./service/net/tailscale ./runtime/lua/modules/treesitter
 
 # Local heavy WASM acceptance, excluded from the normal CI short suite.
 # Includes both sustained SQLite load windows; fixtures fail closed if missing.
@@ -50,7 +54,7 @@ test-system:
 test-runtime:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
-	go test --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./runtime/... -v -race
+	go test --tags "$(WIPPY_BUILD_TAGS)" ./runtime/... -v -race
 
 test-service:
 	go test ./internal/... -v -race
@@ -99,7 +103,10 @@ otel-e2e:
 	cd tests && docker-compose up -d jaeger
 	go test -tags integration -run TestOTLP_TracesReachJaeger ./tests/ -timeout 120s
 
-# Wippy CLI build targets
+# Wippy CLI build targets. Optional features are disabled unless requested.
+WIPPY_FEATURES ?=
+WIPPY_BUILD_TAGS := fts5 sqlite_vec sqlite_preupdate_hook $(WIPPY_FEATURES)
+
 WIPPY_VERSION ?= $(shell if wippy_description=$$(git describe --tags --always --dirty 2>/dev/null); then printf 'dev-%s' "$$wippy_description"; else printf 'dev'; fi)
 WIPPY_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 WIPPY_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -132,7 +139,7 @@ build-wippy-local:
 		test -n "$$cdhash" || exit 1; \
 		ldflags="$$ldflags -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest -X github.com/wippyai/runtime/service/exec/native.darwinHelperCDHash=$$cdhash"; \
 	fi; \
-	CGO_ENABLED=1 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
+	CGO_ENABLED=1 go build --tags "$(WIPPY_BUILD_TAGS)" \
 		-ldflags="$$ldflags" \
 		-trimpath \
 		-o ./dist/wippy-$(shell go env GOOS)-$(shell go env GOARCH) \
@@ -149,7 +156,7 @@ build-wippy-linux-amd64:
 	mkdir -p ./dist
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o ./dist/confine-linux-amd64 ./service/exec/native/cmd/confine-linux/
 	@digest="$$(sha256sum ./dist/confine-linux-amd64 | cut -d ' ' -f 1)"; \
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build --tags "$(WIPPY_BUILD_TAGS)" \
 		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.linuxHelperSHA256=$$digest" \
 		-trimpath \
 		-o ./dist/wippy-linux-amd64 \
@@ -162,7 +169,7 @@ build-wippy-linux-arm64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o ./dist/confine-linux-arm64 ./service/exec/native/cmd/confine-linux/
 	@digest="$$(sha256sum ./dist/confine-linux-arm64 | cut -d ' ' -f 1)"; \
 	CGO_LDFLAGS="" CGO_CFLAGS="" CC=aarch64-linux-gnu-gcc \
-	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
+	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build --tags "$(WIPPY_BUILD_TAGS)" \
 		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.linuxHelperSHA256=$$digest" \
 		-trimpath \
 		-o ./dist/wippy-linux-arm64 \
@@ -177,7 +184,7 @@ build-wippy-darwin-amd64:
 	@digest="$$(shasum -a 256 ./dist/confine-darwin-amd64 | cut -d ' ' -f 1)"; \
 	cdhash="$$(codesign -d --verbose=4 ./dist/confine-darwin-amd64 2>&1 | sed -n 's/^CDHash=//p')"; \
 	test -n "$$cdhash" && \
-	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build --tags "$(WIPPY_BUILD_TAGS)" \
 		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest -X github.com/wippyai/runtime/service/exec/native.darwinHelperCDHash=$$cdhash" \
 		-trimpath \
 		-o ./dist/wippy-darwin-amd64 \
@@ -192,7 +199,7 @@ build-wippy-darwin-arm64:
 	@digest="$$(shasum -a 256 ./dist/confine-darwin-arm64 | cut -d ' ' -f 1)"; \
 	cdhash="$$(codesign -d --verbose=4 ./dist/confine-darwin-arm64 2>&1 | sed -n 's/^CDHash=//p')"; \
 	test -n "$$cdhash" && \
-	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build --tags "$(WIPPY_BUILD_TAGS)" \
 		-ldflags="$(WIPPY_LDFLAGS) -X github.com/wippyai/runtime/service/exec/native.darwinHelperSHA256=$$digest -X github.com/wippyai/runtime/service/exec/native.darwinHelperCDHash=$$cdhash" \
 		-trimpath \
 		-o ./dist/wippy-darwin-arm64 \
@@ -203,7 +210,7 @@ build-wippy-darwin-arm64:
 build-wippy-windows-amd64:
 	mkdir -p ./dist
 	CGO_LDFLAGS="" CGO_CFLAGS="" CC=x86_64-w64-mingw32-gcc \
-	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" \
+	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "$(WIPPY_BUILD_TAGS)" \
 		-ldflags="$(WIPPY_LDFLAGS)" \
 		-trimpath \
 		-o ./dist/wippy-windows-amd64.exe \
@@ -236,8 +243,8 @@ build-sign-wippy-windows: build-wippy-windows-amd64 sign-wippy-windows
 
 .PHONY: run-wippy
 run-wippy:
-	go run --tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" -ldflags="$(WIPPY_LDFLAGS)" ./cmd/wippy/ $(ARGS)
+	go run --tags "$(WIPPY_BUILD_TAGS)" -ldflags="$(WIPPY_LDFLAGS)" ./cmd/wippy/ $(ARGS)
 
 .PHONY: test-application
 test-application:
-	go test -tags "fts5 sqlite_vec treesitter sqlite_preupdate_hook" ./cmd/app ./cmd/wippy/cmd ./cmd/internal/entries ./boot/deps/lock
+	go test -tags "$(WIPPY_BUILD_TAGS)" ./cmd/app ./cmd/wippy/cmd ./cmd/internal/entries ./boot/deps/lock

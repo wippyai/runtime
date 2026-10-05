@@ -52,9 +52,9 @@ func TestCheckerTestManifestsMatchRuntimeModules(t *testing.T) {
 	}
 }
 
-// The pinned go-lua fixture predates the optional lookup scope. Extend only
-// that signature with an independent expectation; all other fixture types
-// still participate in the exact parity comparison above.
+// The pinned go-lua fixture predates the optional lookup scope and MONITOR_DOWN.
+// Extend those declarations independently; all other fixture types still
+// participate in the exact parity comparison above.
 func scopedProcessCheckerManifest(t *testing.T) *io.Manifest {
 	t.Helper()
 	m := testutil.ProcessManifest()
@@ -78,6 +78,25 @@ func scopedProcessCheckerManifest(t *testing.T) *io.Manifest {
 	})
 	if !found {
 		t.Fatal("checker fixture is missing process.registry.lookup")
+	}
+	foundEvents := false
+	export = typ.Rewrite(export, func(value typ.Type) (typ.Type, bool) {
+		if record, ok := value.(*typ.Record); ok {
+			if field := record.GetField("event"); field != nil {
+				events, ok := field.Type.(*typ.Record)
+				if !ok {
+					t.Fatal("checker fixture process.event is not a record")
+				}
+				updated := *field
+				updated.Type = events.WithField(typ.Field{Name: "MONITOR_DOWN", Type: typ.String})
+				foundEvents = true
+				return record.WithField(updated), true
+			}
+		}
+		return value, false
+	})
+	if !foundEvents {
+		t.Fatal("checker fixture is missing process.event")
 	}
 	m.SetExport(export)
 	return m

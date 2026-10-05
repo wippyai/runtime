@@ -133,13 +133,13 @@ func TestRunPackEntries_GracefulShutdownStopsRunningService(t *testing.T) {
 	}
 }
 
-func TestWaitForShutdownSignal_InvokesOnFirstSignalOnlyWhenSet(t *testing.T) {
+func TestWaitForShutdown_InvokesOnFirstSignalOnlyWhenSet(t *testing.T) {
 	t.Run("invokes callback when set", func(t *testing.T) {
-		sigChan := make(chan os.Signal, 1)
-		sigChan <- syscall.SIGTERM
+		sources := newTestShutdownSources()
+		sources.signals <- syscall.SIGTERM
 
 		called := make(chan struct{}, 1)
-		waitForShutdownSignal(t.Context(), sigChan, zap.NewNop(), func() { called <- struct{}{} })
+		waitForShutdown(t.Context(), sources, zap.NewNop(), func() { called <- struct{}{} })
 
 		select {
 		case <-called:
@@ -149,10 +149,10 @@ func TestWaitForShutdownSignal_InvokesOnFirstSignalOnlyWhenSet(t *testing.T) {
 	})
 
 	t.Run("tolerates a nil callback", func(t *testing.T) {
-		sigChan := make(chan os.Signal, 1)
-		sigChan <- syscall.SIGTERM
+		sources := newTestShutdownSources()
+		sources.signals <- syscall.SIGTERM
 
-		waitForShutdownSignal(t.Context(), sigChan, zap.NewNop(), nil)
+		waitForShutdown(t.Context(), sources, zap.NewNop(), nil)
 	})
 }
 
@@ -185,12 +185,12 @@ func waitForServiceStatus(t *testing.T, sup *supervisorpkg.Supervisor, serviceID
 	t.Fatalf("timeout waiting for service %q to reach status %q", serviceID, status)
 }
 
-func TestWaitForShutdownSignalAcceptsParentCancellation(t *testing.T) {
+func TestWaitForShutdownAcceptsParentCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	done := make(chan struct{})
 	go func() {
-		waitForShutdownSignal(ctx, make(chan os.Signal, 1), zap.NewNop(), func() { t.Error("cancellation reported an OS signal") })
+		waitForShutdown(ctx, newTestShutdownSources(), zap.NewNop(), func() { t.Error("cancellation reported an OS signal") })
 		close(done)
 	}()
 	select {

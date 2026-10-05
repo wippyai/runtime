@@ -6,6 +6,10 @@ Tree-sitter parsing and syntax analysis for multiple programming languages. Enco
 
 ## Loading
 
+This module is excluded from default builds and official release binaries.
+Build with `make build-wippy WIPPY_FEATURES=treesitter` or the Go `treesitter`
+build tag (CGO required). Without the tag, `require("treesitter")` is unavailable.
+
 ```lua
 local treesitter = require("treesitter")
 ```

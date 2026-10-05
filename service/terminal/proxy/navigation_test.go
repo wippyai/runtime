@@ -20,8 +20,10 @@ func TestLegacyNavigationMatrix(t *testing.T) {
 		for mask := 0; mask < 8; mask++ {
 			for _, application := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/mod%d/app%t", name, mask, application), func(t *testing.T) {
-					var input inputState
-					input.appCursor.Store(application)
+					proxy, process := newModeProxy(t)
+					if application {
+						proxy.feed(t, setApplicationCursor)
+					}
 					event := ttyapi.Event{Type: "key", KeyType: name, Action: "press", Shift: mask&1 != 0, Alt: mask&2 != 0, Ctrl: mask&4 != 0}
 					want := "\x1b[" + code
 					if mask != 0 {
@@ -33,9 +35,11 @@ func TestLegacyNavigationMatrix(t *testing.T) {
 					} else if (application && len(code) == 1) || (name == "f1" || name == "f2" || name == "f3" || name == "f4") {
 						want = "\x1bO" + code
 					}
-					require.Equal(t, want, input.key(event))
+					require.NoError(t, proxy.handle(event))
+					require.Equal(t, want, string(<-process.input))
 					event.Action = "release"
-					require.Empty(t, input.key(event))
+					require.NoError(t, proxy.handle(event))
+					requireNoInput(t, process)
 				})
 			}
 		}
@@ -57,11 +61,22 @@ func TestLegacyNavigationModifiers(t *testing.T) {
 		{"f5", "\x1b[15;5~", false, false, true},
 	} {
 		t.Run(item.name, func(t *testing.T) {
-			var input inputState
+			proxy, process := newModeProxy(t)
 			event := ttyapi.Event{Type: "key", KeyType: item.name, Action: "press", Shift: item.shift, Alt: item.alt, Ctrl: item.ctrl}
-			require.Equal(t, item.want, input.key(event))
+			require.NoError(t, proxy.handle(event))
+			require.Equal(t, item.want, string(<-process.input))
 			event.Action = "release"
-			require.Empty(t, input.key(event))
+			require.NoError(t, proxy.handle(event))
+			requireNoInput(t, process)
 		})
+	}
+}
+
+func requireNoInput(t *testing.T, process *testProcess) {
+	t.Helper()
+	select {
+	case unexpected := <-process.input:
+		t.Fatalf("unexpected input reached the child: %q", unexpected)
+	default:
 	}
 }

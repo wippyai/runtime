@@ -17,7 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/mattn/go-sqlite3"
+	"github.com/rqlite/go-sqlite3"
 
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )

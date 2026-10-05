@@ -58,6 +58,8 @@ func operateTransient(ctx context.Context, e Executable, l Launch, prepare func(
 		}
 	}()
 	l.State = state
+	// A private transient state is never redirected to another transient state.
+	e.OwnedCommand = ""
 	return operate(ctx, e, l, prepare)
 }
 
@@ -77,6 +79,7 @@ func operateStateFree(ctx context.Context, e Executable, l Launch) error {
 	if err != nil {
 		return err
 	}
+	releaseSignals(ctx)
 	return execute(ctx, cmd.ExecuteOptions{
 		Args:        l.Args,
 		LockFile:    filepath.Join(deploymentsPath(l.State), e.Bundle.ID(), lock.DefaultFilename),
@@ -99,6 +102,10 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 	}
 	unlock, err := lockState(l.State)
 	if err != nil {
+		if l.Op == OpRun && e.OwnedCommand != "" && errors.Is(err, ErrOwned) {
+			l.Command = e.OwnedCommand
+			return operateTransient(ctx, e, l, prepare)
+		}
 		return err
 	}
 	defer func() { result = errors.Join(result, unlock()) }()
@@ -175,6 +182,7 @@ func operate(ctx context.Context, e Executable, l Launch, prepare func(context.C
 		return err
 	}
 	bootPhase(e, "runtime_boot", "begin")
+	releaseSignals(ctx)
 	return execute(ctx, cmd.ExecuteOptions{
 		Args:        runtimeArgs(l),
 		LockFile:    lockPath,

@@ -3,16 +3,14 @@
 package app
 
 import (
-	"archive/tar"
+	"archive/zip"
 	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	luaiio "github.com/wippyai/go-lua/types/io"
@@ -108,35 +106,50 @@ func TestSeedLuaCacheSkipsInvalidMetadataLazily(t *testing.T) {
 
 // Only update-cache merge tests need a materialized archive.
 func unpackLuaCacheSeed(archive []byte, destination string) error {
-	return readLuaCacheArchive(archive, func(name string, data []byte) error {
+	files, err := indexLuaCacheArchive(archive)
+	if err != nil {
+		return err
+	}
+	for name, file := range files {
+		data, err := readLuaCacheMember(file)
+		if err != nil {
+			return err
+		}
 		target := filepath.Join(destination, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return err
 		}
-		return os.WriteFile(target, data, 0o600)
-	})
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func TestUnpackLuaCacheSeedRejectsUnsafeEntries(t *testing.T) {
+func TestIndexLuaCacheArchiveRejectsUnsafeEntries(t *testing.T) {
 	key := cache.CompileKey("fingerprint")
 	for _, tc := range []struct {
 		name string
-		kind byte
+		mode os.FileMode
 	}{
-		{name: "../escape", kind: tar.TypeReg},
-		{name: "/escape", kind: tar.TypeReg},
-		{name: "v1/entries/invalid/meta.json", kind: tar.TypeReg},
-		{name: "v1/entries/" + key + "/unexpected", kind: tar.TypeReg},
-		{name: "v1/entries/" + key + "/proto.luac", kind: tar.TypeSymlink},
+		{name: "../escape", mode: 0o600},
+		{name: "/escape", mode: 0o600},
+		{name: "v1/entries/invalid/meta.json", mode: 0o600},
+		{name: "v1/entries/" + key + "/unexpected", mode: 0o600},
+		{name: "v1/entries/" + key + "/proto.luac", mode: os.ModeSymlink | 0o777},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var archive bytes.Buffer
-			gz := gzip.NewWriter(&archive)
-			writer := tar.NewWriter(gz)
-			require.NoError(t, writer.WriteHeader(&tar.Header{Name: tc.name, Typeflag: tc.kind, Linkname: "../escape"}))
+			writer := zip.NewWriter(&archive)
+			header := &zip.FileHeader{Name: tc.name, Method: zip.Deflate}
+			header.SetMode(tc.mode)
+			member, err := writer.CreateHeader(header)
+			require.NoError(t, err)
+			_, err = member.Write([]byte("../escape"))
+			require.NoError(t, err)
 			require.NoError(t, writer.Close())
-			require.NoError(t, gz.Close())
-			require.Error(t, unpackLuaCacheSeed(archive.Bytes(), t.TempDir()))
+			_, err = indexLuaCacheArchive(archive.Bytes())
+			require.Error(t, err)
 		})
 	}
 }
@@ -172,48 +185,27 @@ func testLuaCacheSeed(t *testing.T) (LuaCacheSeed, string, string) {
 func makeLuaCacheArchive(t testing.TB, root string) []byte {
 	t.Helper()
 	var output bytes.Buffer
-	gz := gzip.NewWriter(&output)
-	tarWriter := tar.NewWriter(gz)
+	writer := zip.NewWriter(&output)
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
+		if walkErr != nil || entry.IsDir() {
 			return walkErr
 		}
-		if entry.IsDir() {
-			return nil
-		}
-		info, err := entry.Info()
+		name, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		header, err := tar.FileInfoHeader(info, "")
+		member, err := writer.CreateHeader(&zip.FileHeader{Name: filepath.ToSlash(name), Method: zip.Deflate})
 		if err != nil {
 			return err
 		}
-		header.Name, err = filepath.Rel(root, path)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		header.Name = filepath.ToSlash(header.Name)
-		header.ModTime = time.Time{}
-		header.AccessTime = time.Time{}
-		header.ChangeTime = time.Time{}
-		header.Typeflag = tar.TypeReg
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return err
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(tarWriter, file)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		return closeErr
+		_, err = member.Write(data)
+		return err
 	}))
-	require.NoError(t, tarWriter.Close())
-	require.NoError(t, gz.Close())
+	require.NoError(t, writer.Close())
 	return output.Bytes()
 }
 
@@ -225,14 +217,13 @@ func sha256Bytes(data []byte) []byte {
 func TestSeedLuaCacheRejectsDuplicateAndTruncatedArchives(t *testing.T) {
 	seed, key, _ := testLuaCacheSeed(t)
 	var archive bytes.Buffer
-	gz := gzip.NewWriter(&archive)
-	writer := tar.NewWriter(gz)
+	writer := zip.NewWriter(&archive)
 	name := "v1/entries/" + key + "/meta.json"
 	for range 2 {
-		require.NoError(t, writer.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg}))
+		_, err := writer.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate})
+		require.NoError(t, err)
 	}
 	require.NoError(t, writer.Close())
-	require.NoError(t, gz.Close())
 	seed.Archive = archive.Bytes()
 	seed.Digest = "sha256:" + hex.EncodeToString(sha256Bytes(seed.Archive))
 	store, err := seedLuaCache(&seed)
@@ -245,16 +236,50 @@ func TestSeedLuaCacheRejectsDuplicateAndTruncatedArchives(t *testing.T) {
 	require.Nil(t, store)
 }
 
-func TestReadLuaCacheArchiveRejectsOversizedContentsBeforeReading(t *testing.T) {
+func TestIndexLuaCacheArchiveRejectsOversizedContents(t *testing.T) {
 	var archive bytes.Buffer
-	gz := gzip.NewWriter(&archive)
-	writer := tar.NewWriter(gz)
-	require.NoError(t, writer.WriteHeader(&tar.Header{
-		Name:     "v1/entries/" + cache.CompileKey("oversized") + "/proto.luac",
-		Typeflag: tar.TypeReg, Size: maxEmbeddedLuaCacheBytes + 1,
-	}))
-	// Deliberately omit the body: rejection must happen before allocating it.
-	require.NoError(t, gz.Close())
-	err := readLuaCacheArchive(archive.Bytes(), func(string, []byte) error { t.Fatal("oversized contents reached the cache"); return nil })
+	writer := zip.NewWriter(&archive)
+	member, err := writer.CreateRaw(&zip.FileHeader{
+		Name:               "v1/entries/" + cache.CompileKey("oversized") + "/proto.luac",
+		Method:             zip.Store,
+		UncompressedSize64: maxEmbeddedLuaCacheBytes + 1,
+	})
+	require.NoError(t, err)
+	// The declared size alone must reject the archive; the body stays empty.
+	_, err = member.Write(nil)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	_, err = indexLuaCacheArchive(archive.Bytes())
 	require.ErrorContains(t, err, "exceed")
+}
+
+// TestSeedLuaCacheKeepsEntriesCompressedUntilRead verifies that adopting the
+// embedded seed indexes it without decompressing its entries: a large entry
+// costs nothing until the runtime asks for it.
+func TestSeedLuaCacheKeepsEntriesCompressedUntilRead(t *testing.T) {
+	seed, compileKey, _ := testLuaCacheSeed(t)
+	staging := t.TempDir()
+	require.NoError(t, unpackLuaCacheSeed(seed.Archive, staging))
+	large := bytes.Repeat([]byte("bee "), 4<<20)
+	disk := cache.NewDiskStore(staging)
+	existing, ok, err := disk.Get(compileKey)
+	require.NoError(t, err)
+	require.True(t, ok)
+	existing.Proto = large
+	require.NoError(t, disk.Put(compileKey, existing))
+	seed.Archive = makeLuaCacheArchive(t, staging)
+	seed.Digest = "sha256:" + hex.EncodeToString(sha256Bytes(seed.Archive))
+
+	var before, after goruntime.MemStats
+	goruntime.GC()
+	goruntime.ReadMemStats(&before)
+	store, err := seedLuaCache(&seed)
+	goruntime.ReadMemStats(&after)
+	require.NoError(t, err)
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(len(large)/4), "adopting the seed decompressed its entries")
+
+	entry, ok, err := store.Get(compileKey)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, large, entry.Proto)
 }
