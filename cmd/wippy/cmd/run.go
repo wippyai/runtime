@@ -30,7 +30,6 @@ import (
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
-	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
@@ -265,13 +264,6 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	defer embedReg.Close()
 
 	components := selectedComponents()
-	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
-	if err != nil {
-		logger.Error("failed to load extensions", zap.Error(err))
-		return err
-	}
-
-	components = append(components, extensionComponents...)
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)
@@ -725,40 +717,6 @@ func createDefaultConfig() boot.Config {
 	}
 
 	return boot.NewConfig(opts...)
-}
-
-// loadExtensionComponents loads extension components while reserving existing
-// component names so extensions cannot shadow built-ins.
-func loadExtensionComponents(ctx context.Context, logger *zap.Logger, reserved []boot.Component) (context.Context, []boot.Component, error) {
-	reservedNames := make(map[string]struct{}, len(reserved))
-	for _, comp := range reserved {
-		if comp == nil {
-			continue
-		}
-		name := comp.Name()
-		if name == "" {
-			continue
-		}
-		reservedNames[name] = struct{}{}
-	}
-
-	next, res, err := bootextensions.LoadWithReserved(ctx, boot.GetConfig(ctx), reservedNames)
-	if err != nil {
-		return ctx, nil, err
-	}
-	if next != nil {
-		ctx = next
-	}
-
-	if logger != nil && len(res.Extensions) > 0 {
-		names := make([]string, 0, len(res.Extensions))
-		for _, p := range res.Extensions {
-			names = append(names, p.Name)
-		}
-		logger.Info("extensions loaded", zap.Int("count", len(res.Extensions)), zap.Strings("extensions", names))
-	}
-
-	return ctx, res.Components, nil
 }
 
 // applyCLIOverrides converts global runtime flags into boot config overrides.

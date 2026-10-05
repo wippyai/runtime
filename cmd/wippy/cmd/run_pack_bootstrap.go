@@ -52,14 +52,6 @@ func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger
 	ctx = embedapi.WithRegistry(ctx, embedReg)
 
 	components := selectedComponents()
-	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
-	if err != nil {
-		logger.Error("failed to load extensions", zap.Error(err))
-		embedReg.Close()
-		return nil, nil, nil, nil, err
-	}
-
-	components = append(components, extensionComponents...)
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)

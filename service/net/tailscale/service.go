@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+//go:build tailscale
+
 // Package tailscale implements the Tailscale overlay network driver. It
 // runs a userspace tsnet node per registry entry and routes DialContext
 // / Listen through the tailnet. Authentication uses a raw auth key; the
