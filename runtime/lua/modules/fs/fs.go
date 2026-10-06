@@ -274,7 +274,9 @@ func fsRemove(l *lua.LState) int {
 		l.Push(lua.WrapErrorWithLua(l, err, "invalid path").WithKind(lua.Invalid))
 		return 2
 	}
-	info, err := fs.fs.Stat(resolved)
+	// Remove unlinks the named entry, so a link to a directory is removed as
+	// a link and only a real directory must be empty.
+	info, err := fs.fs.Lstat(resolved)
 	if err == nil && info.IsDir() {
 		entries, err := fs.fs.ReadDir(resolved)
 		if err == nil && len(entries) > 0 {

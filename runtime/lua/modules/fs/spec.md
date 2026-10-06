@@ -195,7 +195,7 @@ Removes a file or empty directory.
 | remove failed | errors.INTERNAL | no |
 
 **Notes:**
-- Directories must be empty to be removed
+- Directories must be empty to be removed; a symbolic link is removed as a link, whatever it points to
 - Files and empty directories are removed atomically
 
 ### readdir(path: string) → iterator, state
