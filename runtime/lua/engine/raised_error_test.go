@@ -17,10 +17,9 @@ func TestProcessRaisedTypedError(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		script string
-		init   bool
 	}{
-		{"body", `return {main=function() error(errors.new({message="bad declaration", kind=errors.INVALID, retryable=false, details={field="target"}})) end}`, false},
-		{"initialization", `error(errors.new({message="bad declaration", kind=errors.INVALID, retryable=false, details={field="target"}}))`, true},
+		{"body", `return {main=function() error(errors.new({message="bad declaration", kind=errors.INVALID, retryable=false, details={field="target"}})) end}`},
+		{"initialization", `error(errors.new({message="bad declaration", kind=errors.INVALID, retryable=false, details={field="target"}}))`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			factory := NewFactory(FactoryConfig{Script: tc.script, ScriptName: "raised.lua", ModuleBinders: []ModuleBinder{wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })}})
@@ -31,16 +30,13 @@ func TestProcessRaisedTypedError(t *testing.T) {
 			proc := p.(*Process)
 			defer proc.Close()
 			ctx, _ := ctxapi.OpenFrameContext(context.Background())
-			err = proc.Init(ctx, "main", nil)
-			if !tc.init {
-				if err != nil {
-					t.Fatal(err)
-				}
-				var output process.StepOutput
-				err = proc.Step(nil, &output)
-				if output.Status() != process.StepDone {
-					t.Fatalf("status = %v", output.Status())
-				}
+			if err := proc.Init(ctx, "main", nil); err != nil {
+				t.Fatal(err)
+			}
+			var output process.StepOutput
+			err = proc.Step(nil, &output)
+			if output.Status() != process.StepDone {
+				t.Fatalf("status = %v", output.Status())
 			}
 			var apiErr apierror.Error
 			if !errors.As(err, &apiErr) {

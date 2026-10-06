@@ -218,3 +218,19 @@ func TestTask_PoolReuse(t *testing.T) {
 	assert.Equal(t, lua.ResumeYield, task2.State)
 	task2.Close()
 }
+
+// A closed task keeps no Lua values in its reusable buffers.
+func TestTaskCloseClearsReusableBuffers(t *testing.T) {
+	thread := lua.NewState()
+	task := NewTask(thread, nil)
+	task.retBuf = append(task.retBuf, lua.LString("result"), lua.LString("result2"))
+	task.ResumeWith(lua.LString("resumed"), lua.LString("resumed2"))
+	task.Close()
+
+	for i, v := range task.retBuf[:cap(task.retBuf)] {
+		require.Nil(t, v, "retBuf[%d]", i)
+	}
+	for i, v := range task.resumeBuf[:cap(task.resumeBuf)] {
+		require.Nil(t, v, "resumeBuf[%d]", i)
+	}
+}

@@ -87,3 +87,15 @@ func TestSpawnerContextPermissionStillRequired(t *testing.T) {
 	require.ErrorContains(t, l.DoString(`process.with_options({})`), "custom options")
 	require.ErrorContains(t, l.DoString(`process.with_context({})`), "custom context")
 }
+
+func TestSpawnerOptionsValidateExecutionBudgets(t *testing.T) {
+	l, _ := spawnerSecurityLua(t, &spawnerTestPolicy{contextAllowed: true})
+	require.NoError(t, l.DoString(`result = process.with_options({tick_budget = 2048, max_steps = 10})`))
+	spawner := l.GetGlobal("result").(*lua.LUserData).Value.(*Spawner)
+	budget, _ := spawner.options.Get("tick_budget")
+	require.EqualValues(t, 2048, budget)
+
+	require.ErrorContains(t, l.DoString(`process.with_options({tick_budget = "fast"})`), `"tick_budget" must be an integer`)
+	require.ErrorContains(t, l.DoString(`process.with_options({tick_budget = 1.5})`), `"tick_budget" must be an integer`)
+	require.ErrorContains(t, l.DoString(`process.with_options({max_steps = -1})`), `"max_steps" must be a non-negative integer`)
+}

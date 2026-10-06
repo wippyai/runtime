@@ -100,6 +100,8 @@ type Scheduler struct {
 	registry         dispatcher.Registry
 	global           *Queue
 	drainCh          chan struct{}
+	admitIdle        *sync.Cond
+	admissionCancels map[uint64]context.CancelFunc
 	byQueue          sync.Map
 	byPID            sync.Map
 	workers          atomic.Pointer[workerSet]
@@ -114,6 +116,12 @@ type Scheduler struct {
 	retiredStolen    atomic.Uint64
 	queueSize        int
 	nextID           atomic.Uint64
+	parked           atomic.Int32
+	// admitting counts Submit and CreateProcessor calls that have not
+	// finished publishing their processor; guarded by admitMu.
+	admitting        int32
+	nextAdmission    uint64
+	admitMu          sync.Mutex
 	phase            atomic.Uint32
 	collectStats     atomic.Bool
 	started          bool
@@ -121,6 +129,60 @@ type Scheduler struct {
 }
 
 func (s *Scheduler) isStopping() bool { return s.phase.Load() != phaseRunning }
+
+// beginAdmission registers an admission and reports false once the scheduler
+// is stopping. The check and the registration are one step, so Stop's
+// awaitAdmissions sees every admission that was allowed to begin.
+func (s *Scheduler) beginAdmission(cancel context.CancelFunc) (uint64, bool) {
+	s.admitMu.Lock()
+	defer s.admitMu.Unlock()
+	if s.isStopping() {
+		return 0, false
+	}
+	if s.admissionCancels == nil {
+		s.admissionCancels = make(map[uint64]context.CancelFunc)
+	}
+	s.nextAdmission++
+	s.admissionCancels[s.nextAdmission] = cancel
+	s.admitting++
+	return s.nextAdmission, true
+}
+
+func (s *Scheduler) endAdmission(id uint64) {
+	s.admitMu.Lock()
+	delete(s.admissionCancels, id)
+	s.admitting--
+	if s.admitting == 0 {
+		s.admitIdle.Broadcast()
+	}
+	s.admitMu.Unlock()
+}
+
+// awaitAdmissions waits only within the shutdown budget. On expiry, cancel
+// in-flight Init/OnStart calls without closing processes they still own.
+// The notification is shutdown-only, not an allocation on every admission.
+func (s *Scheduler) awaitAdmissions(ctx context.Context) {
+	stopWake := context.AfterFunc(ctx, func() {
+		s.admitMu.Lock()
+		s.admitIdle.Broadcast()
+		s.admitMu.Unlock()
+	})
+	defer stopWake()
+	s.admitMu.Lock()
+	for s.admitting > 0 && ctx.Err() == nil {
+		s.admitIdle.Wait()
+	}
+	var cancels []context.CancelFunc
+	if ctx.Err() != nil {
+		for _, cancel := range s.admissionCancels {
+			cancels = append(cancels, cancel)
+		}
+	}
+	s.admitMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
@@ -136,6 +198,7 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 
 	s.global = NewQueue(s.queueSize)
 	s.drainCh = make(chan struct{}, 1)
+	s.admitIdle = sync.NewCond(&s.admitMu)
 	workers := make([]*Worker, s.initialWorkers)
 	for i := range workers {
 		workers[i] = newWorker(i, s)
@@ -152,20 +215,33 @@ func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 // Stop gracefully shuts down the scheduler.
 // Sends cancel events and waits for processes to complete or context deadline.
 func (s *Scheduler) Stop(ctx context.Context) {
+	waitCtx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	}
 	// Begin draining while serialized with Start and Resize, then
 	// release the control lock before lifecycle callbacks and worker waits.
 	s.controlMu.Lock()
+	s.admitMu.Lock()
 	if !s.phase.CompareAndSwap(phaseRunning, phaseDraining) {
+		s.admitMu.Unlock()
 		s.controlMu.Unlock()
 		return
 	}
+	s.admitMu.Unlock()
 	s.controlMu.Unlock()
+	s.awaitAdmissions(waitCtx)
 
 	// Push cancel event directly to each processor's queue.
 	// Safe because draining prevents pool release.
 	// Wake idle/blocked processors so they process the cancel.
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
+		if ProcessState(proc.state.Load())&stateMask == StateComplete {
+			return true // An unfinished admission owns its process until OnStart returns.
+		}
 		pkg := topology.CancelPackage(pid.PID{}, proc.pid, "scheduler shutdown")
 		proc.queue.PushDirect(process.Event{
 			Type: process.EventMessage,
@@ -190,22 +266,20 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	}
 
 	// Wait for processes to complete or context timeout
-	waitCtx := ctx
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		waitCtx, cancel = context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-	}
-
 	select {
 	case <-s.drainCh:
 		// All processes completed gracefully
 	case <-waitCtx.Done():
-		// Timeout - cancel all process contexts to unblock stuck processes
+		// Timeout - cancel all process contexts to unblock stuck processes.
+		// A processor may be starting or completing concurrently, so act
+		// only through its published incarnation, as Terminate does.
 		s.byPID.Range(func(_, value any) bool {
 			proc := value.(*Processor)
-			if proc.cancel != nil {
-				proc.cancel()
+			if ProcessState(proc.state.Load())&stateMask == StateComplete {
+				return true
+			}
+			if ref := proc.sig.Load(); ref != nil {
+				ref.terminate()
 			}
 			proc.queue.Close()
 			return true
@@ -215,23 +289,39 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	// Wake and wait for workers to exit
 	// Admission closes before cancellation, but workers must remain available
 	// for asynchronous cleanup until processes drain or the deadline expires.
+	s.admitMu.Lock()
 	s.phase.CompareAndSwap(phaseDraining, phaseStoppingWorkers)
+	s.admitMu.Unlock()
 	s.wakeAll()
 	s.wg.Wait()
 
 	// Force complete any remaining processes (workers stopped)
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
-		s.completeNoPool(proc, nil, context.Canceled)
+		if ProcessState(proc.state.Load())&stateMask != StateComplete {
+			s.completeNoPool(proc, nil, context.Canceled)
+		}
 		return true
 	})
 }
 
+// wakeAny notifies one parked worker. A worker that is not parked looks for
+// work when its current step ends, so notifying it cannot start the work
+// while that step runs; the park protocol guarantees that a worker about to
+// park either sees the queued work or is seen as parked.
 func (s *Scheduler) wakeAny() {
 	for _, w := range s.workerSnapshot() {
-		if w.signal() {
+		if w.parked.Load() && w.signal() {
 			return
 		}
+	}
+}
+
+// enablePreemption lets a preemptible process suspend long steps: the
+// scheduler runs it again after StepPreempted.
+func enablePreemption(p process.Process) {
+	if pp, ok := p.(process.Preemptible); ok {
+		pp.EnablePreemption()
 	}
 }
 
@@ -272,21 +362,9 @@ func (s *Scheduler) WakeProcessor(q *process.EventQueue, gen uint64) {
 	}
 	proc := v.(*Processor)
 
-	// Verify generation matches to avoid waking wrong processor
-	if proc.gen.Load() != gen {
-		return
-	}
-
-	// Same wake logic as processor.CompleteYield
-	if proc.casState(StateBlocked, StateReady) {
+	if proc.wake(gen) {
 		s.injectOrGlobal(proc)
-		return
 	}
-	if proc.casState(StateIdle, StateReady) {
-		s.injectOrGlobal(proc)
-		return
-	}
-	proc.setWakeup(StateRunning)
 }
 
 func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, method string, input payload.Payloads) (*Processor, error) {
@@ -313,8 +391,19 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	} else {
 		procCtx, cancel = context.WithCancel(ctx)
 	}
+	admission, ok := s.beginAdmission(cancel)
+	if !ok {
+		cancel()
+		return nil, process.ErrSchedulerStopping
+	}
+	defer s.endAdmission(admission)
 
+	enablePreemption(p)
 	if err := p.Init(procCtx, method, input); err != nil {
+		cancel()
+		return nil, err
+	}
+	if err := procCtx.Err(); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -323,7 +412,6 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.state.Store(int32(StateReady))
 	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
@@ -335,7 +423,8 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	if admission, ok := p.(interface{ EventAdmission() process.EventAdmission }); ok {
 		proc.queue.SetAdmission(admission.EventAdmission())
 	}
-	proc.gen.Store(proc.queue.Generation())
+	proc.setGeneration(proc.queue.Generation())
+	proc.completer = proc.queue.NewYieldCompleter(s)
 	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
@@ -346,30 +435,71 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	if s.lifecycle != nil {
 		if err := s.lifecycle.OnStart(procCtx, pid, p); err != nil {
 			// Rollback: routing was ready but lifecycle rejected
-			s.byPID.Delete(pid.String())
-			s.byQueue.Delete(proc.queue)
-			s.processorCount.Add(-1)
-			cancel()
-			p.Close()
-			releaseProcessor(proc)
+			s.rejectAdmission(proc)
 			return nil, err
 		}
 	}
 
-	// Cancellation must also wake an actor parked without incoming messages.
-	// Capture only queue identity/generation: Processor objects are pooled.
+	s.wakeOnCancel(procCtx, proc, cancel)
+
+	// Serialize publication with worker shutdown. A callback that ignores
+	// cancellation may return after Stop, but cannot enqueue work on dead workers.
+	s.admitMu.Lock()
+	if s.phase.Load() == phaseStoppingWorkers {
+		s.admitMu.Unlock()
+		proc.queue.Close()
+		s.completeNoPool(proc, nil, context.Canceled)
+		return proc, nil // Successful OnStart transfers cleanup to the scheduler.
+	}
+	// A pooled processor can still be referenced by a stale queue entry from
+	// its previous incarnation; Ready is published only once it is initialized.
+	proc.state.Store(int32(StateReady))
+	s.global.Push(proc)
+	s.admitMu.Unlock()
+	s.wakeAny()
+
+	return proc, nil
+}
+
+// A rejected admission never ran and still belongs to its caller. Remove its
+// routing without Close; don't recycle a slot while shutdown may be scanning it.
+func (s *Scheduler) rejectAdmission(proc *Processor) {
+	s.byPID.Delete(proc.pid.String())
+	s.byQueue.Delete(proc.queue)
+	s.uncount()
+	proc.cancel()
+	proc.queue.Close()
+	proc.sig.Store(nil)
+	proc.inspector.Store(nil)
+	s.admitMu.Lock()
+	if !s.isStopping() {
+		releaseProcessor(proc)
+	}
+	s.admitMu.Unlock()
+}
+
+// wakeOnCancel makes cancellation of the incarnation's context wake an actor
+// parked without incoming messages. It captures only queue identity and
+// generation, because Processor objects are pooled.
+func (s *Scheduler) wakeOnCancel(ctx context.Context, proc *Processor, cancel context.CancelFunc) {
 	q, gen := proc.queue, proc.gen.Load()
-	stopWake := context.AfterFunc(procCtx, func() {
+	stopWake := context.AfterFunc(ctx, func() {
 		if q.Push(process.Event{Type: process.EventMessage}, gen) {
 			s.WakeProcessor(q, gen)
 		}
 	})
 	proc.cancel = func() { stopWake(); cancel() }
+}
 
-	s.global.Push(proc)
-	s.wakeAny()
-
-	return proc, nil
+// uncount removes a processor from the live count and tells a draining Stop
+// when none remain.
+func (s *Scheduler) uncount() {
+	if s.processorCount.Add(-1) == 0 && s.isStopping() {
+		select {
+		case s.drainCh <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // Terminate forcibly terminates a process by PID.
@@ -410,12 +540,7 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 
 	stopping := s.isStopping()
 	if !proc.pooled {
-		if s.processorCount.Add(-1) == 0 && stopping {
-			select {
-			case s.drainCh <- struct{}{}:
-			default:
-			}
-		}
+		s.uncount()
 	}
 
 	if proc.resultCh != nil {
@@ -452,14 +577,21 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 		return nil, process.ErrMaxProcessesExceeded
 	}
 
+	enablePreemption(p)
+
 	// Wrap context with cancel for Terminate support
 	procCtx, cancel := context.WithCancel(ctx)
+	admission, ok := s.beginAdmission(cancel)
+	if !ok {
+		cancel()
+		return nil, process.ErrSchedulerStopping
+	}
+	defer s.endAdmission(admission)
 
 	proc := acquireProcessor()
 	proc.id = s.nextID.Add(1)
 	proc.pid = pid
 	proc.Process = p
-	proc.state.Store(int32(StateReady))
 	proc.root = procCtx
 	proc.ctx = procCtx
 	proc.cancel = cancel
@@ -470,19 +602,29 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
-	proc.gen.Store(proc.queue.Generation())
+	proc.setGeneration(proc.queue.Generation())
+	proc.completer = proc.queue.NewYieldCompleter(s)
 	proc.publishSignalRef(cancel)
 	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
 	s.byQueue.Store(proc.queue, proc)
+	s.wakeOnCancel(procCtx, proc, cancel)
+	s.admitMu.Lock()
+	if s.phase.Load() == phaseStoppingWorkers {
+		s.admitMu.Unlock()
+		s.rejectAdmission(proc)
+		return nil, process.ErrSchedulerStopping
+	}
+	// Ready is published only once the processor is initialized; see Submit.
+	proc.state.Store(int32(StateReady))
+	s.admitMu.Unlock()
 
 	return proc, nil
 }
 
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
-	s.processorCount.Add(-1)
 	proc.sig.Store(nil)
 	proc.inspector.Store(nil)
 	s.byPID.Delete(proc.pid.String())
@@ -493,6 +635,7 @@ func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	if proc.Process != nil {
 		proc.Process.Close()
 	}
+	s.uncount()
 	proc.releaseIncarnation()
 }
 
@@ -599,9 +742,7 @@ func (s *Scheduler) deliverToProcError(proc *Processor, gen uint64, pkg *relay.P
 	// Wake process if waiting for messages.
 	// CAS ensures exactly-once wake even with concurrent senders.
 	// Try both Idle (waiting on select) and Blocked (waiting on yield completion).
-	if proc.casState(StateIdle, StateReady) {
-		s.injectOrGlobal(proc)
-	} else if proc.casState(StateBlocked, StateReady) {
+	if proc.casStateAt(gen, StateIdle, StateReady) || proc.casStateAt(gen, StateBlocked, StateReady) {
 		s.injectOrGlobal(proc)
 	}
 

@@ -1740,6 +1740,21 @@ func TestProcessInitNoScript(t *testing.T) {
 	}
 }
 
+// requireMethodNotFound checks that err carries the method-not-found error
+// in its chain.
+func requireMethodNotFound(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected a method-not-found error")
+	}
+	for _, link := range apierror.BuildChain(err).Errors {
+		if link.Kind == string(apierror.NotFound) {
+			return
+		}
+	}
+	t.Fatalf("expected a not-found error in the chain, got %v", err)
+}
+
 // TestProcessInitInvalidMethod tests Init with non-existent method
 func TestProcessInitInvalidMethod(t *testing.T) {
 	script := `return {}`
@@ -1747,12 +1762,14 @@ func TestProcessInitInvalidMethod(t *testing.T) {
 	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	err := proc.Init(ctx, "nonexistent", nil)
-
-	if err == nil {
-		t.Fatal("expected error for missing method")
+	if err := proc.Init(ctx, "nonexistent", nil); err != nil {
+		t.Fatal(err)
 	}
-	proc.Close()
+	defer proc.Close()
+
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
+	requireMethodNotFound(t, err)
 }
 
 // TestProcessInitSyntaxError tests Init with malformed Lua
@@ -3828,6 +3845,11 @@ func TestProcessExtractMethodWithScript(t *testing.T) {
 	}
 	defer proc.Close()
 
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
 	// Verify method was extracted
 	if proc.exported == nil || proc.exported["handle"] == nil {
 		t.Fatal("handle method should be extracted")
@@ -3840,9 +3862,16 @@ func TestProcessExtractMethodNotFound(t *testing.T) {
 	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	err := proc.Init(ctx, "nonexistent", nil)
-	if err == nil {
-		t.Fatal("expected error for missing method")
+	if err := proc.Init(ctx, "nonexistent", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	err := proc.Step(nil, &output)
+	requireMethodNotFound(t, err)
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected the failed process to be done, got %v", output.Status())
 	}
 }
 
@@ -3857,6 +3886,11 @@ func TestProcessExtractMethodScriptReturnsFunction(t *testing.T) {
 	}
 	defer proc.Close()
 
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err != nil {
+		t.Fatal(err)
+	}
+
 	// Should work - direct function return gets stored
 	if proc.exported == nil || proc.exported["handle"] == nil {
 		t.Fatal("direct function should be extracted")
@@ -3869,8 +3903,13 @@ func TestProcessExtractMethodScriptError(t *testing.T) {
 	proc := mustNewProcess(t, WithScript(script, "test.lua"))
 
 	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	err := proc.Init(ctx, "handle", nil)
-	if err == nil {
+	if err := proc.Init(ctx, "handle", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+
+	var output process.StepOutput
+	if err := proc.Step(nil, &output); err == nil {
 		t.Fatal("expected error from script execution")
 	}
 }

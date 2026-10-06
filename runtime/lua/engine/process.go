@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/topology"
@@ -29,6 +30,17 @@ import (
 // processPool holds reusable Process structs with pre-allocated slices
 var processPool = sync.Pool{
 	New: func() any { return nil },
+}
+
+// DefaultActorTickBudget is the tick budget of a preemptible actor whose
+// tick_budget option is unset or zero.
+const DefaultActorTickBudget int64 = 512
+
+// WithProcessExecutionBudgets sets the process entry's execution options.
+func WithProcessExecutionBudgets(budgets luaapi.ExecutionBudgets) ProcessOption {
+	return func(p *Process) {
+		p.entryBudgets = budgets
+	}
 }
 
 // ProcessOption configures a Process.
@@ -89,10 +101,13 @@ type Process struct {
 	messageQueueLimits     map[string]int64
 	messageQueueItemLimits map[string]int
 	mainTask               *Task
-	upgradeRequest         *UpgradeRequest
-	proto                  *lua.FunctionProto
-	queue                  *TaskQueue
-	factory                *Factory
+	// preempted is the task the VM suspended when the step's tick budget ran
+	// out; it re-enters the run queue behind the tasks still waiting.
+	preempted      *Task
+	upgradeRequest *UpgradeRequest
+	proto          *lua.FunctionProto
+	queue          *TaskQueue
+	factory        *Factory
 	// pendingOutdated holds the single coalesced OUTDATED event awaiting
 	// delivery to an upgradable process's events channel. Nil when none pending.
 	pendingOutdated *topology.OutdatedEvent
@@ -103,8 +118,11 @@ type Process struct {
 	// stalledChans records channels that could not accept a message during the
 	// current flush. Later messages for the same channel, including terminals,
 	// remain queued so delivery order cannot be inverted.
-	stalledChans           map[*Channel]struct{}
-	exported               map[string]*lua.LFunction
+	stalledChans map[*Channel]struct{}
+	exported     map[string]*lua.LFunction
+	// exportFn is the Go function the module bootstrap calls to cache the
+	// requested method; created on first use.
+	exportFn               *lua.LFunction
 	messageQueueDiscarded  map[string]struct{}
 	messageQueueOverflowed map[string]struct{}
 	channelQueue           *TaskQueue
@@ -123,6 +141,11 @@ type Process struct {
 	outTasks          []*Task
 	threads           []*Task
 	yieldSeq          uint64
+	// entryBudgets are the execution options of the process entry; spawn
+	// options override them at Init.
+	entryBudgets luaapi.ExecutionBudgets
+	budgets      luaapi.ExecutionBudgets
+	steps        uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -133,6 +156,9 @@ type Process struct {
 	messageBatchActive bool
 	trapLinks          bool
 	upgradable         bool
+	// preemptive is set by schedulers that run the process again after it
+	// reports StepPreempted.
+	preemptive bool
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -544,6 +570,13 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.mainTask = nil
 	p.pendingYields = nil
 
+	budgets, err := p.executionBudgets(ctx)
+	if err != nil {
+		return err
+	}
+	p.budgets = budgets
+	p.steps = 0
+
 	// Set context for this execution
 	p.ctx = ctx
 	p.state.SetContext(ctx)
@@ -592,35 +625,36 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 
 	// Determine which function to execute
 	var fn *lua.LFunction
+	var bootstrap []lua.LValue
 
-	// If method specified, try to use cached function or extract from module
-	if method != "" {
-		if p.exported != nil {
-			if cached, ok := p.exported[method]; ok {
-				fn = cached
-			}
+	inits := initializersOf(p.state)
+	pending := inits.pending()
+	if method != "" && !pending {
+		fn = p.exported[method]
+	}
+	if fn == nil && (method != "" || pending) {
+		// The module chunk and the initializers it depends on run inside the
+		// main task so their execution is scheduled and budgeted like any
+		// other Lua code.
+		chunk, err := p.loadMain()
+		if err != nil {
+			return err
 		}
-
-		// No cached function - need to run script to get module and extract method
-		if fn == nil {
-			if err := p.extractMethod(method); err != nil {
-				return err
-			}
-			fn = p.exported[method]
+		fn = p.state.LoadProto(entryBootstrapProto)
+		advance := p.state.NewFunction(func(*lua.LState) int { return 0 })
+		if inits != nil {
+			inits.begin()
+			advance = p.state.NewFunction(inits.advance)
 		}
-	} else {
-		// No method - run the script directly (legacy behavior)
-
-		if p.proto != nil {
-			fn = p.state.LoadProto(p.proto)
-		} else if p.script != "" {
-			var err error
-			fn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
-			if err != nil {
-				return runtimelua.NewLoadScriptError(err)
-			}
-		} else {
-			return luaapi.ErrNoScriptOrProto
+		export, name := lua.LValue(lua.LFalse), lua.LValue(lua.LFalse)
+		if method != "" {
+			export, name = p.exportFunction(), lua.LString(method)
+		}
+		bootstrap = []lua.LValue{chunk, advance, export, name}
+	} else if fn == nil {
+		var err error
+		if fn, err = p.loadMain(); err != nil {
+			return err
 		}
 	}
 
@@ -628,8 +662,9 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.mainTask = p.createTask(fn)
 
 	// Convert input payloads to Lua values as arguments
-	if len(input) > 0 {
-		args := make([]lua.LValue, 0, len(input))
+	if len(input) > 0 || bootstrap != nil {
+		args := make([]lua.LValue, 0, len(bootstrap)+len(input))
+		args = append(args, bootstrap...)
 		for _, pl := range input {
 			args = append(args, transcodeToLua(ctx, pl))
 		}
@@ -639,65 +674,81 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	return nil
 }
 
-// extractMethod runs the script to get module table and extracts the method function.
-func (p *Process) extractMethod(method string) error {
-	// Load script function
-	var scriptFn *lua.LFunction
+// entryBootstrapProto runs the deferred initializers, then the entry chunk. It
+// receives the chunk function, the initializer iterator, the export function
+// and the method name, followed by the process input. A false method runs the
+// chunk itself with the input; otherwise the chunk returns the module the
+// method is exported from. The code uses no global, so guest code cannot
+// change it.
+var entryBootstrapProto = mustCompileBootstrap(`
+return (function(chunk, advance, export, method, ...)
+	local init = advance()
+	while init do
+		init = advance(init())
+	end
+	if not method then
+		return chunk(...)
+	end
+	return export(method, (chunk()))(...)
+end)(...)
+`, "=entry_bootstrap")
 
-	if p.proto != nil {
-		scriptFn = p.state.LoadProto(p.proto)
-	} else if p.script != "" {
-		var err error
-		scriptFn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
+func mustCompileBootstrap(source, name string) *lua.FunctionProto {
+	proto, err := lua.CompileString(source, name)
+	if err != nil {
+		panic(err)
+	}
+	return proto
+}
+
+// loadMain loads the process script as a function without running it.
+func (p *Process) loadMain() (*lua.LFunction, error) {
+	switch {
+	case p.proto != nil:
+		return p.state.LoadProto(p.proto), nil
+	case p.script != "":
+		fn, err := p.state.Load(strings.NewReader(p.script), p.scriptName)
 		if err != nil {
-			return runtimelua.NewLoadScriptError(err)
+			return nil, runtimelua.NewLoadScriptError(err)
 		}
-	} else {
-		return luaapi.ErrNoScriptOrProto
+		return fn, nil
+	default:
+		return nil, luaapi.ErrNoScriptOrProto
+	}
+}
+
+// exportFunction returns the Go function that resolves a method from the value
+// a module chunk returned and caches it for later executions of this process.
+func (p *Process) exportFunction() *lua.LFunction {
+	if p.exportFn == nil {
+		p.exportFn = p.state.NewFunction(p.exportMethod)
+	}
+	return p.exportFn
+}
+
+// exportMethod takes (method, moduleValue) and returns the method function.
+// The module value is either the function itself or a table holding it.
+func (p *Process) exportMethod(l *lua.LState) int {
+	method := l.CheckString(1)
+
+	var fn *lua.LFunction
+	switch v := l.Get(2).(type) {
+	case *lua.LFunction:
+		fn = v
+	case *lua.LTable:
+		fn, _ = v.RawGetString(method).(*lua.LFunction)
+	}
+	if fn == nil {
+		l.Error(lua.WrapError(runtimelua.NewMethodNotFoundError(method), "").WithKind(lua.NotFound).WithRetryable(false), 1)
+		return 0
 	}
 
-	// Run script synchronously to get module table
-	if err := p.state.CallByParam(lua.P{
-		Fn:      scriptFn,
-		NRet:    1,
-		Protect: true,
-	}); err != nil {
-		var raised *lua.Error
-		if errors.As(err, &raised) {
-			return toAPIError(raised)
-		}
-		return runtimelua.NewExecuteScriptError(err)
-	}
-
-	// Get return value
-	ret := p.state.Get(-1)
-	p.state.Pop(1)
-
-	// Initialize exported map
 	if p.exported == nil {
 		p.exported = make(map[string]*lua.LFunction)
 	}
-
-	// Extract function from return value
-	var fn *lua.LFunction
-	switch v := ret.(type) {
-	case *lua.LFunction:
-		// Script returned function directly
-		fn = v
-	case *lua.LTable:
-		// Script returned module table - extract method by name
-		val := v.RawGetString(method)
-		if val.Type() == lua.LTFunction {
-			fn = val.(*lua.LFunction)
-		}
-	}
-
-	if fn == nil {
-		return runtimelua.NewMethodNotFoundError(method)
-	}
-
 	p.exported[method] = fn
-	return nil
+	l.Push(fn)
+	return 1
 }
 
 // Step advances the process by one iteration.
@@ -740,6 +791,16 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	if base := p.beginMessageBatch(); base != nil {
 		defer p.finishMessageBatch(base)
 	}
+
+	// Events are consumed before the step is charged, so a step that exceeds
+	// its limit leaves their retention leases with the mailbox, which releases
+	// them when the process closes.
+	if err := p.chargeStep(); err != nil {
+		p.clearExecution()
+		out.Done(nil)
+		return err
+	}
+	p.state.SetTickBudget(p.stepTickBudget())
 
 	// Process in a loop until stable (no new subscriptions trigger channel work)
 	var externalTasks []*Task
@@ -785,6 +846,17 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		// with only the unhandled tasks (subscription yields were removed)
 		p.externalTasks = externalTasks
 
+		// An exhausted tick budget ends the step; tasks still queued run in
+		// the next one. Messages held back for a receiver that parked in this
+		// step are delivered first, so the step does not report idle while a
+		// queued message matches a parked receiver.
+		if p.state.TickBudget() == 0 {
+			if p.subs != nil {
+				p.flushMessageQueue(p.subs)
+			}
+			break
+		}
+
 		// Continue looping if subscriptions were handled (may have added tasks)
 		// or if queue has tasks to process.
 		//
@@ -803,6 +875,14 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 			break
 		}
 	}
+
+	// The VM-preempted task runs again behind the tasks that did not get a
+	// turn in this step.
+	if p.preempted != nil {
+		p.queue.Push(p.preempted)
+		p.preempted = nil
+	}
+	preempted := p.state.TickBudget() == 0 && !p.queue.IsEmpty()
 
 	// Check for upgrade request
 	if p.upgradeRequest != nil {
@@ -825,11 +905,6 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		return toAPIError(execErr)
 	}
 
-	// Initialize pendingYields map if needed
-	if p.pendingYields == nil {
-		p.pendingYields = make(map[uint64]*Task, 4)
-	}
-
 	// Convert external yields to commands
 	yieldCount := 0
 	for _, task := range externalTasks {
@@ -841,6 +916,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		// Check for scheduler commands in yielded values
 		cmd := p.yieldToCommand(task)
 		if cmd != nil {
+			if p.pendingYields == nil {
+				p.pendingYields = make(map[uint64]*Task, 4)
+			}
 			p.yieldSeq++
 			p.pendingYields[p.yieldSeq] = task
 			out.Yield(cmd, p.yieldSeq)
@@ -852,6 +930,8 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 
 	// Determine status
 	switch {
+	case preempted:
+		out.Preempt()
 	case yieldCount == 0 && !p.queue.IsEmpty():
 		out.Continue()
 	case yieldCount == 0 && len(p.threads) > 0:
@@ -875,6 +955,50 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	}
 
 	return nil
+}
+
+// EnablePreemption implements process.Preemptible. Each step may then run
+// the actor's tick budget of VM ticks (backward jumps, loop iterations and
+// calls) before the running coroutine is preempted at a safepoint and the
+// step reports StepPreempted.
+func (p *Process) EnablePreemption() {
+	p.preemptive = true
+}
+
+// stepTickBudget returns the VM tick budget for one step; -1 is unlimited.
+func (p *Process) stepTickBudget() int64 {
+	if !p.preemptive {
+		return -1
+	}
+	switch budget := p.budgets.TickBudget; {
+	case budget < 0:
+		return -1
+	case budget == 0:
+		return DefaultActorTickBudget
+	default:
+		return budget
+	}
+}
+
+// chargeStep counts a step and fails it when the count exceeds a non-zero
+// max_steps option.
+func (p *Process) chargeStep() error {
+	p.steps++
+	if p.budgets.MaxSteps != 0 && p.steps > p.budgets.MaxSteps {
+		return process.ErrStepLimitExceeded
+	}
+	return nil
+}
+
+// StepsUsed implements process.StepAccounted.
+func (p *Process) StepsUsed() uint64 {
+	return p.steps
+}
+
+// ResumeStepCount implements process.StepAccounted. The count continues from
+// used, so max_steps bounds the actor across upgrades.
+func (p *Process) ResumeStepCount(used uint64) {
+	p.steps = used
 }
 
 // State returns the underlying Lua state.
@@ -912,12 +1036,8 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 	channels := p.channels
 	channelQueue := p.ChannelQueue()
 
-	// Transfer tasks from process queue to channel queue
-	for _, task := range p.queue.Drain() {
-		channelQueue.Push(task)
-	}
-
-	// Process all queued tasks
+	// Tasks already in the process queue run first; tasks that channel
+	// operations wake follow through the channel queue.
 	boot := true
 	for !channelQueue.IsEmpty() || boot {
 		boot = false
@@ -1718,13 +1838,13 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 	// Reuse yield buffer
 	p.yieldBuf = p.yieldBuf[:0]
 
-	for !p.queue.IsEmpty() {
+	for !p.queue.IsEmpty() && p.state.TickBudget() != 0 {
 		task := p.queue.Pop()
 		if task == nil {
 			continue
 		}
 
-		if task.State != lua.ResumeYield {
+		if task.State != lua.ResumeYield && task.State != lua.ResumePreempted {
 			continue
 		}
 
@@ -1784,6 +1904,8 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 				return nil, nil
 			}
 			p.removeTask(task)
+		case lua.ResumePreempted:
+			p.preempted = task
 		case lua.ResumeError:
 			p.removeTask(task)
 		}
@@ -1829,6 +1951,7 @@ func (p *Process) killAllThreads() {
 	}
 	p.threads = p.threads[:0]
 	p.queue.Drain()
+	p.preempted = nil
 }
 
 // handleSpawnRequest checks if yielded values contain a SpawnRequest and handles it.
@@ -1918,6 +2041,7 @@ func (p *Process) Close() {
 	p.yieldBuf = p.yieldBuf[:0]
 	p.externalTasks = p.externalTasks[:0]
 	p.outTasks = p.outTasks[:0]
+	p.preempted = nil
 	p.clearMessageQueue()
 
 	// Clear all references
@@ -1931,6 +2055,7 @@ func (p *Process) Close() {
 	p.factory = nil
 	p.pendingYields = nil
 	p.exported = nil
+	p.exportFn = nil
 	p.channelQueue = nil
 	p.channels = nil
 	p.subs = nil
@@ -1950,9 +2075,28 @@ func (p *Process) Close() {
 	p.upgradable = false
 	p.pendingOutdated = nil
 	p.linkDownError = nil
+	p.entryBudgets = luaapi.ExecutionBudgets{}
+	p.budgets = luaapi.ExecutionBudgets{}
+	p.steps = 0
+	p.preemptive = false
 
 	// Return to pool
 	processPool.Put(p)
+}
+
+// executionBudgets resolves the execution options for this execution: the
+// entry's options, overridden by the spawn options in the frame context.
+func (p *Process) executionBudgets(ctx context.Context) (luaapi.ExecutionBudgets, error) {
+	budgets := p.entryBudgets
+	options, ok := runtime.GetFrameLifecycleOptions(ctx).(attrs.Attributes)
+	if !ok || options == nil {
+		return budgets, nil
+	}
+	spawn, err := luaapi.ExecutionBudgetsFromOptions(options, "process spawn options")
+	if err != nil {
+		return budgets, err
+	}
+	return budgets.Override(spawn), nil
 }
 
 // SyncExecute runs the script directly without coroutines or scheduler.
@@ -1964,6 +2108,10 @@ func (p *Process) SyncExecute(ctx context.Context, args ...lua.LValue) (lua.LVal
 	}
 
 	p.state.SetContext(ctx)
+
+	if err := initializersOf(p.state).runSync(p.state); err != nil {
+		return lua.LNil, toAPIError(err)
+	}
 
 	// Load function from proto
 	fn := p.state.LoadProto(p.proto)
@@ -2045,6 +2193,7 @@ func (p *Process) clearExecution() {
 
 	// Drain queue
 	p.queue.Drain()
+	p.preempted = nil
 
 	// Clear main task reference and result
 	p.mainTask = nil

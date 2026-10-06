@@ -511,3 +511,21 @@ func (g *stubPIDGenerator) Generate(host pid.HostID) pid.PID {
 	result.Host = host
 	return result
 }
+
+type overflowCmd struct{ id dispatcher.CommandID }
+
+func (c overflowCmd) CmdID() dispatcher.CommandID { return c.id }
+
+// A reset output keeps no command references in its overflow buffer.
+func TestStepOutputResetClearsOverflowYields(t *testing.T) {
+	var out StepOutput
+	for i := 0; i < MaxYields+3; i++ {
+		out.Yield(overflowCmd{id: dispatcher.CommandID(i)}, uint64(i))
+	}
+	out.Reset()
+	for i, y := range out.ext[:cap(out.ext)] {
+		if y.Cmd != nil {
+			t.Fatalf("overflow yield %d still references its command", i)
+		}
+	}
+}

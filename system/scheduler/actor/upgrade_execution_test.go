@@ -182,8 +182,15 @@ func TestUpgradeContinuesTheExecution(t *testing.T) {
 
 type failingIncarnation struct {
 	incarnation
-	resource *countingCloser
-	err      error
+	resource          *countingCloser
+	err               error
+	closed            atomic.Int32
+	closedBeforeFrame atomic.Bool
+}
+
+func (p *failingIncarnation) Close() {
+	p.closed.Add(1)
+	p.closedBeforeFrame.Store(p.resource.closed.Load() == 0)
 }
 
 func (p *failingIncarnation) Init(ctx context.Context, _ string, _ payload.Payloads) error {
@@ -196,6 +203,7 @@ func (p *failingIncarnation) Init(ctx context.Context, _ string, _ payload.Paylo
 func TestFailedUpgradeReleasesTheNewFrameAndExecution(t *testing.T) {
 	wantErr := errors.New("replacement init failed")
 	rootResource, leafResource := newCountingCloser(), newCountingCloser()
+	replacement := &failingIncarnation{resource: leafResource, err: wantErr}
 	completed := make(chan *runtime.Result, 1)
 	sched := newTestSchedulerWithLifecycle(1, &testLifecycle{
 		onComplete: func(ctx context.Context, _ pidapi.PID, result *runtime.Result) {
@@ -208,7 +216,7 @@ func TestFailedUpgradeReleasesTheNewFrameAndExecution(t *testing.T) {
 	appCtx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	process.WithFactory(appCtx, &mockFactory{
 		createFunc: func(registry.ID) (process.Process, *process.Meta, error) {
-			return &failingIncarnation{resource: leafResource, err: wantErr}, &process.Meta{}, nil
+			return replacement, &process.Meta{}, nil
 		},
 	})
 	ctx, frame := ctxapi.OpenFrameContext(appCtx)
@@ -238,5 +246,11 @@ func TestFailedUpgradeReleasesTheNewFrameAndExecution(t *testing.T) {
 		if got := resource.closed.Load(); got != 1 {
 			t.Fatalf("each resource must close once, got %d", got)
 		}
+	}
+	if got := replacement.closed.Load(); got != 1 {
+		t.Errorf("replacement closed %d times; want exactly once", got)
+	}
+	if !replacement.closedBeforeFrame.Load() {
+		t.Error("replacement closed after its frame-owned resource was released")
 	}
 }

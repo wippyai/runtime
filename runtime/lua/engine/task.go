@@ -176,6 +176,12 @@ func (t *Task) Close() {
 	t.fn = nil
 	t.Yielded = nil
 	t.Resumed = nil
+	// The buffers outlive the task in the pool, so their backing arrays must
+	// not keep the last execution's values reachable.
+	clear(t.retBuf[:cap(t.retBuf)])
+	t.retBuf = t.retBuf[:0]
+	clear(t.resumeBuf[:cap(t.resumeBuf)])
+	t.resumeBuf = t.resumeBuf[:0]
 	t.State = 0
 	clear(t.resumeBuf)
 	clear(t.retBuf[:cap(t.retBuf)])

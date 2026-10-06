@@ -77,25 +77,64 @@ const (
 //	- StateBlocked: no owner, CompleteYield can CAS to Ready and re-queue
 //	- Worker uses CAS loop to atomically check wakeup and transition state
 type Processor struct {
-	root       context.Context
-	ctx        context.Context
-	Process    process.Process
-	stats      atomic.Pointer[attrs.Bag]
-	resultCh   chan *runtime.Result
-	scheduler  *Scheduler
-	cancel     context.CancelFunc
-	queue      *process.EventQueue
-	sig        atomic.Pointer[signalRef]
+	root      context.Context
+	ctx       context.Context
+	Process   process.Process
+	stats     atomic.Pointer[attrs.Bag]
+	resultCh  chan *runtime.Result
+	scheduler *Scheduler
+	cancel    context.CancelFunc
+	queue     *process.EventQueue
+	sig       atomic.Pointer[signalRef]
+	// completer receives yield completions for the current incarnation. It is
+	// bound to the queue generation, so completions that outlive the
+	// incarnation do not reach a later user of this pooled processor.
+	completer  *process.YieldCompleter
 	inspector  atomic.Pointer[inspectorRef]
 	pid        pid.PID
 	output     process.StepOutput
 	gen        atomic.Uint64
 	steps      atomic.Uint64
+	wakeMu     sync.Mutex
 	id         uint64
 	startedAt  int64
 	state      atomic.Int32
 	lastWorker atomic.Int32
 	pooled     bool
+}
+
+// setGeneration binds the processor to a new queue generation. A wake in
+// progress completes against the incarnation it checked, so a wake bound to an
+// earlier generation never transitions this one.
+func (p *Processor) setGeneration(gen uint64) {
+	p.wakeMu.Lock()
+	p.gen.Store(gen)
+	p.wakeMu.Unlock()
+}
+
+// casStateAt is casState for a wake bound to a queue generation: the
+// transition happens only while the processor still runs that generation.
+func (p *Processor) casStateAt(gen uint64, old, newState ProcessState) bool {
+	p.wakeMu.Lock()
+	defer p.wakeMu.Unlock()
+	return p.gen.Load() == gen && p.casState(old, newState)
+}
+
+// wake makes a processor that waits runnable once an event was queued for it
+// under gen, and reports whether the caller must schedule it. A running
+// processor is flagged instead, and re-queues itself when it stops. The
+// generation check and the transition are one step against slot reuse.
+func (p *Processor) wake(gen uint64) bool {
+	p.wakeMu.Lock()
+	defer p.wakeMu.Unlock()
+	if p.gen.Load() != gen {
+		return false
+	}
+	if p.casState(StateBlocked, StateReady) || p.casState(StateIdle, StateReady) {
+		return true
+	}
+	p.setWakeup(StateRunning)
+	return false
 }
 
 // releaseIncarnation releases only frames created by an upgrade. The original
@@ -201,36 +240,6 @@ func (p *Processor) finishDispatch() bool {
 	}
 }
 
-// CompleteYield implements dispatcher.ResultReceiver.
-// Called by handlers to deliver yield completion.
-// Thread-safe: can be called from any goroutine.
-func (p *Processor) CompleteYield(tag uint64, data any, err error) {
-	if !p.queue.Push(process.Event{
-		Type:  process.EventYieldComplete,
-		Tag:   tag,
-		Data:  data,
-		Error: err,
-	}, p.gen.Load()) {
-		return
-	}
-
-	// Try to transition Blocked→Ready and re-queue.
-	// If processor is Running (worker still owns it), set wakeup flag atomically.
-	// Worker will check wakeup after dispatch and re-queue if set.
-	if p.casState(StateBlocked, StateReady) {
-		sched := p.scheduler
-		if sched != nil {
-			sched.injectOrGlobal(p)
-		}
-		return
-	}
-
-	// Failed to transition - processor might be Running.
-	// Try to set wakeup flag atomically. If state changed, that's fine -
-	// either worker already moved on or another CompleteYield already woke it.
-	p.setWakeup(StateRunning)
-}
-
 // StateName returns a human-readable name for the process state.
 func StateName(s ProcessState) string {
 	switch s & stateMask {
@@ -257,6 +266,8 @@ var processorPool = sync.Pool{
 			queue: process.NewEventQueue(),
 		}
 		p.lastWorker.Store(noWorkerAffinity)
+		// A processor becomes Ready only when its submitter publishes it.
+		p.state.Store(int32(StateComplete))
 		return p
 	},
 }
@@ -279,6 +290,7 @@ func releaseProcessor(p *Processor) {
 	p.root = nil
 	p.ctx = nil
 	p.cancel = nil
+	p.completer = nil
 	p.scheduler = nil
 	p.lastWorker.Store(noWorkerAffinity)
 	p.resultCh = nil
