@@ -312,6 +312,23 @@ Returns current process ID.
 
 **Permissions:** Requires `system.read` on `pid`.
 
+### uid() → number, error / gid() → number, error
+
+Return the operating system user ID and group ID this process runs as, for a
+host that hands its own identity to a child it starts, such as a container
+that shares files with the host.
+
+**Returns:** `number, error` - user or group ID, or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.PERMISSION_DENIED | no |
+| platform without process user IDs (Windows) | errors.UNAVAILABLE | no |
+
+**Permissions:** Requires `system.read` on `uid` or `gid`.
+
 ### hostname() → string, error
 
 Returns system hostname.

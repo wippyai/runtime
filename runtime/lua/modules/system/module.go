@@ -100,8 +100,10 @@ func createRuntimeTable() *lua.LTable {
 }
 
 func createProcessTable() *lua.LTable {
-	t := lua.CreateTable(0, 3)
+	t := lua.CreateTable(0, 5)
 	t.RawSetString("pid", lua.LGoFunc(pid))
+	t.RawSetString("uid", lua.LGoFunc(uid))
+	t.RawSetString("gid", lua.LGoFunc(gid))
 	t.RawSetString("hostname", lua.LGoFunc(hostname))
 	t.RawSetString("cwd", lua.LGoFunc(cwd))
 	t.Immutable = true
@@ -388,6 +390,34 @@ func pid(l *lua.LState) int {
 	}
 
 	l.Push(lua.LNumber(os.Getpid()))
+	l.Push(lua.LNil)
+	return 2
+}
+
+// uid and gid report the operating system user and group this process runs
+// as, so a host can hand its own identity to a child it starts, such as a
+// container that must own the files it shares with the host. A platform
+// without process user IDs reports Unavailable.
+func uid(l *lua.LState) int {
+	return processID(l, "uid", os.Getuid())
+}
+
+func gid(l *lua.LState) int {
+	return processID(l, "gid", os.Getgid())
+}
+
+func processID(l *lua.LState, resource string, id int) int {
+	if !security.IsAllowed(l.Context(), "system.read", resource, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on "+resource).WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+	if id < 0 {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "process "+resource+" is not available on this platform").WithKind(lua.Unavailable).WithRetryable(false))
+		return 2
+	}
+	l.Push(lua.LNumber(id))
 	l.Push(lua.LNil)
 	return 2
 }
