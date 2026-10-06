@@ -131,34 +131,55 @@ func TestProcessSyncExecuteRaisedTypedError(t *testing.T) {
 	}
 }
 
-func TestProcessReturnedLuaErrorKeepsDetailArrays(t *testing.T) {
-	factory := NewFactory(FactoryConfig{
-		Script:        `return {main=function() return nil, errors.new({message="placement", kind=errors.INVALID, details={reason="placement", allowed={"root", "app:parent"}}}) end}`,
-		ScriptName:    "detail_arrays.lua",
-		ModuleBinders: []ModuleBinder{wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })},
-	})
-	p, err := factory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	proc := p.(*Process)
-	defer proc.Close()
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	if err := proc.Init(ctx, "main", nil); err != nil {
-		t.Fatal(err)
-	}
-	var output process.StepOutput
-	err = proc.Step(nil, &output)
-	var apiErr apierror.Error
-	if !errors.As(err, &apiErr) || apiErr.Kind() != apierror.Invalid {
-		t.Fatalf("returned error = %v", err)
-	}
-	if got := apiErr.Details().GetString("reason", ""); got != "placement" {
-		t.Fatalf("reason detail = %q", got)
-	}
-	raw, ok := apiErr.Details().Get("allowed")
-	allowed, isSlice := raw.([]any)
-	if !ok || !isSlice || len(allowed) != 2 || allowed[0] != "root" || allowed[1] != "app:parent" {
-		t.Fatalf("allowed detail = %#v", raw)
+func TestProcessLuaErrorKeepsDetailArrays(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		yield bool
+	}{
+		{"returned", `return nil, e`, false},
+		{"raised", `error(e)`, false},
+		{"returned after yield", `test_yield(1); return nil, e`, true},
+		{"raised after yield", `test_yield(1); error(e)`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			factory := NewFactory(FactoryConfig{
+				Script:        `return {main=function() local e=errors.new({message="placement", kind=errors.INVALID, retryable=false, details={reason="placement", allowed={"root", "app:parent"}}}); ` + tc.body + ` end}`,
+				ScriptName:    "detail_arrays.lua",
+				ModuleBinders: []ModuleBinder{bindTestYield, wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })},
+			})
+			p, err := factory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			proc := p.(*Process)
+			defer proc.Close()
+			ctx, _ := ctxapi.OpenFrameContext(context.Background())
+			if err := proc.Init(ctx, "main", nil); err != nil {
+				t.Fatal(err)
+			}
+			var output process.StepOutput
+			err = proc.Step(nil, &output)
+			if tc.yield {
+				if err != nil || len(output.Yields()) != 1 {
+					t.Fatalf("yield result = %v/%v", output.Yields(), err)
+				}
+				tag := output.Yields()[0].Tag
+				output.Reset()
+				err = proc.Step([]process.Event{{Type: process.EventYieldComplete, Tag: tag}}, &output)
+			}
+			var apiErr apierror.Error
+			if output.Status() != process.StepDone || !errors.As(err, &apiErr) || apiErr.Kind() != apierror.Invalid || apiErr.Retryable() != apierror.False || apiErr.Error() != "placement" {
+				t.Fatalf("error result = %v/%v", output.Status(), err)
+			}
+			if got := apiErr.Details().GetString("reason", ""); got != "placement" {
+				t.Fatalf("reason detail = %q", got)
+			}
+			raw, ok := apiErr.Details().Get("allowed")
+			allowed, isSlice := raw.([]any)
+			if !ok || !isSlice || len(allowed) != 2 || allowed[0] != "root" || allowed[1] != "app:parent" {
+				t.Fatalf("allowed detail = %#v", raw)
+			}
+		})
 	}
 }
