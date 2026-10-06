@@ -130,3 +130,35 @@ func TestProcessSyncExecuteRaisedTypedError(t *testing.T) {
 		t.Fatalf("sync error = %v", err)
 	}
 }
+
+func TestProcessReturnedLuaErrorKeepsDetailArrays(t *testing.T) {
+	factory := NewFactory(FactoryConfig{
+		Script:        `return {main=function() return nil, errors.new({message="placement", kind=errors.INVALID, details={reason="placement", allowed={"root", "app:parent"}}}) end}`,
+		ScriptName:    "detail_arrays.lua",
+		ModuleBinders: []ModuleBinder{wrapBinder(func(l *lua.LState) { lua.OpenErrors(l) })},
+	})
+	p, err := factory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proc := p.(*Process)
+	defer proc.Close()
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "main", nil); err != nil {
+		t.Fatal(err)
+	}
+	var output process.StepOutput
+	err = proc.Step(nil, &output)
+	var apiErr apierror.Error
+	if !errors.As(err, &apiErr) || apiErr.Kind() != apierror.Invalid {
+		t.Fatalf("returned error = %v", err)
+	}
+	if got := apiErr.Details().GetString("reason", ""); got != "placement" {
+		t.Fatalf("reason detail = %q", got)
+	}
+	raw, ok := apiErr.Details().Get("allowed")
+	allowed, isSlice := raw.([]any)
+	if !ok || !isSlice || len(allowed) != 2 || allowed[0] != "root" || allowed[1] != "app:parent" {
+		t.Fatalf("allowed detail = %#v", raw)
+	}
+}
