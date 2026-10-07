@@ -1164,14 +1164,16 @@ func waitForHostRunning(ctx context.Context, hostID string) error {
 }
 
 // setupShutdownSources wires OS termination signals and the supervisor's
-// programmatic shutdown requests into separate channels.
+// programmatic shutdown requests into separate channels. A hangup from a
+// closed terminal stops the run as gracefully as an interrupt or SIGTERM, so
+// services stop the processes they started instead of leaving them running.
 func setupShutdownSources(ctx context.Context) *shutdownSources {
 	sources := &shutdownSources{
 		signals:   make(chan os.Signal, 1),
 		requests:  make(chan struct{}, 1),
 		forceExit: func() { os.Exit(1) },
 	}
-	signal.Notify(sources.signals, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sources.signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	supervisorapi.SetShutdownRequestChannel(ctx, sources.requests)
 	return sources
 }
