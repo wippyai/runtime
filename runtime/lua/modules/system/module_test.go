@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	goruntime "runtime"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
@@ -472,6 +473,35 @@ func TestProcessFunctions(t *testing.T) {
 		if gotPID != expectedPID {
 			t.Errorf("expected pid %d, got %d", expectedPID, gotPID)
 		}
+	})
+
+	t.Run("uid and gid", func(t *testing.T) {
+		if goruntime.GOOS == "windows" {
+			err := l.DoString(`
+				local id, err = system.process.uid()
+				assert(id == nil and err ~= nil, "expected not supported")
+			`)
+			if err != nil {
+				t.Errorf("uid test failed: %v", err)
+			}
+			return
+		}
+		err := l.DoString(`
+			local uid, uid_err = system.process.uid()
+			local gid, gid_err = system.process.gid()
+			assert(uid_err == nil and gid_err == nil, "expected nil errors")
+			return uid, gid
+		`)
+		if err != nil {
+			t.Fatalf("uid test failed: %v", err)
+		}
+		if got := int(l.Get(-2).(lua.LNumber)); got != os.Getuid() {
+			t.Errorf("expected uid %d, got %d", os.Getuid(), got)
+		}
+		if got := int(l.Get(-1).(lua.LNumber)); got != os.Getgid() {
+			t.Errorf("expected gid %d, got %d", os.Getgid(), got)
+		}
+		l.Pop(2)
 	})
 
 	t.Run("hostname", func(t *testing.T) {
