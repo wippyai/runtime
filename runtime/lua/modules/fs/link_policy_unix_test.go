@@ -57,3 +57,30 @@ func TestOwnerSafeLuaReads(t *testing.T) {
 		}
 	}
 }
+
+func TestFSRemoveUnlinksDirectoryLink(t *testing.T) {
+	tmpDir := t.TempDir()
+	fsys, err := directory.NewFS(tmpDir, 0755, false)
+	require.NoError(t, err)
+	defer func() { _ = fsys.Close() }()
+	target := filepath.Join(tmpDir, "target")
+	require.NoError(t, os.Mkdir(target, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(target, "file.txt"), []byte("kept"), 0600))
+	require.NoError(t, os.Symlink("target", filepath.Join(tmpDir, "link")))
+
+	l := lua.NewState()
+	defer l.Close()
+	ud := l.NewUserData()
+	ud.Value = NewFS(fsys, "")
+	l.Push(ud)
+	l.Push(lua.LString("link"))
+
+	require.Equal(t, 2, fsRemove(l))
+	require.Equal(t, lua.LNil, l.Get(-1))
+	require.Equal(t, lua.LTrue, l.Get(-2))
+	_, err = os.Lstat(filepath.Join(tmpDir, "link"))
+	require.True(t, os.IsNotExist(err))
+	content, err := os.ReadFile(filepath.Join(target, "file.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "kept", string(content))
+}
