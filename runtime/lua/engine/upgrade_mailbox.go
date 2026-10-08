@@ -4,20 +4,65 @@ package engine
 
 import (
 	"cmp"
+	"container/list"
 	"fmt"
 	"slices"
+	"sync"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 )
 
-// bufferedDelivery stays private to the channel buffer. Receive unwraps it
-// before returning a value, so application channels retain their usual surface.
+// mailboxEnvelope is the replayable part of a delivered message. Queue budgets
+// and retention leases are released at delivery and must not be copied here.
+type mailboxEnvelope struct {
+	Source   pid.PID
+	Topic    string
+	Payloads []payload.Payload
+	sequence uint64
+}
+
+func (m mailboxEnvelope) queuedMessage() queuedMessage {
+	return queuedMessage{Source: m.Source, Topic: m.Topic, Payloads: m.Payloads, sequence: m.sequence}
+}
+
+// bufferedDelivery stays private to a channel buffer or pending receive. The
+// buffer, channel result and task move ownership in that order. The wrapper is
+// returned to the pool only when consumed or discarded, never exposed to Lua.
 type bufferedDelivery struct {
 	lua.LValue
-	message queuedMessage
+	message mailboxEnvelope
+}
+
+var bufferedDeliveryPool = sync.Pool{New: func() any { return &bufferedDelivery{} }}
+
+func acquireBufferedDelivery(value lua.LValue, message mailboxEnvelope) *bufferedDelivery {
+	delivery := bufferedDeliveryPool.Get().(*bufferedDelivery)
+	delivery.LValue, delivery.message = value, message
+	return delivery
+}
+
+func releaseBufferedDelivery(delivery *bufferedDelivery) {
+	delivery.LValue = nil
+	delivery.message = mailboxEnvelope{}
+	bufferedDeliveryPool.Put(delivery)
+}
+
+func (t *Task) releaseDelivery() {
+	if t.delivery != nil {
+		releaseBufferedDelivery(t.delivery)
+		t.delivery = nil
+	}
+}
+
+func (t *Task) takeDelivery(update *TaskUpdate) {
+	if update.delivery != nil {
+		t.releaseDelivery()
+		t.delivery, update.delivery = update.delivery, nil
+	}
 }
 
 // A buffered receive can itself yield (for example to wake a blocked sender).
@@ -29,7 +74,7 @@ func rememberUpgradeDelivery(l *lua.LState, result *ChannelResult) {
 	}
 	if p := GetProcess(l); p != nil {
 		if task, err := p.GetTask(l); err == nil {
-			task.delivery = result.Updates[0].delivery
+			task.takeDelivery(result.Updates[0])
 		}
 	}
 }
@@ -39,19 +84,26 @@ func (p *Process) captureUpgradeMessages() {
 	p.upgradeMessages = p.upgradeMessages[:0]
 	for _, task := range p.threads {
 		if task.delivery != nil {
-			p.upgradeMessages = append(p.upgradeMessages, task.delivery.message)
+			p.upgradeMessages = append(p.upgradeMessages, task.delivery.message.queuedMessage())
 		}
 	}
 	if p.subs == nil {
 		return
 	}
+	seen := make(map[*list.List]struct{})
 	for _, sub := range p.subs.snapshotSubscriptions() {
 		if !sub.retainOnUpgrade {
 			continue
 		}
+		// Go-side subscriptions can share a channel, including native value
+		// copies whose queue pointers alias. Capture each buffer only once.
+		if _, exists := seen[sub.channel.buffer]; exists {
+			continue
+		}
+		seen[sub.channel.buffer] = struct{}{}
 		for e := sub.channel.buffer.Front(); e != nil; e = e.Next() {
 			if delivery, ok := e.Value.(*bufferedDelivery); ok {
-				p.upgradeMessages = append(p.upgradeMessages, delivery.message)
+				p.upgradeMessages = append(p.upgradeMessages, delivery.message.queuedMessage())
 			}
 		}
 	}

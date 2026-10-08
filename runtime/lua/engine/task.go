@@ -178,7 +178,7 @@ func (t *Task) Close() {
 	t.fn = nil
 	t.Yielded = nil
 	t.Resumed = nil
-	t.delivery = nil
+	t.releaseDelivery()
 	t.State = 0
 	clear(t.resumeBuf)
 	clear(t.retBuf[:cap(t.retBuf)])

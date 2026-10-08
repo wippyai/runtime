@@ -546,6 +546,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.queue.Drain()
 	p.mainTask = nil
 	p.pendingYields = nil
+	p.upgradeRequest = nil
 
 	// Set context for this execution
 	p.ctx = ctx
@@ -969,7 +970,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 						t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "channel update"))
 					} else {
 						t.ResumeWith(upd.GetResult()...)
-						t.delivery = upd.delivery
+						t.takeDelivery(upd)
 					}
 
 					channelQueue.Push(t)
@@ -1029,7 +1030,7 @@ func (p *Process) applyExternalChannelResult(result *ChannelResult) {
 			t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "external channel op"))
 		} else {
 			t.ResumeWith(upd.GetResult()...)
-			t.delivery = upd.delivery
+			t.takeDelivery(upd)
 		}
 		p.queue.Push(t)
 	}
@@ -1555,15 +1556,13 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	// retried on the next step — preserving mailbox order and rendezvous
 	// semantics on zero-buffer topics (@pid/events, @pid/inbox) and lossless
 	// in-order delivery to a slow consumer on a full bounded buffer.
-	if sub.retainOnUpgrade && !hasFrame && sub.channel.CanSend() {
-		value = &bufferedDelivery{
-			LValue: value,
-			message: queuedMessage{
-				Source: qm.Source, Topic: qm.Topic, Payloads: qm.Payloads, sequence: qm.sequence,
-			},
-		}
+	var envelope *mailboxEnvelope
+	var delivery mailboxEnvelope
+	if sub.retainOnUpgrade && !hasFrame {
+		delivery = mailboxEnvelope{Source: qm.Source, Topic: qm.Topic, Payloads: qm.Payloads, sequence: qm.sequence}
+		envelope = &delivery
 	}
-	result, sent := sub.channel.TrySend(value)
+	result, sent := sub.channel.trySend(value, envelope)
 	if !sent {
 		if sub.channel.IsClosed() {
 			p.closeChannel(sub.channel)
@@ -1753,7 +1752,7 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 		previousReturns := task.retBuf
 		// The receive is observed when its arguments enter the VM, not when
 		// another coroutine merely wakes this task during a message flush.
-		task.delivery = nil
+		task.releaseDelivery()
 		state, values, err := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
 		// ResumeInto copied the arguments into the VM. The task must not keep
 		// the consumed payload alive while its next operation is blocked.
@@ -1957,6 +1956,7 @@ func (p *Process) Close() {
 	p.factory = nil
 	p.pendingYields = nil
 	p.exported = nil
+	p.upgradeRequest = nil
 	p.channelQueue = nil
 	p.channels = nil
 	p.subs = nil

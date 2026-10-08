@@ -40,6 +40,86 @@ func TestUpgradeCapturesUnresumedDelivery(t *testing.T) {
 	}
 }
 
+func TestBufferedMailboxDeliveryMovesBeforeResultRelease(t *testing.T) {
+	p := newCDCRegressionProcess(t)
+	defer p.Close()
+	sub, err := p.subs.add("data", 1)
+	require.NoError(t, err)
+	sub.retainOnUpgrade = true
+	p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("unread")}})
+	p.flushMessageQueue(p.subs)
+	wrapper := sub.channel.buffer.Front().Value.(*bufferedDelivery)
+	task := p.createTask(p.state.NewFunction(func(*lua.LState) int { return 0 }))
+	p.applyExternalChannelResult(sub.channel.Receive(task.Thread(), nil))
+	require.Same(t, wrapper, task.delivery, "channel result must move envelope ownership to the task")
+	p.captureUpgradeMessages()
+	require.Len(t, p.upgradeMessages, 1, "releasing the channel result must not clear the task's envelope")
+	require.Equal(t, "unread", p.upgradeMessages[0].Payloads[0].Data())
+	task.releaseDelivery()
+	require.Nil(t, wrapper.LValue, "pooled wrappers must not retain Lua values")
+	require.Equal(t, mailboxEnvelope{}, wrapper.message, "pooled wrappers must not retain raw payloads")
+}
+
+func TestDrainedMailboxIsNotReplayed(t *testing.T) {
+	p := newCDCRegressionProcess(t)
+	defer p.Close()
+	sub, err := p.subs.add("data", 1)
+	require.NoError(t, err)
+	sub.retainOnUpgrade = true
+	p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("discarded")}})
+	p.flushMessageQueue(p.subs)
+	require.Equal(t, 1, sub.channel.Drain())
+	require.Zero(t, sub.channel.Drain())
+	p.captureUpgradeMessages()
+	require.Empty(t, p.upgradeMessages, "explicitly discarded messages must not survive an upgrade")
+}
+
+func TestConsumedUpgradeDeliveryDoesNotRetainEnvelope(t *testing.T) {
+	p := newChurnReceiver(t, 0)
+	sub, exists := p.subs.get("work")
+	require.True(t, exists)
+	sub.retainOnUpgrade = true
+	var out process.StepOutput
+	require.NoError(t, p.Step([]process.Event{churnMessage("work", payload.NewPayload(lua.LInteger(1), payload.Lua))}, &out))
+	require.Equal(t, "1", p.State().GetGlobal("processed").String())
+	for _, task := range p.threads {
+		require.Nil(t, task.delivery, "idle tasks must not retain a consumed message")
+	}
+	p.captureUpgradeMessages()
+	require.Empty(t, p.upgradeMessages, "consumed messages must not be replayed on upgrade")
+}
+
+func TestUpgradeRequestClearedBeforeProcessPooling(t *testing.T) {
+	p := newCDCRegressionProcess(t)
+	p.upgradeRequest = &UpgradeRequest{}
+	p.Close()
+	require.Nil(t, p.upgradeRequest, "a recycled process must not inherit another execution's upgrade request")
+}
+
+func TestUpgradeCapturesSharedMailboxBufferOnce(t *testing.T) {
+	for _, valueCopy := range []bool{false, true} {
+		t.Run(map[bool]string{false: "shared channel", true: "native value-copy alias"}[valueCopy], func(t *testing.T) {
+			p := newCDCRegressionProcess(t)
+			defer p.Close()
+			ch := NewChannel(1)
+			alias := ch
+			if valueCopy {
+				copy := *ch
+				alias = &copy
+			}
+			first, err := p.subs.addExisting("data", ch)
+			require.NoError(t, err)
+			second, err := p.subs.addExisting("other", alias)
+			require.NoError(t, err)
+			first.retainOnUpgrade, second.retainOnUpgrade = true, true
+			p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("once")}})
+			p.flushMessageQueue(p.subs)
+			p.captureUpgradeMessages()
+			require.Len(t, p.upgradeMessages, 1, "two subscriptions to one buffer must not duplicate an accepted message")
+		})
+	}
+}
+
 func TestUpgradeMailboxMovesOwnershipOnce(t *testing.T) {
 	old, next := newCDCRegressionProcess(t), newCDCRegressionProcess(t)
 	defer old.Close()

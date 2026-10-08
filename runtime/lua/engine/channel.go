@@ -55,7 +55,10 @@ func (u *TaskUpdate) unwrapDelivery(value lua.LValue) lua.LValue {
 func (u *TaskUpdate) reset() {
 	u.State = nil
 	u.Error = nil
-	u.delivery = nil
+	if u.delivery != nil {
+		releaseBufferedDelivery(u.delivery)
+		u.delivery = nil
+	}
 	u.resultBuf[0] = nil
 	u.resultBuf[1] = nil
 	u.resultBuf[2] = nil
@@ -198,6 +201,12 @@ func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *
 // the ephemeral channel router) that must never block on a Lua channel
 // because there is no real producer task that could be woken.
 func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
+	return c.trySend(value, nil)
+}
+
+// Mailbox envelope ownership moves to the receiver or buffer. Wrappers are
+// pooled and never exposed to Lua; ordinary channels need no envelope.
+func (c *Channel) trySend(value lua.LValue, envelope *mailboxEnvelope) (*ChannelResult, bool) {
 	if c.closed {
 		return errorResult(nil, errors.New("send on closed channel")), false
 	}
@@ -219,6 +228,9 @@ func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
 		} else {
 			uRecv.setResult2(value, lua.LTrue)
 		}
+		if envelope != nil {
+			uRecv.delivery = acquireBufferedDelivery(nil, *envelope)
+		}
 		r.Updates = append(r.Updates, uRecv)
 		r.Release = append(r.Release, c)
 		r.Release = c.flushSelect(op.selectOp, r.Release)
@@ -227,6 +239,9 @@ func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
 
 	// Case 2: buffer has space.
 	if c.buffer.Len() < c.capacity {
+		if envelope != nil {
+			value = acquireBufferedDelivery(value, *envelope)
+		}
 		c.buffer.PushBack(value)
 		return nil, true
 	}
