@@ -137,9 +137,13 @@ func (y *TerminateYield) Release()                      { ReleaseTerminateYield(
 
 func (y *TerminateYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "terminate failed").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		luaErr := lua.WrapErrorWithLua(l, err, "terminate failed")
+		if luaErr.Kind() == lua.Unknown {
+			luaErr = luaErr.WithKind(lua.Internal)
+		}
+		if luaErr.Retryable() == lua.TernaryUnknown {
+			luaErr = luaErr.WithRetryable(false)
+		}
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
@@ -174,9 +178,13 @@ func (y *CancelYield) Release()                      { ReleaseCancelYield(y) }
 
 func (y *CancelYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "cancel failed").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		luaErr := lua.WrapErrorWithLua(l, err, "cancel failed")
+		if luaErr.Kind() == lua.Unknown {
+			luaErr = luaErr.WithKind(lua.Internal)
+		}
+		if luaErr.Retryable() == lua.TernaryUnknown {
+			luaErr = luaErr.WithRetryable(false)
+		}
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}

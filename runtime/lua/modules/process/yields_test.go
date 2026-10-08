@@ -193,6 +193,47 @@ func TestCancelYield_HandleResult_Success(t *testing.T) {
 	assert.Equal(t, lua.LNil, result[1])
 }
 
+func TestLifecycleYield_HandleResult_PreservesErrorMetadata(t *testing.T) {
+	configureAPIErrorMetadataExtractor(t)
+	l := lua.NewState()
+	defer l.Close()
+	cancel := AcquireCancelYield()
+	defer cancel.Release()
+	terminate := AcquireTerminateYield()
+	defer terminate.Release()
+
+	for _, operation := range []struct {
+		handle func(*lua.LState, any, error) []lua.LValue
+		name   string
+	}{
+		{name: "cancel", handle: cancel.HandleResult},
+		{name: "terminate", handle: terminate.HandleResult},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name      string
+				err       error
+				kind      lua.Kind
+				retryable lua.Ternary
+			}{
+				{name: "exited process", err: process.ErrProcessNotFound, kind: lua.NotFound, retryable: lua.TernaryFalse},
+				{name: "retryable failure", err: apierror.New(apierror.Unavailable, "try later").WithRetryable(apierror.True), kind: lua.Unavailable, retryable: lua.TernaryTrue},
+				{name: "unclassified failure", err: errors.New("unexpected failure"), kind: lua.Internal, retryable: lua.TernaryFalse},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					values := operation.handle(l, nil, tc.err)
+					require.Len(t, values, 2)
+					assert.Equal(t, lua.LNil, values[0])
+					err, ok := lua.AsError(values[1])
+					require.True(t, ok)
+					assert.Equal(t, tc.kind, err.Kind())
+					assert.Equal(t, tc.retryable, err.Retryable())
+				})
+			}
+		})
+	}
+}
+
 func TestMonitorYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
