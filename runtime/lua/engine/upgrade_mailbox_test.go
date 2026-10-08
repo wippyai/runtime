@@ -94,6 +94,43 @@ func TestConsumedUpgradeDeliveryDoesNotRetainEnvelope(t *testing.T) {
 	require.Empty(t, p.upgradeMessages, "consumed messages must not be replayed on upgrade")
 }
 
+func TestSingleReceiverDoesNotAllocateUpgradeDeliveryStorage(t *testing.T) {
+	p := newChurnReceiver(t, 0)
+	sub, exists := p.subs.get("work")
+	require.True(t, exists)
+	sub.retainOnUpgrade = true
+	require.Len(t, p.threads, 1)
+	var out process.StepOutput
+	require.NoError(t, p.Step([]process.Event{churnMessage("work", payload.NewPayload(lua.LInteger(1), payload.Lua))}, &out))
+	require.Equal(t, "1", p.State().GetGlobal("processed").String())
+	require.Nil(t, p.mainTask.delivery, "a sole receiver cannot upgrade before observing its own delivery")
+}
+
+func TestUpgradeAfterReceiverSpawnsDoesNotReplayConsumedDelivery(t *testing.T) {
+	p := newChurnProcess(t, `
+		local inbox, gate = channel.new(0), channel.new(0)
+		subscribe("work", inbox)
+		assert(inbox:receive() == 1)
+		coroutine.spawn(function() coroutine.yield(upgrade_request) end)
+		gate:receive()
+	`)
+	sub, exists := p.subs.get("work")
+	require.True(t, exists)
+	sub.retainOnUpgrade = true
+	p.State().SetGlobal("upgrade_request", &UpgradeRequest{})
+	var out process.StepOutput
+	require.NoError(t, p.Step([]process.Event{
+		churnMessage("work", payload.NewPayload(lua.LInteger(1), payload.Lua)),
+		churnMessage("work", payload.NewPayload(lua.LInteger(2), payload.Lua)),
+	}, &out))
+	require.Equal(t, process.StepUpgrade, out.Status())
+	next := newCDCRegressionProcess(t)
+	defer next.Close()
+	require.NoError(t, p.TransferUpgradeState(next))
+	require.Len(t, next.messageQueue, 1, "spawning after receipt cannot make the consumed message unread again")
+	require.Equal(t, lua.LInteger(2), next.messageQueue[0].Payloads[0].Data())
+}
+
 func TestUpgradeRequestClearedBeforeProcessPooling(t *testing.T) {
 	p := newCDCRegressionProcess(t)
 	p.upgradeRequest = &UpgradeRequest{}

@@ -1049,7 +1049,9 @@ func (p *Process) applyChannelResult(result *ChannelResult, message *queuedMessa
 			t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "external channel op"))
 		} else {
 			t.ResumeWith(upd.GetResult()...)
-			if message != nil {
+			// A sole receiver must observe this delivery before it can request
+			// upgrade or spawn another task. Only a sibling can upgrade first.
+			if message != nil && len(p.threads) > 1 {
 				t.rememberDelivery(message)
 			}
 			t.takeDelivery(upd)
