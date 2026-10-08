@@ -1007,10 +1007,11 @@ func registryUnregister(l *lua.LState) int {
 
 func inbox(l *lua.LState) int {
 	req := &engine.SubscribeRequest{
-		Topic:           topology.TopicInbox,
-		BufSize:         0,
-		Handler:         MessageHandler,
-		RetainOnUpgrade: true,
+		Topic:             topology.TopicInbox,
+		BufSize:           0,
+		Handler:           MessageHandler,
+		HandlerOnDelivery: true,
+		RetainOnUpgrade:   true,
 	}
 	l.Push(req)
 	return -1 // yield

@@ -100,7 +100,7 @@ type Process struct {
 	pendingYields   map[uint64]*Task
 	channels        map[*Channel]int
 	state           *lua.LState
-	handlers        map[string]TopicHandler
+	handlers        map[string]topicHandlerRegistration
 	// stalledChans records channels that could not accept a message during the
 	// current flush. Later messages for the same channel, including terminals,
 	// remain queued so delivery order cannot be inverted.
@@ -339,10 +339,14 @@ func (p *Process) drainSubscriptionChannels() {
 
 // SetTopicHandler registers a handler for a topic.
 func (p *Process) SetTopicHandler(topic string, handler TopicHandler) {
+	p.setTopicHandler(topic, handler, false)
+}
+
+func (p *Process) setTopicHandler(topic string, handler TopicHandler, onDelivery bool) {
 	if p.handlers == nil {
-		p.handlers = make(map[string]TopicHandler, 4)
+		p.handlers = make(map[string]topicHandlerRegistration, 4)
 	}
-	p.handlers[topic] = handler
+	p.handlers[topic] = topicHandlerRegistration{handler: handler, onDelivery: onDelivery}
 }
 
 // GetTopicHandler retrieves a handler for a topic.
@@ -351,7 +355,7 @@ func (p *Process) GetTopicHandler(topic string) (TopicHandler, bool) {
 		return nil, false
 	}
 	h, ok := p.handlers[topic]
-	return h, ok
+	return h.handler, ok
 }
 
 // RemoveTopicHandler removes a handler for a topic.
@@ -1099,7 +1103,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 			} else {
 				sub.retainOnUpgrade = sub.retainOnUpgrade || req.RetainOnUpgrade
 				if req.Handler != nil {
-					p.SetTopicHandler(req.Topic, req.Handler)
+					p.setTopicHandler(req.Topic, req.Handler, req.HandlerOnDelivery)
 				}
 
 				// Flush queued messages for this topic BEFORE returning channel
@@ -1551,10 +1555,18 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 		payloads = payloads[:len(payloads)-1]
 	}
 
-	// Check for topic handler
+	// Ordinary queued messages retry until a receiver or buffer slot is
+	// available. Do not construct discarded values on blocked retries.
+	// Eager handlers still run: they may consume/filter without channel delivery.
+	// Routed frames keep their existing drop/terminal handling below.
+	handler, hasHandler := p.handlers[handlerTopic]
+	if (!hasHandler || handler.onDelivery) && !hasFrame && !sub.channel.IsClosed() && !sub.channel.CanSend() {
+		p.markStalled(sub.channel)
+		return true
+	}
 	var value lua.LValue
-	if handler, ok := p.GetTopicHandler(handlerTopic); ok {
-		value = handler(p.ctx, p.state, qm.Source, topic, payloads)
+	if hasHandler {
+		value = handler.handler(p.ctx, p.state, qm.Source, topic, payloads)
 		if value == nil {
 			// Handler processed but doesn't want to send to channel
 			if hasTerminal {
@@ -1563,14 +1575,6 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 			return false
 		}
 	} else {
-		// Ordinary queued messages retry until a receiver or buffer slot is
-		// available. Do not construct and discard the same Lua tree on every
-		// blocked retry. Handlers still run above (they may consume messages),
-		// and routed frames retain their existing drop/terminal handling below.
-		if !hasFrame && !sub.channel.IsClosed() && !sub.channel.CanSend() {
-			p.markStalled(sub.channel)
-			return true
-		}
 		value = PayloadsToLua(p.ctx, p.state, payloads)
 	}
 
