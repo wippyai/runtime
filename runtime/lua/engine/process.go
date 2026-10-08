@@ -116,6 +116,7 @@ type Process struct {
 	script            string
 	scriptName        string
 	messageQueue      []queuedMessage
+	upgradeMessages   []queuedMessage
 	// Transient single-topic data-burst state, scoped to one Step.
 	messageBatchTopic string
 	yieldBuf          []*Task
@@ -123,6 +124,7 @@ type Process struct {
 	outTasks          []*Task
 	threads           []*Task
 	yieldSeq          uint64
+	messageSeq        uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -148,6 +150,7 @@ type queuedMessage struct {
 	MaxItems     int
 	PayloadBytes int64
 	MaxBytes     int64
+	sequence     uint64
 }
 
 // GetProcess retrieves the Process from LState via Owner.
@@ -770,6 +773,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 			out.Done(nil)
 			return toAPIError(err)
 		}
+		if p.upgradeRequest != nil {
+			break // do not resume another old-code task after the upgrade boundary
+		}
 
 		// Process subscribe yields (outer layer) - may add tasks to queue
 		var hadSubscriptions bool
@@ -808,6 +814,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	if p.upgradeRequest != nil {
 		req := p.upgradeRequest
 		p.upgradeRequest = nil
+		p.captureUpgradeMessages()
 		p.clearExecution()
 		out.SetUpgrade(&process.UpgradeRequest{
 			Source: req.Source,
@@ -962,6 +969,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 						t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "channel update"))
 					} else {
 						t.ResumeWith(upd.GetResult()...)
+						t.delivery = upd.delivery
 					}
 
 					channelQueue.Push(t)
@@ -1021,6 +1029,7 @@ func (p *Process) applyExternalChannelResult(result *ChannelResult) {
 			t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "external channel op"))
 		} else {
 			t.ResumeWith(upd.GetResult()...)
+			t.delivery = upd.delivery
 		}
 		p.queue.Push(t)
 	}
@@ -1063,6 +1072,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 			if err != nil {
 				task.ResumeWith(lua.LNil, lua.WrapError(err, "subscribe"))
 			} else {
+				sub.retainOnUpgrade = sub.retainOnUpgrade || req.RetainOnUpgrade
 				if req.Handler != nil {
 					p.SetTopicHandler(req.Topic, req.Handler)
 				}
@@ -1163,6 +1173,8 @@ func (p *Process) clearMessageQueue() {
 // mailbox. Limits are opt-in: only messages carrying MaxItems/MaxBytes are
 // bounded, so unrelated process topics retain their historical behavior.
 func (p *Process) enqueueMessage(qm queuedMessage) {
+	p.messageSeq++
+	qm.sequence = p.messageSeq
 	if qm.MaxItems <= 0 {
 		qm.MaxItems = p.messageQueueItemLimits[qm.Topic]
 	}
@@ -1271,6 +1283,7 @@ func (p *Process) overflowMessageQueue(qm queuedMessage) {
 		Payloads: payload.Payloads{payload.NewError(process.ErrMessageQueueOverflow), payload.NewTerminal()},
 		MaxItems: qm.MaxItems,
 		MaxBytes: qm.MaxBytes,
+		sequence: qm.sequence,
 	})
 }
 
@@ -1542,6 +1555,14 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	// retried on the next step — preserving mailbox order and rendezvous
 	// semantics on zero-buffer topics (@pid/events, @pid/inbox) and lossless
 	// in-order delivery to a slow consumer on a full bounded buffer.
+	if sub.retainOnUpgrade && !hasFrame && sub.channel.CanSend() {
+		value = &bufferedDelivery{
+			LValue: value,
+			message: queuedMessage{
+				Source: qm.Source, Topic: qm.Topic, Payloads: qm.Payloads, sequence: qm.sequence,
+			},
+		}
+	}
 	result, sent := sub.channel.TrySend(value)
 	if !sent {
 		if sub.channel.IsClosed() {
@@ -1730,6 +1751,9 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 
 		thread := task.Thread()
 		previousReturns := task.retBuf
+		// The receive is observed when its arguments enter the VM, not when
+		// another coroutine merely wakes this task during a message flush.
+		task.delivery = nil
 		state, values, err := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
 		// ResumeInto copied the arguments into the VM. The task must not keep
 		// the consumed payload alive while its next operation is blocked.
@@ -1919,6 +1943,8 @@ func (p *Process) Close() {
 	p.externalTasks = p.externalTasks[:0]
 	p.outTasks = p.outTasks[:0]
 	p.clearMessageQueue()
+	clear(p.upgradeMessages)
+	p.upgradeMessages = nil
 
 	// Clear all references
 	p.ctx = nil
@@ -1948,6 +1974,7 @@ func (p *Process) Close() {
 	p.stalledChans = nil
 	p.trapLinks = false
 	p.upgradable = false
+	p.messageSeq = 0
 	p.pendingOutdated = nil
 	p.linkDownError = nil
 

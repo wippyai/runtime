@@ -86,6 +86,15 @@ type (
 		Close()
 	}
 
+	// UpgradeTransfer optionally moves execution-owned state into an initialized
+	// replacement before it runs. The scheduler calls it on the owning worker,
+	// then closes the old incarnation. On error the old incarnation retains
+	// ownership, and both processes are closed. Implementations must reject an
+	// incompatible replacement rather than silently discard unread state.
+	UpgradeTransfer interface {
+		TransferUpgradeState(replacement Process) error
+	}
+
 	// FactoryFunc creates new Process instances.
 	FactoryFunc func() (Process, error)
 

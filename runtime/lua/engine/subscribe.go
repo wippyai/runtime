@@ -159,6 +159,7 @@ type subscription struct {
 	cleanupMu        sync.Mutex
 	cleanupRequested bool
 	cleanupDone      bool
+	retainOnUpgrade  bool
 }
 
 func (s *subscription) callCleanup() {
@@ -236,6 +237,10 @@ type SubscribeRequest struct {
 	ExistingChannel *Channel
 	Topic           string
 	BufSize         int
+	// RetainOnUpgrade marks ordinary process mailboxes, not incarnation-bound
+	// producer channels. Unread deliveries are replayed through the replacement's
+	// own handler; the old channel and its Lua values never cross the swap.
+	RetainOnUpgrade bool
 }
 
 func (r *SubscribeRequest) String() string       { return "<subscribe_request>" }
