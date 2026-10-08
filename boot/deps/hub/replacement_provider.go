@@ -13,6 +13,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	hubsemver "github.com/wippyai/runtime/api/semver"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -131,8 +132,9 @@ func loadReplacementEntries(
 		return nil, NewDependencyLoadError(path, errReplacementNotDirectory)
 	}
 
+	loadPath := lock.ModuleEntryLoadPath(path)
 	cfg, _ := depconfig.Load(path)
-	dirFS := depconfig.NewSourceFS(os.DirFS(path), cfg, path, path)
+	dirFS := depconfig.NewSourceFS(os.DirFS(loadPath), cfg, path, loadPath)
 	ldr := loaderFromContext(ctx, logger, transcoder)
 	var entries []regapi.Entry
 	if err := fs.WalkDir(dirFS, ".", func(rel string, d fs.DirEntry, err error) error {
