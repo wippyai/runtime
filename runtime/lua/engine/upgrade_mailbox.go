@@ -66,10 +66,9 @@ func (t *Task) releaseDelivery() {
 // of a pool Get/Put for every rendezvous. Payload references clear at consume.
 func (t *Task) rememberDelivery(message *queuedMessage) {
 	if t.delivery == nil {
-		t.delivery = acquireBufferedDelivery(nil, message.mailboxEnvelope())
-	} else {
-		t.delivery.message = message.mailboxEnvelope()
+		t.delivery = acquireBufferedDelivery(nil, mailboxEnvelope{})
 	}
+	t.delivery.message = message.mailboxEnvelope()
 }
 
 func (t *Task) freeDelivery() {
@@ -106,34 +105,59 @@ func rememberUpgradeDelivery(l *lua.LState, result *ChannelResult) {
 	}
 }
 
+// Automatic terminal delivery closes the old listener, but buffered data is
+// still readable. Keep those buffers visible until capture. Explicit unlisten
+// does not call this: it intentionally retires the mailbox.
+func (p *Process) retainClosedMailbox(buffer *list.List) {
+	p.closedMailboxes = slices.DeleteFunc(p.closedMailboxes, func(old *list.List) bool { return old.Len() == 0 })
+	p.closedMailboxes = append(p.closedMailboxes, buffer)
+}
+
 func (p *Process) captureUpgradeMessages() {
 	clear(p.upgradeMessages)
 	p.upgradeMessages = p.upgradeMessages[:0]
+	p.upgradeProducerTopics = nil
 	for _, task := range p.threads {
 		if task.delivery != nil && task.delivery.message.sequence != 0 {
 			p.upgradeMessages = append(p.upgradeMessages, task.delivery.message.queuedMessage())
 		}
 	}
-	if p.subs == nil {
-		return
-	}
 	seen := make(map[*list.List]struct{})
-	for _, sub := range p.subs.snapshotSubscriptions() {
-		if !sub.retainOnUpgrade {
-			continue
-		}
+	captureBuffer := func(buffer *list.List) {
 		// Go-side subscriptions can share a channel, including native value
 		// copies whose queue pointers alias. Capture each buffer only once.
-		if _, exists := seen[sub.channel.buffer]; exists {
-			continue
+		if _, exists := seen[buffer]; exists {
+			return
 		}
-		seen[sub.channel.buffer] = struct{}{}
-		for e := sub.channel.buffer.Front(); e != nil; e = e.Next() {
+		seen[buffer] = struct{}{}
+		for e := buffer.Front(); e != nil; e = e.Next() {
 			if delivery, ok := e.Value.(*bufferedDelivery); ok {
 				p.upgradeMessages = append(p.upgradeMessages, delivery.message.queuedMessage())
 			}
 		}
 	}
+	for _, buffer := range p.closedMailboxes {
+		captureBuffer(buffer)
+	}
+	if p.subs == nil {
+		return
+	}
+	for _, sub := range p.subs.snapshotSubscriptions() {
+		if sub.retainOnUpgrade {
+			captureBuffer(sub.channel.buffer)
+		} else {
+			if p.upgradeProducerTopics == nil {
+				p.upgradeProducerTopics = make(map[string]struct{})
+			}
+			p.upgradeProducerTopics[sub.topic] = struct{}{}
+		}
+	}
+}
+
+func (p *Process) retiredUpgradeMessage(qm queuedMessage) bool {
+	_, framed := subscriptionFrameFromPayloads(qm.Payloads)
+	_, producer := p.upgradeProducerTopics[qm.Topic]
+	return framed || producer
 }
 
 // TransferUpgradeState moves only unread message envelopes. Subscriptions,
@@ -155,7 +179,7 @@ func (p *Process) TransferUpgradeState(replacement process.Process) error {
 	messages := make([]queuedMessage, 0, len(p.upgradeMessages)+len(p.messageQueue))
 	messages = append(messages, p.upgradeMessages...)
 	for _, qm := range p.messageQueue {
-		if _, framed := subscriptionFrameFromPayloads(qm.Payloads); !framed {
+		if !p.retiredUpgradeMessage(qm) {
 			messages = append(messages, qm)
 		}
 	}
@@ -188,9 +212,19 @@ func (p *Process) TransferUpgradeState(replacement process.Process) error {
 		}
 	}
 	for _, qm := range p.messageQueue {
-		if _, framed := subscriptionFrameFromPayloads(qm.Payloads); framed {
+		if p.retiredUpgradeMessage(qm) {
 			p.releaseQueuedMessage(qm)
 		}
+	}
+	// Native producers can send plain relay payloads, not just routed frames.
+	// Their queued tails and limits belong to the retiring subscriptions too.
+	for topic := range p.upgradeProducerTopics {
+		delete(p.messageQueueItems, topic)
+		delete(p.messageQueueBytes, topic)
+		delete(p.messageQueueItemLimits, topic)
+		delete(p.messageQueueLimits, topic)
+		delete(p.messageQueueOverflowed, topic)
+		delete(p.messageQueueDiscarded, topic)
 	}
 
 	// Move reservations rather than re-admitting already accepted messages:
@@ -207,5 +241,6 @@ func (p *Process) TransferUpgradeState(replacement process.Process) error {
 	p.messageQueue = p.messageQueue[:0]
 	clear(p.upgradeMessages)
 	p.upgradeMessages = nil
+	p.upgradeProducerTopics = nil
 	return nil
 }

@@ -3,11 +3,13 @@
 package engine
 
 import (
+	"container/list"
 	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -119,6 +121,127 @@ func TestUpgradeCapturesSharedMailboxBufferOnce(t *testing.T) {
 			p.flushMessageQueue(p.subs)
 			p.captureUpgradeMessages()
 			require.Len(t, p.upgradeMessages, 1, "two subscriptions to one buffer must not duplicate an accepted message")
+		})
+	}
+}
+
+func TestUpgradeCapturesAutomaticallyClosedMailbox(t *testing.T) {
+	for _, combined := range []bool{false, true} {
+		t.Run(map[bool]string{false: "separate terminal", true: "data and terminal"}[combined], func(t *testing.T) {
+			p := newCDCRegressionProcess(t)
+			defer p.Close()
+			sub, err := p.subs.add("data", 1)
+			require.NoError(t, err)
+			sub.retainOnUpgrade = true
+			pls := payload.Payloads{payload.NewPayload(lua.LString("unread"), payload.Lua)}
+			if combined {
+				pls = append(pls, payload.NewTerminal())
+			}
+			p.enqueueMessage(queuedMessage{Topic: "data", Payloads: pls})
+			if !combined {
+				p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewTerminal()}})
+			}
+			p.flushMessageQueue(p.subs)
+			require.True(t, sub.channel.IsClosed())
+			require.Equal(t, 1, sub.channel.Size())
+			require.Empty(t, p.messageQueue)
+			p.captureUpgradeMessages()
+			require.Len(t, p.upgradeMessages, 1, "automatic closure must not discard unread data")
+			result := sub.channel.Receive(nil, nil)
+			require.Equal(t, lua.LString("unread"), result.Updates[0].GetResult()[0])
+			ReleaseResult(result)
+			p.captureUpgradeMessages()
+			require.Empty(t, p.upgradeMessages, "consumed closed-channel data must not be replayed")
+		})
+	}
+}
+
+func TestUpgradeDoesNotRestoreExplicitlyUnlistenedMailbox(t *testing.T) {
+	p := newCDCRegressionProcess(t)
+	defer p.Close()
+	sub, err := p.subs.add("data", 1)
+	require.NoError(t, err)
+	sub.retainOnUpgrade = true
+	p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("retired")}})
+	p.flushMessageQueue(p.subs)
+	require.True(t, p.UnsubscribeChannel(sub.channel))
+	p.captureUpgradeMessages()
+	require.Empty(t, p.upgradeMessages, "explicit unlisten retires the mailbox")
+}
+
+func TestAutomaticMailboxClosurePrunesConsumedBuffers(t *testing.T) {
+	p := newCDCRegressionProcess(t)
+	defer p.Close()
+	for range 100 {
+		sub, err := p.subs.add("data", 1)
+		require.NoError(t, err)
+		sub.retainOnUpgrade = true
+		p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{
+			payload.NewPayload(lua.LString("value"), payload.Lua), payload.NewTerminal(),
+		}})
+		p.flushMessageQueue(p.subs)
+		require.Len(t, p.closedMailboxes, 1, "repeated terminal/read cycles must not accumulate empty buffers")
+		ReleaseResult(sub.channel.Receive(nil, nil))
+	}
+	p.captureUpgradeMessages()
+	require.Empty(t, p.upgradeMessages)
+}
+
+func TestInitClearsCapturedUpgradePayloads(t *testing.T) {
+	p := newCDCRegressionProcess(t)
+	defer p.Close()
+	p.upgradeMessages = []queuedMessage{{Topic: "old", Payloads: payload.Payloads{payload.NewString("previous execution")}}}
+	backing := p.upgradeMessages
+	p.clearExecution()
+	p.closedMailboxes = []*list.List{list.New()}
+	closedBacking := p.closedMailboxes
+	ctx, frame := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(frame)
+	require.NoError(t, p.Init(ctx, "", nil))
+	require.Empty(t, p.upgradeMessages)
+	require.Empty(t, p.closedMailboxes)
+	require.Nil(t, closedBacking[0])
+	require.Equal(t, queuedMessage{}, backing[0], "reset must release the payload references, not just truncate")
+}
+
+func TestUpgradeRetiresUnframedProducerBacklog(t *testing.T) {
+	for _, bounded := range []bool{false, true} {
+		t.Run(map[bool]string{false: "websocket", true: "leased producer"}[bounded], func(t *testing.T) {
+			old, next := newCDCRegressionProcess(t), newCDCRegressionProcess(t)
+			defer old.Close()
+			defer next.Close()
+			ch := NewChannel(1)
+			require.NoError(t, old.SubscribeExisting("producer@1", ch))
+			stopped := false
+			require.True(t, old.SetSubscriptionCleanup(ch, func() { stopped = true }))
+			lease := &cdcTestLease{}
+			for i, value := range []string{"buffered", "queued"} {
+				qm := queuedMessage{Topic: "producer@1", Payloads: payload.Payloads{payload.NewString(value)}}
+				if bounded && i == 1 {
+					qm.Lease = lease
+					qm.MaxItems, qm.MaxBytes = 4, 64
+				}
+				old.enqueueMessage(qm)
+			}
+			old.enqueueMessage(queuedMessage{Topic: "ordinary", Payloads: payload.Payloads{payload.NewString("kept")}})
+			old.flushMessageQueue(old.subs)
+			require.Equal(t, 1, ch.Size())
+			require.Len(t, old.messageQueue, 2)
+			old.captureUpgradeMessages()
+			old.clearExecution()
+			require.True(t, stopped)
+			require.NoError(t, old.TransferUpgradeState(next))
+			require.Len(t, next.messageQueue, 1, "only ordinary mailbox data may survive")
+			require.Equal(t, "ordinary", next.messageQueue[0].Topic)
+			if bounded {
+				require.EqualValues(t, 1, lease.calls.Load(), "retired producer reservation must release exactly once")
+				require.NotContains(t, next.messageQueueItems, "producer@1")
+				require.NotContains(t, next.messageQueueBytes, "producer@1")
+				require.NotContains(t, next.messageQueueItemLimits, "producer@1")
+				require.NotContains(t, next.messageQueueLimits, "producer@1")
+				require.NotContains(t, next.messageQueueOverflowed, "producer@1")
+				require.NotContains(t, next.messageQueueDiscarded, "producer@1")
+			}
 		})
 	}
 }

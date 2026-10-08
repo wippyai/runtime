@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"strings"
@@ -111,12 +112,14 @@ type Process struct {
 	subs                   *subscribeContext
 	// messageQueueBytes accounts only messages that opt into a byte limit via
 	// relay metadata. Ordinary process messages keep their historical behavior.
-	messageQueueBytes map[string]int64
-	messageQueueItems map[string]int
-	script            string
-	scriptName        string
-	messageQueue      []queuedMessage
-	upgradeMessages   []queuedMessage
+	messageQueueBytes     map[string]int64
+	messageQueueItems     map[string]int
+	script                string
+	scriptName            string
+	messageQueue          []queuedMessage
+	upgradeMessages       []queuedMessage
+	closedMailboxes       []*list.List // automatically closed mailboxes with unread buffers
+	upgradeProducerTopics map[string]struct{}
 	// Transient single-topic data-burst state, scoped to one Step.
 	messageBatchTopic string
 	yieldBuf          []*Task
@@ -278,6 +281,10 @@ func (p *Process) UnsubscribeChannel(ch *Channel) bool {
 // closeChannel performs the idempotent subscription cleanup cascade for a
 // channel on the step goroutine.
 func (p *Process) closeChannel(ch *Channel) bool {
+	return p.closeSubscription(ch, false)
+}
+
+func (p *Process) closeSubscription(ch *Channel, retainUnread bool) bool {
 	if ch == nil || p.subs == nil {
 		return false
 	}
@@ -287,6 +294,9 @@ func (p *Process) closeChannel(ch *Channel) bool {
 	}
 	p.RemoveTopicHandler(topic)
 	if sub != nil {
+		if retainUnread && sub.retainOnUpgrade && ch.buffer.Len() > 0 {
+			p.retainClosedMailbox(ch.buffer)
+		}
 		sub.gen.Add(1)
 		sub.callCleanup()
 	}
@@ -547,6 +557,11 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.mainTask = nil
 	p.pendingYields = nil
 	p.upgradeRequest = nil
+	clear(p.upgradeMessages)
+	p.upgradeMessages = nil
+	clear(p.closedMailboxes)
+	p.closedMailboxes = nil
+	p.upgradeProducerTopics = nil
 
 	// Set context for this execution
 	p.ctx = ctx
@@ -1526,7 +1541,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 
 	// Terminal-only payload: unsubscribe and close the channel.
 	if terminalOnly {
-		p.closeChannel(sub.channel)
+		p.closeSubscription(sub.channel, true)
 		return false
 	}
 
@@ -1541,7 +1556,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 		if value == nil {
 			// Handler processed but doesn't want to send to channel
 			if hasTerminal {
-				p.closeChannel(sub.channel)
+				p.closeSubscription(sub.channel, true)
 			}
 			return false
 		}
@@ -1580,7 +1595,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 			// message in the queue. A terminal frame still reclaims the
 			// subscription so one-shot producers retire even when unread.
 			if hasTerminal {
-				p.closeChannel(sub.channel)
+				p.closeSubscription(sub.channel, true)
 			}
 			return false
 		}
@@ -1594,7 +1609,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 
 	// Close channel after sending if terminal was present
 	if hasTerminal {
-		p.closeChannel(sub.channel)
+		p.closeSubscription(sub.channel, true)
 	}
 
 	return false
@@ -1949,6 +1964,9 @@ func (p *Process) Close() {
 	p.clearMessageQueue()
 	clear(p.upgradeMessages)
 	p.upgradeMessages = nil
+	clear(p.closedMailboxes)
+	p.closedMailboxes = nil
+	p.upgradeProducerTopics = nil
 
 	// Clear all references
 	p.ctx = nil
@@ -2068,6 +2086,8 @@ func (p *Process) clearExecution() {
 	// channel refcount / subscription maps. Bumps the epoch so any
 	// in-flight producer frame is dropped on arrival.
 	p.drainSubscriptionChannels()
+	clear(p.closedMailboxes)
+	p.closedMailboxes = nil
 
 	// Close all spawned threads but keep them referenced for GC
 	for _, task := range p.threads {
