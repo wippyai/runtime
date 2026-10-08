@@ -819,6 +819,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		}
 		combined = append(combined, entry)
 	}
+	combined = append(combined, residentUnchangedModuleEntries(current, combined, controlled, desiredModules, touched)...)
 	combined = append(combined, moduleEntries...)
 
 	pipeline := build.New(
