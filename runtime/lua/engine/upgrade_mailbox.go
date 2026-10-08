@@ -29,9 +29,13 @@ func (m mailboxEnvelope) queuedMessage() queuedMessage {
 	return queuedMessage{Source: m.Source, Topic: m.Topic, Payloads: m.Payloads, sequence: m.sequence}
 }
 
-// bufferedDelivery stays private to a channel buffer or pending receive. The
-// buffer, channel result and task move ownership in that order. The wrapper is
-// returned to the pool only when consumed or discarded, never exposed to Lua.
+func (m *queuedMessage) mailboxEnvelope() mailboxEnvelope {
+	return mailboxEnvelope{Source: m.Source, Topic: m.Topic, Payloads: m.Payloads, sequence: m.sequence}
+}
+
+// bufferedDelivery stays private to a channel buffer or pending receive. A
+// receiving task reuses the cleared storage until Close returns it to the pool.
+// Neither the wrapper nor an old decoded value crosses the upgrade boundary.
 type bufferedDelivery struct {
 	lua.LValue
 	message mailboxEnvelope
@@ -52,6 +56,23 @@ func releaseBufferedDelivery(delivery *bufferedDelivery) {
 }
 
 func (t *Task) releaseDelivery() {
+	if t.delivery != nil && t.delivery.message.sequence != 0 {
+		t.delivery.LValue = nil
+		t.delivery.message = mailboxEnvelope{}
+	}
+}
+
+// Reuse one empty envelope for the lifetime of a receiving coroutine instead
+// of a pool Get/Put for every rendezvous. Payload references clear at consume.
+func (t *Task) rememberDelivery(message *queuedMessage) {
+	if t.delivery == nil {
+		t.delivery = acquireBufferedDelivery(nil, message.mailboxEnvelope())
+	} else {
+		t.delivery.message = message.mailboxEnvelope()
+	}
+}
+
+func (t *Task) freeDelivery() {
 	if t.delivery != nil {
 		releaseBufferedDelivery(t.delivery)
 		t.delivery = nil
@@ -60,8 +81,14 @@ func (t *Task) releaseDelivery() {
 
 func (t *Task) takeDelivery(update *TaskUpdate) {
 	if update.delivery != nil {
-		t.releaseDelivery()
-		t.delivery, update.delivery = update.delivery, nil
+		if t.delivery == nil {
+			t.delivery = update.delivery
+			t.delivery.LValue = nil
+		} else {
+			t.delivery.message = update.delivery.message
+			releaseBufferedDelivery(update.delivery)
+		}
+		update.delivery = nil
 	}
 }
 
@@ -83,7 +110,7 @@ func (p *Process) captureUpgradeMessages() {
 	clear(p.upgradeMessages)
 	p.upgradeMessages = p.upgradeMessages[:0]
 	for _, task := range p.threads {
-		if task.delivery != nil {
+		if task.delivery != nil && task.delivery.message.sequence != 0 {
 			p.upgradeMessages = append(p.upgradeMessages, task.delivery.message.queuedMessage())
 		}
 	}

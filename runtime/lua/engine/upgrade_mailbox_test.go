@@ -83,7 +83,10 @@ func TestConsumedUpgradeDeliveryDoesNotRetainEnvelope(t *testing.T) {
 	require.NoError(t, p.Step([]process.Event{churnMessage("work", payload.NewPayload(lua.LInteger(1), payload.Lua))}, &out))
 	require.Equal(t, "1", p.State().GetGlobal("processed").String())
 	for _, task := range p.threads {
-		require.Nil(t, task.delivery, "idle tasks must not retain a consumed message")
+		if task.delivery != nil {
+			require.Equal(t, mailboxEnvelope{}, task.delivery.message, "idle tasks must not retain a consumed message")
+			require.Nil(t, task.delivery.LValue)
+		}
 	}
 	p.captureUpgradeMessages()
 	require.Empty(t, p.upgradeMessages, "consumed messages must not be replayed on upgrade")

@@ -204,9 +204,10 @@ func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
 	return c.trySend(value, nil)
 }
 
-// Mailbox envelope ownership moves to the receiver or buffer. Wrappers are
-// pooled and never exposed to Lua; ordinary channels need no envelope.
-func (c *Channel) trySend(value lua.LValue, envelope *mailboxEnvelope) (*ChannelResult, bool) {
+// Only buffered mailbox values need a wrapper. On direct handoff, the process
+// records the envelope while applying the receiver update. Ordinary channels
+// pass nil; wrappers are private and pooled.
+func (c *Channel) trySend(value lua.LValue, envelope *queuedMessage) (*ChannelResult, bool) {
 	if c.closed {
 		return errorResult(nil, errors.New("send on closed channel")), false
 	}
@@ -228,9 +229,6 @@ func (c *Channel) trySend(value lua.LValue, envelope *mailboxEnvelope) (*Channel
 		} else {
 			uRecv.setResult2(value, lua.LTrue)
 		}
-		if envelope != nil {
-			uRecv.delivery = acquireBufferedDelivery(nil, *envelope)
-		}
 		r.Updates = append(r.Updates, uRecv)
 		r.Release = append(r.Release, c)
 		r.Release = c.flushSelect(op.selectOp, r.Release)
@@ -240,7 +238,7 @@ func (c *Channel) trySend(value lua.LValue, envelope *mailboxEnvelope) (*Channel
 	// Case 2: buffer has space.
 	if c.buffer.Len() < c.capacity {
 		if envelope != nil {
-			value = acquireBufferedDelivery(value, *envelope)
+			value = acquireBufferedDelivery(value, envelope.mailboxEnvelope())
 		}
 		c.buffer.PushBack(value)
 		return nil, true

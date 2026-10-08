@@ -1012,6 +1012,10 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 //
 // Must be called on the step goroutine. Safe with a nil result.
 func (p *Process) applyExternalChannelResult(result *ChannelResult) {
+	p.applyChannelResult(result, nil)
+}
+
+func (p *Process) applyChannelResult(result *ChannelResult, message *queuedMessage) {
 	if result == nil {
 		return
 	}
@@ -1030,6 +1034,9 @@ func (p *Process) applyExternalChannelResult(result *ChannelResult) {
 			t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "external channel op"))
 		} else {
 			t.ResumeWith(upd.GetResult()...)
+			if message != nil {
+				t.rememberDelivery(message)
+			}
 			t.takeDelivery(upd)
 		}
 		p.queue.Push(t)
@@ -1556,11 +1563,9 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	// retried on the next step — preserving mailbox order and rendezvous
 	// semantics on zero-buffer topics (@pid/events, @pid/inbox) and lossless
 	// in-order delivery to a slow consumer on a full bounded buffer.
-	var envelope *mailboxEnvelope
-	var delivery mailboxEnvelope
+	var envelope *queuedMessage
 	if sub.retainOnUpgrade && !hasFrame {
-		delivery = mailboxEnvelope{Source: qm.Source, Topic: qm.Topic, Payloads: qm.Payloads, sequence: qm.sequence}
-		envelope = &delivery
+		envelope = &qm
 	}
 	result, sent := sub.channel.trySend(value, envelope)
 	if !sent {
@@ -1585,7 +1590,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 		p.markStalled(sub.channel)
 		return true
 	}
-	p.applyExternalChannelResult(result)
+	p.applyChannelResult(result, envelope)
 
 	// Close channel after sending if terminal was present
 	if hasTerminal {
