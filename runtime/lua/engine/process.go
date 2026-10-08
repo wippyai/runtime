@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"strings"
@@ -99,7 +100,7 @@ type Process struct {
 	pendingYields   map[uint64]*Task
 	channels        map[*Channel]int
 	state           *lua.LState
-	handlers        map[string]TopicHandler
+	handlers        map[string]topicHandlerRegistration
 	// stalledChans records channels that could not accept a message during the
 	// current flush. Later messages for the same channel, including terminals,
 	// remain queued so delivery order cannot be inverted.
@@ -111,11 +112,14 @@ type Process struct {
 	subs                   *subscribeContext
 	// messageQueueBytes accounts only messages that opt into a byte limit via
 	// relay metadata. Ordinary process messages keep their historical behavior.
-	messageQueueBytes map[string]int64
-	messageQueueItems map[string]int
-	script            string
-	scriptName        string
-	messageQueue      []queuedMessage
+	messageQueueBytes     map[string]int64
+	messageQueueItems     map[string]int
+	script                string
+	scriptName            string
+	messageQueue          []queuedMessage
+	upgradeMessages       []queuedMessage
+	closedMailboxes       []*list.List // automatically closed mailboxes with unread buffers
+	upgradeProducerTopics map[string]struct{}
 	// Transient single-topic data-burst state, scoped to one Step.
 	messageBatchTopic string
 	yieldBuf          []*Task
@@ -123,6 +127,7 @@ type Process struct {
 	outTasks          []*Task
 	threads           []*Task
 	yieldSeq          uint64
+	messageSeq        uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -148,6 +153,7 @@ type queuedMessage struct {
 	MaxItems     int
 	PayloadBytes int64
 	MaxBytes     int64
+	sequence     uint64
 }
 
 // GetProcess retrieves the Process from LState via Owner.
@@ -275,6 +281,10 @@ func (p *Process) UnsubscribeChannel(ch *Channel) bool {
 // closeChannel performs the idempotent subscription cleanup cascade for a
 // channel on the step goroutine.
 func (p *Process) closeChannel(ch *Channel) bool {
+	return p.closeSubscription(ch, false)
+}
+
+func (p *Process) closeSubscription(ch *Channel, retainUnread bool) bool {
 	if ch == nil || p.subs == nil {
 		return false
 	}
@@ -284,6 +294,9 @@ func (p *Process) closeChannel(ch *Channel) bool {
 	}
 	p.RemoveTopicHandler(topic)
 	if sub != nil {
+		if retainUnread && sub.retainOnUpgrade && ch.buffer.Len() > 0 {
+			p.retainClosedMailbox(ch.buffer)
+		}
 		sub.gen.Add(1)
 		sub.callCleanup()
 	}
@@ -326,10 +339,14 @@ func (p *Process) drainSubscriptionChannels() {
 
 // SetTopicHandler registers a handler for a topic.
 func (p *Process) SetTopicHandler(topic string, handler TopicHandler) {
+	p.setTopicHandler(topic, handler, false)
+}
+
+func (p *Process) setTopicHandler(topic string, handler TopicHandler, onDelivery bool) {
 	if p.handlers == nil {
-		p.handlers = make(map[string]TopicHandler, 4)
+		p.handlers = make(map[string]topicHandlerRegistration, 4)
 	}
-	p.handlers[topic] = handler
+	p.handlers[topic] = topicHandlerRegistration{handler: handler, onDelivery: onDelivery}
 }
 
 // GetTopicHandler retrieves a handler for a topic.
@@ -338,7 +355,7 @@ func (p *Process) GetTopicHandler(topic string) (TopicHandler, bool) {
 		return nil, false
 	}
 	h, ok := p.handlers[topic]
-	return h, ok
+	return h.handler, ok
 }
 
 // RemoveTopicHandler removes a handler for a topic.
@@ -543,6 +560,12 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.queue.Drain()
 	p.mainTask = nil
 	p.pendingYields = nil
+	p.upgradeRequest = nil
+	clear(p.upgradeMessages)
+	p.upgradeMessages = nil
+	clear(p.closedMailboxes)
+	p.closedMailboxes = nil
+	p.upgradeProducerTopics = nil
 
 	// Set context for this execution
 	p.ctx = ctx
@@ -770,6 +793,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 			out.Done(nil)
 			return toAPIError(err)
 		}
+		if p.upgradeRequest != nil {
+			break // do not resume another old-code task after the upgrade boundary
+		}
 
 		// Process subscribe yields (outer layer) - may add tasks to queue
 		var hadSubscriptions bool
@@ -808,6 +834,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 	if p.upgradeRequest != nil {
 		req := p.upgradeRequest
 		p.upgradeRequest = nil
+		p.captureUpgradeMessages()
 		p.clearExecution()
 		out.SetUpgrade(&process.UpgradeRequest{
 			Source: req.Source,
@@ -962,6 +989,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 						t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "channel update"))
 					} else {
 						t.ResumeWith(upd.GetResult()...)
+						t.takeDelivery(upd)
 					}
 
 					channelQueue.Push(t)
@@ -1003,6 +1031,10 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 //
 // Must be called on the step goroutine. Safe with a nil result.
 func (p *Process) applyExternalChannelResult(result *ChannelResult) {
+	p.applyChannelResult(result, nil)
+}
+
+func (p *Process) applyChannelResult(result *ChannelResult, message *queuedMessage) {
 	if result == nil {
 		return
 	}
@@ -1021,6 +1053,12 @@ func (p *Process) applyExternalChannelResult(result *ChannelResult) {
 			t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "external channel op"))
 		} else {
 			t.ResumeWith(upd.GetResult()...)
+			// A sole receiver must observe this delivery before it can request
+			// upgrade or spawn another task. Only a sibling can upgrade first.
+			if message != nil && len(p.threads) > 1 {
+				t.rememberDelivery(message)
+			}
+			t.takeDelivery(upd)
 		}
 		p.queue.Push(t)
 	}
@@ -1063,8 +1101,9 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 			if err != nil {
 				task.ResumeWith(lua.LNil, lua.WrapError(err, "subscribe"))
 			} else {
+				sub.retainOnUpgrade = sub.retainOnUpgrade || req.RetainOnUpgrade
 				if req.Handler != nil {
-					p.SetTopicHandler(req.Topic, req.Handler)
+					p.setTopicHandler(req.Topic, req.Handler, req.HandlerOnDelivery)
 				}
 
 				// Flush queued messages for this topic BEFORE returning channel
@@ -1163,6 +1202,8 @@ func (p *Process) clearMessageQueue() {
 // mailbox. Limits are opt-in: only messages carrying MaxItems/MaxBytes are
 // bounded, so unrelated process topics retain their historical behavior.
 func (p *Process) enqueueMessage(qm queuedMessage) {
+	p.messageSeq++
+	qm.sequence = p.messageSeq
 	if qm.MaxItems <= 0 {
 		qm.MaxItems = p.messageQueueItemLimits[qm.Topic]
 	}
@@ -1271,6 +1312,7 @@ func (p *Process) overflowMessageQueue(qm queuedMessage) {
 		Payloads: payload.Payloads{payload.NewError(process.ErrMessageQueueOverflow), payload.NewTerminal()},
 		MaxItems: qm.MaxItems,
 		MaxBytes: qm.MaxBytes,
+		sequence: qm.sequence,
 	})
 }
 
@@ -1505,7 +1547,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 
 	// Terminal-only payload: unsubscribe and close the channel.
 	if terminalOnly {
-		p.closeChannel(sub.channel)
+		p.closeSubscription(sub.channel, true)
 		return false
 	}
 
@@ -1513,26 +1555,26 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 		payloads = payloads[:len(payloads)-1]
 	}
 
-	// Check for topic handler
+	// Ordinary queued messages retry until a receiver or buffer slot is
+	// available. Do not construct discarded values on blocked retries.
+	// Eager handlers still run: they may consume/filter without channel delivery.
+	// Routed frames keep their existing drop/terminal handling below.
+	handler, hasHandler := p.handlers[handlerTopic]
+	if (!hasHandler || handler.onDelivery) && !hasFrame && !sub.channel.IsClosed() && !sub.channel.CanSend() {
+		p.markStalled(sub.channel)
+		return true
+	}
 	var value lua.LValue
-	if handler, ok := p.GetTopicHandler(handlerTopic); ok {
-		value = handler(p.ctx, p.state, qm.Source, topic, payloads)
+	if hasHandler {
+		value = handler.handler(p.ctx, p.state, qm.Source, topic, payloads)
 		if value == nil {
 			// Handler processed but doesn't want to send to channel
 			if hasTerminal {
-				p.closeChannel(sub.channel)
+				p.closeSubscription(sub.channel, true)
 			}
 			return false
 		}
 	} else {
-		// Ordinary queued messages retry until a receiver or buffer slot is
-		// available. Do not construct and discard the same Lua tree on every
-		// blocked retry. Handlers still run above (they may consume messages),
-		// and routed frames retain their existing drop/terminal handling below.
-		if !hasFrame && !sub.channel.IsClosed() && !sub.channel.CanSend() {
-			p.markStalled(sub.channel)
-			return true
-		}
 		value = PayloadsToLua(p.ctx, p.state, payloads)
 	}
 
@@ -1542,7 +1584,11 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	// retried on the next step — preserving mailbox order and rendezvous
 	// semantics on zero-buffer topics (@pid/events, @pid/inbox) and lossless
 	// in-order delivery to a slow consumer on a full bounded buffer.
-	result, sent := sub.channel.TrySend(value)
+	var envelope *queuedMessage
+	if sub.retainOnUpgrade && !hasFrame {
+		envelope = &qm
+	}
+	result, sent := sub.channel.trySend(value, envelope)
 	if !sent {
 		if sub.channel.IsClosed() {
 			p.closeChannel(sub.channel)
@@ -1555,7 +1601,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 			// message in the queue. A terminal frame still reclaims the
 			// subscription so one-shot producers retire even when unread.
 			if hasTerminal {
-				p.closeChannel(sub.channel)
+				p.closeSubscription(sub.channel, true)
 			}
 			return false
 		}
@@ -1565,11 +1611,11 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 		p.markStalled(sub.channel)
 		return true
 	}
-	p.applyExternalChannelResult(result)
+	p.applyChannelResult(result, envelope)
 
 	// Close channel after sending if terminal was present
 	if hasTerminal {
-		p.closeChannel(sub.channel)
+		p.closeSubscription(sub.channel, true)
 	}
 
 	return false
@@ -1730,6 +1776,9 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 
 		thread := task.Thread()
 		previousReturns := task.retBuf
+		// The receive is observed when its arguments enter the VM, not when
+		// another coroutine merely wakes this task during a message flush.
+		task.releaseDelivery()
 		state, values, err := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
 		// ResumeInto copied the arguments into the VM. The task must not keep
 		// the consumed payload alive while its next operation is blocked.
@@ -1919,6 +1968,11 @@ func (p *Process) Close() {
 	p.externalTasks = p.externalTasks[:0]
 	p.outTasks = p.outTasks[:0]
 	p.clearMessageQueue()
+	clear(p.upgradeMessages)
+	p.upgradeMessages = nil
+	clear(p.closedMailboxes)
+	p.closedMailboxes = nil
+	p.upgradeProducerTopics = nil
 
 	// Clear all references
 	p.ctx = nil
@@ -1931,6 +1985,7 @@ func (p *Process) Close() {
 	p.factory = nil
 	p.pendingYields = nil
 	p.exported = nil
+	p.upgradeRequest = nil
 	p.channelQueue = nil
 	p.channels = nil
 	p.subs = nil
@@ -1948,6 +2003,7 @@ func (p *Process) Close() {
 	p.stalledChans = nil
 	p.trapLinks = false
 	p.upgradable = false
+	p.messageSeq = 0
 	p.pendingOutdated = nil
 	p.linkDownError = nil
 
@@ -2036,6 +2092,8 @@ func (p *Process) clearExecution() {
 	// channel refcount / subscription maps. Bumps the epoch so any
 	// in-flight producer frame is dropped on arrival.
 	p.drainSubscriptionChannels()
+	clear(p.closedMailboxes)
+	p.closedMailboxes = nil
 
 	// Close all spawned threads but keep them referenced for GC
 	for _, task := range p.threads {

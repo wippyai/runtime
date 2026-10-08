@@ -59,6 +59,29 @@ func TestFilterSourceFSAtModuleRoot(t *testing.T) {
 	assert.Equal(t, "source", string(data))
 }
 
+func TestFilterSourceFSHonorsExcludedLoadRoot(t *testing.T) {
+	for _, pattern := range []string{"src", "src/", "*"} {
+		for _, prefix := range []string{"src", "src/components"} {
+			t.Run(pattern+"/"+prefix, func(t *testing.T) {
+				cfg := &ModuleConfig{Exclude: []string{pattern}}
+				filtered := cfg.FilterSourceFS(fstest.MapFS{
+					"_index.yaml": {Data: []byte("excluded")},
+				}, prefix)
+				var paths []string
+				require.NoError(t, fs.WalkDir(filtered, ".", func(name string, _ fs.DirEntry, err error) error {
+					if err == nil {
+						paths = append(paths, name)
+					}
+					return err
+				}))
+				assert.Equal(t, []string{"."}, paths, "rerooting must not bypass an excluded ancestor")
+				_, err := fs.ReadFile(filtered, "_index.yaml")
+				assert.ErrorIs(t, err, fs.ErrNotExist)
+			})
+		}
+	}
+}
+
 func TestSourcePrefix(t *testing.T) {
 	root := t.TempDir()
 	assert.Equal(t, "src/components", SourcePrefix(root, filepath.Join(root, "src", "components")))

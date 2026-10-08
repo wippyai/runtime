@@ -18,6 +18,11 @@ import (
 // Return value is what gets sent to the channel. Return nil to skip channel send.
 type TopicHandler func(ctx context.Context, l *lua.LState, source pid.PID, topic string, payloads []payload.Payload) lua.LValue
 
+type topicHandlerRegistration struct {
+	handler    TopicHandler
+	onDelivery bool
+}
+
 // subscribeContext manages topic-to-channel mappings.
 // The subscription owns the channel - channels are created here, not by callers.
 type subscribeContext struct {
@@ -159,6 +164,7 @@ type subscription struct {
 	cleanupMu        sync.Mutex
 	cleanupRequested bool
 	cleanupDone      bool
+	retainOnUpgrade  bool
 }
 
 func (s *subscription) callCleanup() {
@@ -236,6 +242,14 @@ type SubscribeRequest struct {
 	ExistingChannel *Channel
 	Topic           string
 	BufSize         int
+	// RetainOnUpgrade marks ordinary process mailboxes, not incarnation-bound
+	// producer channels. Unread deliveries are replayed through the replacement's
+	// own handler; the old channel and its Lua values never cross the swap.
+	RetainOnUpgrade bool
+	// HandlerOnDelivery defers a side-effect-free, non-filtering formatter for
+	// ordinary messages while its open channel cannot accept a value.
+	// Filtering/consuming handlers must keep the default eager behavior.
+	HandlerOnDelivery bool
 }
 
 func (r *SubscribeRequest) String() string       { return "<subscribe_request>" }

@@ -101,17 +101,27 @@ func (c *ModuleConfig) FilterSourceFS(base fs.FS, sourcePrefix string) fs.FS {
 	if c == nil || len(c.SourceExcludes()) == 0 {
 		return base
 	}
-	return &sourceFilterFS{
+	filtered := &sourceFilterFS{
 		base:   base,
 		config: c,
 		prefix: cleanSourcePath(sourcePrefix),
 	}
+	// A module-root walk would prune any excluded ancestor before reaching
+	// this load root. Preserve that decision when traversal starts below it.
+	for ancestor := filtered.prefix; ancestor != "" && ancestor != "."; ancestor = path.Dir(ancestor) {
+		if c.ExcludesSourcePath(ancestor) {
+			filtered.rootExcluded = true
+			break
+		}
+	}
+	return filtered
 }
 
 type sourceFilterFS struct {
-	base   fs.FS
-	config *ModuleConfig
-	prefix string
+	base         fs.FS
+	config       *ModuleConfig
+	prefix       string
+	rootExcluded bool
 }
 
 func (f *sourceFilterFS) Open(name string) (fs.File, error) {
@@ -124,6 +134,9 @@ func (f *sourceFilterFS) Open(name string) (fs.File, error) {
 func (f *sourceFilterFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if f.excluded(name) {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrNotExist}
+	}
+	if f.rootExcluded {
+		return nil, nil // Keep the root walkable, but expose an empty tree.
 	}
 	entries, err := fs.ReadDir(f.base, name)
 	if err != nil {
@@ -156,6 +169,9 @@ func (f *sourceFilterFS) excluded(name string) bool {
 	name = cleanSourcePath(name)
 	if name == "" {
 		return false
+	}
+	if f.rootExcluded {
+		return true
 	}
 	if f.prefix != "" {
 		name = path.Join(f.prefix, name)

@@ -343,6 +343,26 @@ Unsubscribes from a topic.
 
 **Yields:** until unsubscription complete
 
+### upgrade(id?: string, ...)
+
+Replaces the running code while keeping the process PID. An omitted, empty or
+`nil` ID reloads the current definition. Remaining arguments initialize the
+replacement's entry method. A successful upgrade does not return to the old code.
+
+Unread ordinary process messages survive the upgrade in admission order,
+including messages buffered by `listen()` and messages awaiting `inbox()`.
+Messages already consumed by Lua are not replayed. The replacement recreates its
+listeners; unread envelopes pass through its own handlers and type validation.
+Automatic terminal closure does not discard unread buffered data. Explicit
+`unlisten()` retires its mailbox, so its buffered values are not replayed.
+
+Coroutine state, application-created channels and external producers such as
+timers and sockets belong to the old incarnation and are cleaned up. Recreate
+them in the replacement; their execution-local queued results are retired too.
+Late routed frames from retired subscriptions are discarded. A failed upgrade
+terminates the process and releases its mailbox; this handoff does not make
+messages durable across a process exit.
+
 ### with_context(values: table) -> Spawner
 
 Creates a Spawner with custom context values for child processes.
