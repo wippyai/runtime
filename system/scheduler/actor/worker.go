@@ -443,7 +443,6 @@ func (w *Worker) executeOne(proc *Processor) {
 	case process.StepUpgrade:
 		req := proc.output.Upgrade()
 		if req == nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -454,7 +453,6 @@ func (w *Worker) executeOne(proc *Processor) {
 
 		factory := process.GetFactory(proc.ctx)
 		if factory == nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -469,7 +467,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			var ok bool
 			source, ok = runtime.GetFrameID(proc.ctx)
 			if !ok {
-				proc.Process.Close()
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
@@ -482,7 +479,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		// Create new process
 		newProc, meta, err := factory.Create(source)
 		if err != nil {
-			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -491,10 +487,9 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 
-		// Close old process
-		proc.Process.Close()
-
-		// Swap
+		// Keep the old incarnation alive until the initialized replacement has
+		// accepted its execution-owned state. Failed upgrades still close both.
+		oldProc := proc.Process
 		proc.Process = newProc
 
 		// Init new process
@@ -511,8 +506,10 @@ func (w *Worker) executeOne(proc *Processor) {
 			carryErr = runtime.SetFrameID(upgradeCtx, source)
 		}
 		if carryErr != nil {
-			ctxapi.ReleaseFrameContext(upgradeFrame)
+			oldProc.Close()
 			proc.Process.Close()
+			proc.Process = nil
+			ctxapi.ReleaseFrameContext(upgradeFrame)
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -521,8 +518,10 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
-			ctxapi.ReleaseFrameContext(upgradeFrame)
+			oldProc.Close()
 			proc.Process.Close()
+			proc.Process = nil
+			ctxapi.ReleaseFrameContext(upgradeFrame)
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
@@ -530,6 +529,21 @@ func (w *Worker) executeOne(proc *Processor) {
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: init failed: %w", err))
 			return
 		}
+		if transfer, ok := oldProc.(process.UpgradeTransfer); ok {
+			if err := transfer.TransferUpgradeState(newProc); err != nil {
+				oldProc.Close()
+				proc.Process.Close()
+				proc.Process = nil
+				ctxapi.ReleaseFrameContext(upgradeFrame)
+				if !proc.casState(StateRunning, StateComplete) {
+					return
+				}
+				proc.queue.Close()
+				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: transfer failed: %w", err))
+				return
+			}
+		}
+		oldProc.Close()
 		proc.releaseIncarnation()
 		proc.ctx = upgradeCtx
 		// Re-publish the out-of-band snapshot so future invalidations classify

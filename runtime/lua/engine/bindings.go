@@ -144,6 +144,7 @@ func channelSelectFunc(l *lua.LState) int {
 				if len(res) > 0 {
 					// If there are other tasks to wake, yield so processChannelYields handles them
 					if len(updates) > 1 || result.Yields {
+						rememberUpgradeDelivery(l, result)
 						l.Push(result)
 						return -1
 					}
@@ -241,6 +242,7 @@ func channelReceive(l *lua.LState) int {
 
 	result := ch.Receive(l, nil)
 	if result.Yields {
+		rememberUpgradeDelivery(l, result)
 		l.Push(result)
 		return -1
 	}

@@ -117,6 +117,7 @@ func (q *TaskQueue) Len() int {
 type Task struct {
 	thread    *lua.LState
 	fn        *lua.LFunction
+	delivery  *bufferedDelivery
 	Yielded   []lua.LValue
 	Resumed   []lua.LValue
 	retBuf    []lua.LValue
@@ -132,6 +133,7 @@ func NewTask(thread *lua.LState, fn *lua.LFunction) *Task {
 	t.State = lua.ResumeYield
 	t.Yielded = nil
 	t.Resumed = nil
+	t.delivery = nil
 	t.retBuf = t.retBuf[:0]
 	return t
 }
@@ -176,6 +178,7 @@ func (t *Task) Close() {
 	t.fn = nil
 	t.Yielded = nil
 	t.Resumed = nil
+	t.freeDelivery()
 	t.State = 0
 	clear(t.resumeBuf)
 	clear(t.retBuf[:cap(t.retBuf)])

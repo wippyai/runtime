@@ -15,6 +15,7 @@ import (
 type TaskUpdate struct {
 	State     *lua.LState
 	Error     error
+	delivery  *bufferedDelivery
 	resultBuf [3]lua.LValue
 	resultLen int
 }
@@ -29,7 +30,7 @@ func (u *TaskUpdate) setResult1(v lua.LValue) {
 }
 
 func (u *TaskUpdate) setResult2(v1, v2 lua.LValue) {
-	u.resultBuf[0] = v1
+	u.resultBuf[0] = u.unwrapDelivery(v1)
 	u.resultBuf[1] = v2
 	u.resultLen = 2
 }
@@ -37,15 +38,27 @@ func (u *TaskUpdate) setResult2(v1, v2 lua.LValue) {
 func (u *TaskUpdate) setSelectResult(l *lua.LState, ch, value lua.LValue, ok bool) {
 	result := l.CreateTable(0, 3)
 	result.RawSetString("channel", ch)
-	result.RawSetString("value", value)
+	result.RawSetString("value", u.unwrapDelivery(value))
 	result.RawSetString("ok", lua.LBool(ok))
 	u.resultBuf[0] = result
 	u.resultLen = 1
 }
 
+func (u *TaskUpdate) unwrapDelivery(value lua.LValue) lua.LValue {
+	if delivery, ok := value.(*bufferedDelivery); ok {
+		u.delivery = delivery
+		return delivery.LValue
+	}
+	return value
+}
+
 func (u *TaskUpdate) reset() {
 	u.State = nil
 	u.Error = nil
+	if u.delivery != nil {
+		releaseBufferedDelivery(u.delivery)
+		u.delivery = nil
+	}
 	u.resultBuf[0] = nil
 	u.resultBuf[1] = nil
 	u.resultBuf[2] = nil
@@ -188,6 +201,13 @@ func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *
 // the ephemeral channel router) that must never block on a Lua channel
 // because there is no real producer task that could be woken.
 func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
+	return c.trySend(value, nil)
+}
+
+// Only buffered mailbox values need a wrapper. On direct handoff, the process
+// records the envelope while applying the receiver update. Ordinary channels
+// pass nil; wrappers are private and pooled.
+func (c *Channel) trySend(value lua.LValue, envelope *queuedMessage) (*ChannelResult, bool) {
 	if c.closed {
 		return errorResult(nil, errors.New("send on closed channel")), false
 	}
@@ -217,6 +237,9 @@ func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
 
 	// Case 2: buffer has space.
 	if c.buffer.Len() < c.capacity {
+		if envelope != nil {
+			value = acquireBufferedDelivery(value, envelope.mailboxEnvelope())
+		}
 		c.buffer.PushBack(value)
 		return nil, true
 	}
