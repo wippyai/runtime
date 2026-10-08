@@ -826,6 +826,9 @@ func TestSchedulerSingleWorker(t *testing.T) {
 		t.Fatalf("Result error: %v", result.Error)
 	}
 
+	// Completion runs inside executeOne, before the worker records its step.
+	// Join the worker before asserting its final execution count.
+	testStopScheduler(sched)
 	stats := sched.Stats()
 	if stats["executed"] != 6 {
 		t.Fatalf("expected 6 steps, got %d", stats["executed"])
