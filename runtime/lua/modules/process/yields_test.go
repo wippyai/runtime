@@ -4,6 +4,7 @@ package process
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,23 +20,30 @@ import (
 	"go.uber.org/zap"
 )
 
-func configureAPIErrorMetadataExtractor(t *testing.T) {
+func configureAPIErrorMetadataExtractor(t testing.TB) {
 	t.Helper()
 
 	lua.SetErrorMetadataExtractor(func(err error) *lua.ErrorMetadata {
-		var apiErr apierror.Error
-		if !errors.As(err, &apiErr) {
+		// Match the boot extractor's canonical chain conversion, including
+		// omission of an unspecified API kind ("Unknown" is not lua.Unknown).
+		chain := apierror.BuildChain(err)
+		if chain == nil {
 			return nil
 		}
-
-		meta := &lua.ErrorMetadata{Kind: lua.Kind(apiErr.Kind())}
-		switch apiErr.Retryable() {
-		case apierror.True:
-			retryable := true
+		root := chain.Root()
+		if root == nil || root.Kind == "" && root.Retryable == nil && len(root.Details) == 0 {
+			return nil
+		}
+		meta := &lua.ErrorMetadata{Kind: lua.Kind(root.Kind)}
+		if root.Retryable != nil {
+			retryable := *root.Retryable
 			meta.Retryable = &retryable
-		case apierror.False:
-			retryable := false
-			meta.Retryable = &retryable
+		}
+		if len(root.Details) > 0 {
+			meta.Details = make(map[string]any, len(root.Details))
+			for key, value := range root.Details {
+				meta.Details[key] = value
+			}
 		}
 		return meta
 	})
@@ -217,7 +225,10 @@ func TestLifecycleYield_HandleResult_PreservesErrorMetadata(t *testing.T) {
 				retryable lua.Ternary
 			}{
 				{name: "exited process", err: process.ErrProcessNotFound, kind: lua.NotFound, retryable: lua.TernaryFalse},
+				{name: "wrapped exited process", err: fmt.Errorf("cleanup: %w", process.ErrProcessNotFound), kind: lua.NotFound, retryable: lua.TernaryFalse},
 				{name: "retryable failure", err: apierror.New(apierror.Unavailable, "try later").WithRetryable(apierror.True), kind: lua.Unavailable, retryable: lua.TernaryTrue},
+				{name: "unspecified retryability", err: apierror.New(apierror.Unavailable, "try later"), kind: lua.Unavailable, retryable: lua.TernaryFalse},
+				{name: "unspecified kind", err: apierror.New(apierror.Unknown, "try later").WithRetryable(apierror.True), kind: lua.Internal, retryable: lua.TernaryTrue},
 				{name: "unclassified failure", err: errors.New("unexpected failure"), kind: lua.Internal, retryable: lua.TernaryFalse},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
@@ -228,6 +239,7 @@ func TestLifecycleYield_HandleResult_PreservesErrorMetadata(t *testing.T) {
 					require.True(t, ok)
 					assert.Equal(t, tc.kind, err.Kind())
 					assert.Equal(t, tc.retryable, err.Retryable())
+					assert.ErrorIs(t, err, tc.err, "classification must preserve the original error chain")
 				})
 			}
 		})
