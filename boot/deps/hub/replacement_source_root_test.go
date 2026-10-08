@@ -47,3 +47,18 @@ func TestLoadReplacementEntries_UsesModuleEntrySourceRoot(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadReplacementEntries_ExcludedSourceRootIsEmpty(t *testing.T) {
+	for _, pattern := range []string{"src", "src/", "*"} {
+		t.Run(pattern, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(root, "src"), 0755))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "wippy.yaml"), []byte("organization: example\nmodule: app\nexclude:\n  - '"+pattern+"'\n"), 0600))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "src", "_index.json"), []byte(`{"namespace":"app","entries":[{"name":"excluded","kind":"registry.entry"}]}`), 0600))
+			ctx := newTestContext()
+			entries, err := loadReplacementEntries(ctx, root, zap.NewNop(), payload.GetTranscoder(ctx))
+			require.NoError(t, err)
+			require.Empty(t, entries, "a load-root exclusion must still prune the entire source tree")
+		})
+	}
+}
