@@ -33,6 +33,10 @@ const (
 )
 
 type (
+	// Restart requests another service run after the current run completes.
+	// It is a lifecycle transition rather than a failed attempt.
+	Restart struct{}
+
 	// Entry payload for supervisor registration event. Service will be identified by event path.
 	Entry struct {
 		Service Service

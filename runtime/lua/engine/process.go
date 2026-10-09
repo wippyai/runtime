@@ -138,6 +138,7 @@ type Process struct {
 	messageBatchActive bool
 	trapLinks          bool
 	upgradable         bool
+	outdatedDelivered  bool
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -607,6 +608,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	// alone would keep the previous execution's data alive.
 	p.clearMessageQueue()
 	p.pendingOutdated = nil
+	p.outdatedDelivered = false
 
 	// Seal the frame - no more modifications allowed after this
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
@@ -849,6 +851,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		execErr := p.execErr
 		p.clearExecution()
 		out.Done(result)
+		if execErr == nil && p.outdatedDelivered {
+			out.DoneOutdated(result)
+		}
 		return toAPIError(execErr)
 	}
 
@@ -1686,6 +1691,7 @@ func (p *Process) tryDeliverPendingOutdated(subs *subscribeContext) {
 	}
 	p.applyExternalChannelResult(result)
 	p.pendingOutdated = nil
+	p.outdatedDelivered = true
 }
 
 // outdatedEventToLua builds the Lua table surfaced for an OUTDATED event.
@@ -2003,6 +2009,7 @@ func (p *Process) Close() {
 	p.stalledChans = nil
 	p.trapLinks = false
 	p.upgradable = false
+	p.outdatedDelivered = false
 	p.messageSeq = 0
 	p.pendingOutdated = nil
 	p.linkDownError = nil

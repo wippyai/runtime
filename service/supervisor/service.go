@@ -24,16 +24,17 @@ import (
 // Service represents a running process service instance managed by supervisor.
 // It monitors a child process via topology and reports status changes.
 type Service struct {
-	pidGen        processapi.PIDGenerator
-	statusCh      chan any
-	detachFn      context.CancelFunc
-	gate          *bootpkg.Gate
-	completion    *bootpkg.Gate
-	supervisorPID pid.PID
-	childPID      pid.PID
-	id            registry.ID
-	config        supervisorapi.ServiceConfig
-	completionMu  sync.RWMutex
+	pidGen            processapi.PIDGenerator
+	statusCh          chan any
+	detachFn          context.CancelFunc
+	gate              *bootpkg.Gate
+	completion        *bootpkg.Gate
+	restartCompletion *bootpkg.Gate
+	supervisorPID     pid.PID
+	childPID          pid.PID
+	id                registry.ID
+	config            supervisorapi.ServiceConfig
+	completionMu      sync.RWMutex
 }
 
 // NewService creates a new process service instance.
@@ -83,11 +84,21 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, ErrNoProcessManager
 	}
 
+	svc.completionMu.Lock()
+	completion := svc.restartCompletion
+	svc.restartCompletion = nil
+	if completion == nil && (svc.config.Lifecycle.Startup == supervisor.StartupComplete || svc.gate != nil) {
+		completion = bootpkg.NewReadiness().RegisterGate(svc.id.String())
+	}
+	svc.completion = completion
+	svc.completionMu.Unlock()
+
 	// Generate supervisor PID for monitoring (using control host)
 	svc.supervisorPID = svc.pidGen.Generate(topologyapi.ControlHost)
 
 	// Register supervisor in topology FIRST (before starting child)
 	if err := topo.Register(svc.supervisorPID); err != nil {
+		completion.Fail(err)
 		return nil, newRegisterPIDError(err)
 	}
 
@@ -96,6 +107,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	detach, err := node.Attach(svc.supervisorPID, monitorCh)
 	if err != nil {
 		topo.Remove(svc.supervisorPID)
+		completion.Fail(err)
 		return nil, newAttachRelayError(err)
 	}
 	svc.detachFn = detach
@@ -124,6 +136,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	if err != nil {
 		detach()
 		topo.Remove(svc.supervisorPID)
+		completion.Fail(err)
 		if svc.gate != nil {
 			svc.gate.Fail(err)
 		}
@@ -132,16 +145,6 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 
 	svc.childPID = childPID
 	svc.statusCh = make(chan any, 1)
-
-	// Dependency barriers apply to this run; the application readiness gate
-	// keeps its original, one-shot result across replacements and restarts.
-	var completion *bootpkg.Gate
-	if svc.config.Lifecycle.Startup == supervisor.StartupComplete || svc.gate != nil {
-		completion = bootpkg.NewReadiness().RegisterGate(svc.id.String())
-	}
-	svc.completionMu.Lock()
-	svc.completion = completion
-	svc.completionMu.Unlock()
 
 	// Start monitor goroutine
 	go svc.monitorLoop(ctx, monitorCh, completion)
@@ -195,12 +198,11 @@ func (svc *Service) Stop(ctx context.Context) error {
 
 // monitorLoop listens for topology exit events and reports them via status channel.
 func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, completion *bootpkg.Gate) {
-	defer close(svc.statusCh)
-	defer func() {
-		if svc.detachFn != nil {
-			svc.detachFn()
-		}
-	}()
+	statusCh, detach := svc.statusCh, svc.detachFn
+	defer close(statusCh)
+	if detach != nil {
+		defer detach()
+	}
 
 	for {
 		select {
@@ -218,7 +220,7 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 					svc.gate.Fail(fmt.Errorf("relay monitor channel closed"))
 				}
 				select {
-				case svc.statusCh <- supervisor.ErrExit:
+				case statusCh <- supervisor.ErrExit:
 				default:
 				}
 				return
@@ -235,12 +237,19 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 					}
 
 					if event.Kind == topologyapi.Exit && event.Result != nil && event.Result.Error == nil {
+						if event.Result.Outdated {
+							svc.completionMu.Lock()
+							svc.restartCompletion = completion
+							svc.completionMu.Unlock()
+							statusCh <- supervisor.Restart{}
+							return
+						}
 						completion.Ready()
 						if svc.gate != nil {
 							svc.gate.Ready()
 						}
 						select {
-						case svc.statusCh <- supervisor.ErrExit:
+						case statusCh <- supervisor.ErrExit:
 						default:
 						}
 					} else {
@@ -256,12 +265,12 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 						}
 						if event.Result != nil && event.Result.Error != nil {
 							select {
-							case svc.statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
+							case statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
 							default:
 							}
 						} else {
 							select {
-							case svc.statusCh <- supervisor.ErrExit:
+							case statusCh <- supervisor.ErrExit:
 							default:
 							}
 						}
