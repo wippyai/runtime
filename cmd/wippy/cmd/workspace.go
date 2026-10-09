@@ -12,21 +12,21 @@ import (
 	"go.uber.org/zap"
 )
 
-const includeSourceDependenciesKey = "workspace.include_source_dependencies"
+const includeHostDependenciesKey = "workspace.include_host_dependencies"
 
-// includeSourceDependencies opts a published deployment into host dependency
+// includeHostDependencies opts a published deployment into host dependency
 // discovery. Source-only workspaces keep their existing behavior.
-func includeSourceDependencies(cfg boot.Config) (bool, error) {
+func includeHostDependencies(cfg boot.Config) (bool, error) {
 	if cfg == nil {
 		return false, nil
 	}
-	value, present := cfg.Get(includeSourceDependenciesKey)
+	value, present := cfg.Get(includeHostDependenciesKey)
 	if !present || value == nil {
 		return false, nil
 	}
 	enabled, ok := value.(bool)
 	if !ok {
-		return false, fmt.Errorf("%s must be a boolean, got %T", includeSourceDependenciesKey, value)
+		return false, fmt.Errorf("%s must be a boolean, got %T", includeHostDependenciesKey, value)
 	}
 	return enabled, nil
 }

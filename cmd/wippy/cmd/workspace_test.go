@@ -78,23 +78,23 @@ options:
   unpack_modules: false
 workspace:
   unpack_modules: false
-  include_source_dependencies: false
+  include_host_dependencies: false
   replacements:
     acme/app: ./app
 profiles:
   isolated:
     workspace:
       unpack_modules: false
-      include_source_dependencies: false
+      include_host_dependencies: false
   reset:
     workspace:
       unpack_modules: null
-      include_source_dependencies: null
+      include_host_dependencies: null
 `), 0o600))
 	require.NoError(t, os.WriteFile(overlay, []byte(`version: "1.0"
 workspace:
   unpack_modules: true
-  include_source_dependencies: true
+  include_host_dependencies: true
   replacements:
     acme/app: ./overlay-app
 `), 0o600))
@@ -112,12 +112,12 @@ workspace:
 		profiles   []string
 		sets       []string
 		wantUnpack bool
-		wantSource bool
+		wantHost   bool
 	}{
-		{name: "later-file", wantUnpack: true, wantSource: true},
+		{name: "later-file", wantUnpack: true, wantHost: true},
 		{name: "profile", profiles: []string{"isolated"}},
-		{name: "set", profiles: []string{"isolated"}, sets: []string{"workspace.unpack_modules=true", "workspace.include_source_dependencies=true"}, wantUnpack: true, wantSource: true},
-		{name: "canonical-beats-old-key", sets: []string{"options.unpack_modules=false"}, wantUnpack: true, wantSource: true},
+		{name: "set", profiles: []string{"isolated"}, sets: []string{"workspace.unpack_modules=true", "workspace.include_host_dependencies=true"}, wantUnpack: true, wantHost: true},
+		{name: "canonical-beats-old-key", sets: []string{"options.unpack_modules=false"}, wantUnpack: true, wantHost: true},
 		{name: "reset-to-lock", profiles: []string{"isolated", "reset"}, wantUnpack: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,9 +130,9 @@ workspace:
 				configured, err := newConfiguredLock(path, cfg, zap.NewNop())
 				require.NoError(t, err)
 				require.Equal(t, tc.wantUnpack, configured.ShouldUnpackModules())
-				enabled, err := includeSourceDependencies(cfg)
+				enabled, err := includeHostDependencies(cfg)
 				require.NoError(t, err)
-				require.Equal(t, tc.wantSource, enabled)
+				require.Equal(t, tc.wantHost, enabled)
 				replacement, ok := configured.GetReplacement("acme/app")
 				require.True(t, ok)
 				require.Equal(t, filepath.Join(dir, "overlay-app"), replacement.To)

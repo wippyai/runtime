@@ -31,7 +31,7 @@ Without arguments, scans source directory and re-resolves the entire dependency 
 updating all modules to their latest compatible versions.
 For a published deployment, resolves from the application root in wippy.lock;
 no source directory is required and unrelated local source is not consulted
-unless workspace.include_source_dependencies is explicitly enabled.
+unless workspace.include_host_dependencies is explicitly enabled.
 When enabled, host source dependencies join the application's dependency graph.
 
 With module arguments, updates only the specified modules to their highest version
@@ -343,11 +343,11 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		effectiveTargets = append(effectiveTargets, moduleName)
 	}
 	if len(effectiveTargets) == 0 {
-		includeSource, configErr := includeSourceDependencies(runtimeCfg)
+		includeHost, configErr := includeHostDependencies(runtimeCfg)
 		if configErr != nil {
 			return NewLoadEntriesFromSourceError(configErr)
 		}
-		if !includeSource || len(lockObj.GetRootModules()) == 0 {
+		if !includeHost || len(lockObj.GetRootModules()) == 0 {
 			logger.Info("all requested modules are local replacements; nothing to update")
 			return nil
 		}
@@ -500,7 +500,7 @@ func loadUpdateRoots(ctx context.Context, ldr boot.Loader, srcDir string, locked
 // source. Host declarations are additive only when explicitly opted in; merely
 // configuring a replacement never enrolls that module in the graph.
 func loadWorkspaceRoots(ctx context.Context, ldr boot.Loader, srcDir string, locked *lock.Lock, transcoder payload.Transcoder, logger *zap.Logger, cfg boot.Config) ([]dependencyRequest, error) {
-	includeSource, err := includeSourceDependencies(cfg)
+	includeHost, err := includeHostDependencies(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -509,11 +509,11 @@ func loadWorkspaceRoots(ctx context.Context, ldr boot.Loader, srcDir string, loc
 		return nil, err
 	}
 	if len(requests) > 0 {
-		if !includeSource {
+		if !includeHost {
 			return requests, nil
 		}
 		if strings.TrimSpace(srcDir) == "" {
-			return nil, fmt.Errorf("%s requires a host source directory", includeSourceDependenciesKey)
+			return nil, fmt.Errorf("%s requires a host source directory", includeHostDependenciesKey)
 		}
 	}
 	loaded, err := loadDependencyScanEntries(ctx, ldr, srcDir, locked, logger)

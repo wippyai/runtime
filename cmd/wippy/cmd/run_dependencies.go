@@ -47,7 +47,7 @@ func prepareRunDependencies(
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
-	includeSource, err := includeSourceDependencies(cfg)
+	includeHost, err := includeHostDependencies(cfg)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
@@ -55,7 +55,7 @@ func prepareRunDependencies(
 	// host dependencies completes the same graph before services start, while
 	// retaining the exact selected application version.
 	rooted := len(lockObj.GetRootModules()) != 0
-	if rooted && !includeSource {
+	if rooted && !includeHost {
 		return nil
 	}
 	ldr := boot.GetLoader(ctx)

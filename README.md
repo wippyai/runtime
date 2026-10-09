@@ -355,8 +355,8 @@ Workspace controls are direct children of `workspace`:
 
 ```yaml
 workspace:
-  include_source_dependencies: false # true: add host declarations to a rooted app
-  unpack_modules: false             # keep dependency packs as .wapp files
+  include_host_dependencies: false # true: add host declarations to a rooted app
+  unpack_modules: false            # keep dependency packs as .wapp files
   replacements:
     acme/http: ../http
 ```
@@ -380,7 +380,7 @@ dependency discovery in your runtime configuration:
 ```yaml
 version: "1.0"
 workspace:
-  include_source_dependencies: true
+  include_host_dependencies: true
   replacements:
     local/guide: ../guide
 ```
