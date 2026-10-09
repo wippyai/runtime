@@ -12,6 +12,46 @@ func entryModule(entry regapi.Entry) string {
 	return entry.Registry.Owner
 }
 
+// residentUnchangedModuleEntries returns the live entries of selected modules
+// whose artifact and parameters are unchanged across a version transition.
+// Modules installed at runtime are materialized by dependency expansion and
+// never appear in authored history, so a replayed target state carries no
+// entries for them; their resident materialization is the target's. Entries
+// the target already supplies take precedence.
+func residentUnchangedModuleEntries(
+	current regapi.State,
+	target []regapi.Entry,
+	controlled map[string]struct{},
+	desired map[string]struct{},
+	touched map[string]struct{},
+) []regapi.Entry {
+	present := make(map[string]struct{}, len(target))
+	for _, entry := range target {
+		present[idKey(entry.ID)] = struct{}{}
+	}
+	var resident []regapi.Entry
+	for _, entry := range current {
+		module := entryModule(entry)
+		if module == "" {
+			continue
+		}
+		if _, owned := controlled[module]; !owned {
+			continue
+		}
+		if _, selected := desired[module]; !selected {
+			continue
+		}
+		if _, changed := touched[module]; changed {
+			continue
+		}
+		if _, supplied := present[idKey(entry.ID)]; supplied {
+			continue
+		}
+		resident = append(resident, entry)
+	}
+	return resident
+}
+
 func markModuleEntry(entry regapi.Entry, module string) regapi.Entry {
 	entry.Registry.Owner = module
 	return entry
