@@ -15,10 +15,10 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
-	_ "github.com/rqlite/go-sqlite3" // Register SQLite3 database driver
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/sqliteconn"
 	"github.com/wippyai/runtime/internal/version"
 	historyschema "github.com/wippyai/runtime/system/registry/history/schema"
 	migrationstorage "github.com/wippyai/runtime/system/registry/migration/storage"
@@ -82,10 +82,7 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dbPath))
-	if err != nil {
-		return nil, NewOpenDatabaseError(err)
-	}
+	db := sqliteconn.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dbPath))
 	db.SetMaxOpenConns(1)
 
 	ctx := context.Background()
