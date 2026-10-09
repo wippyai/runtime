@@ -696,6 +696,8 @@ func TestSystemPermissionDenied(t *testing.T) {
 		`system.runtime.max_procs()`,
 		`system.runtime.cpu_count()`,
 		`system.process.pid()`,
+		`system.process.uid()`,
+		`system.process.gid()`,
 		`system.process.cwd()`,
 		`system.process.hostname()`,
 		`system.exit()`,

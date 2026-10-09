@@ -1,0 +1,246 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package engine
+
+import (
+	"cmp"
+	"container/list"
+	"fmt"
+	"slices"
+	"sync"
+
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
+)
+
+// mailboxEnvelope is the replayable part of a delivered message. Queue budgets
+// and retention leases are released at delivery and must not be copied here.
+type mailboxEnvelope struct {
+	Source   pid.PID
+	Topic    string
+	Payloads []payload.Payload
+	sequence uint64
+}
+
+func (m mailboxEnvelope) queuedMessage() queuedMessage {
+	return queuedMessage{Source: m.Source, Topic: m.Topic, Payloads: m.Payloads, sequence: m.sequence}
+}
+
+func (m *queuedMessage) mailboxEnvelope() mailboxEnvelope {
+	return mailboxEnvelope{Source: m.Source, Topic: m.Topic, Payloads: m.Payloads, sequence: m.sequence}
+}
+
+// bufferedDelivery stays private to a channel buffer or pending receive. A
+// receiving task reuses the cleared storage until Close returns it to the pool.
+// Neither the wrapper nor an old decoded value crosses the upgrade boundary.
+type bufferedDelivery struct {
+	lua.LValue
+	message mailboxEnvelope
+}
+
+var bufferedDeliveryPool = sync.Pool{New: func() any { return &bufferedDelivery{} }}
+
+func acquireBufferedDelivery(value lua.LValue, message mailboxEnvelope) *bufferedDelivery {
+	delivery := bufferedDeliveryPool.Get().(*bufferedDelivery)
+	delivery.LValue, delivery.message = value, message
+	return delivery
+}
+
+func releaseBufferedDelivery(delivery *bufferedDelivery) {
+	delivery.LValue = nil
+	delivery.message = mailboxEnvelope{}
+	bufferedDeliveryPool.Put(delivery)
+}
+
+func (t *Task) releaseDelivery() {
+	if t.delivery != nil && t.delivery.message.sequence != 0 {
+		t.delivery.LValue = nil
+		t.delivery.message = mailboxEnvelope{}
+	}
+}
+
+// Reuse one empty envelope for the lifetime of a receiving coroutine instead
+// of a pool Get/Put for every rendezvous. Payload references clear at consume.
+func (t *Task) rememberDelivery(message *queuedMessage) {
+	if t.delivery == nil {
+		t.delivery = acquireBufferedDelivery(nil, mailboxEnvelope{})
+	}
+	t.delivery.message = message.mailboxEnvelope()
+}
+
+func (t *Task) freeDelivery() {
+	if t.delivery != nil {
+		releaseBufferedDelivery(t.delivery)
+		t.delivery = nil
+	}
+}
+
+func (t *Task) takeDelivery(update *TaskUpdate) {
+	if update.delivery != nil {
+		if t.delivery == nil {
+			t.delivery = update.delivery
+			t.delivery.LValue = nil
+		} else {
+			t.delivery.message = update.delivery.message
+			releaseBufferedDelivery(update.delivery)
+		}
+		update.delivery = nil
+	}
+}
+
+// A buffered receive can itself yield (for example to wake a blocked sender).
+// Remember its envelope before returning to vmStep: another ready coroutine
+// may request upgrade before processChannelYields applies the channel result.
+func rememberUpgradeDelivery(l *lua.LState, result *ChannelResult) {
+	if len(result.Updates) == 0 || result.Updates[0].delivery == nil {
+		return
+	}
+	if p := GetProcess(l); p != nil {
+		if task, err := p.GetTask(l); err == nil {
+			task.takeDelivery(result.Updates[0])
+		}
+	}
+}
+
+// Automatic terminal delivery closes the old listener, but buffered data is
+// still readable. Keep those buffers visible until capture. Explicit unlisten
+// does not call this: it intentionally retires the mailbox.
+func (p *Process) retainClosedMailbox(buffer *list.List) {
+	p.closedMailboxes = slices.DeleteFunc(p.closedMailboxes, func(old *list.List) bool { return old.Len() == 0 })
+	p.closedMailboxes = append(p.closedMailboxes, buffer)
+}
+
+func (p *Process) captureUpgradeMessages() {
+	clear(p.upgradeMessages)
+	p.upgradeMessages = p.upgradeMessages[:0]
+	p.upgradeProducerTopics = nil
+	for _, task := range p.threads {
+		if task.delivery != nil && task.delivery.message.sequence != 0 {
+			p.upgradeMessages = append(p.upgradeMessages, task.delivery.message.queuedMessage())
+		}
+	}
+	seen := make(map[*list.List]struct{})
+	captureBuffer := func(buffer *list.List) {
+		// Go-side subscriptions can share a channel, including native value
+		// copies whose queue pointers alias. Capture each buffer only once.
+		if _, exists := seen[buffer]; exists {
+			return
+		}
+		seen[buffer] = struct{}{}
+		for e := buffer.Front(); e != nil; e = e.Next() {
+			if delivery, ok := e.Value.(*bufferedDelivery); ok {
+				p.upgradeMessages = append(p.upgradeMessages, delivery.message.queuedMessage())
+			}
+		}
+	}
+	for _, buffer := range p.closedMailboxes {
+		captureBuffer(buffer)
+	}
+	if p.subs == nil {
+		return
+	}
+	for _, sub := range p.subs.snapshotSubscriptions() {
+		if sub.retainOnUpgrade {
+			captureBuffer(sub.channel.buffer)
+		} else {
+			if p.upgradeProducerTopics == nil {
+				p.upgradeProducerTopics = make(map[string]struct{})
+			}
+			p.upgradeProducerTopics[sub.topic] = struct{}{}
+		}
+	}
+}
+
+func (p *Process) retiredUpgradeMessage(qm queuedMessage) bool {
+	_, framed := subscriptionFrameFromPayloads(qm.Payloads)
+	_, producer := p.upgradeProducerTopics[qm.Topic]
+	return framed || producer
+}
+
+// TransferUpgradeState moves only unread message envelopes. Subscriptions,
+// handlers, tasks and producer frames belong to the old code incarnation.
+func (p *Process) TransferUpgradeState(replacement process.Process) error {
+	next, luaTarget := replacement.(*Process)
+	if next == p {
+		return fmt.Errorf("replacement must be a different process incarnation")
+	}
+	if luaTarget {
+		// The scheduler queue survives the swap. Even an empty mailbox can have
+		// old producer frames still in flight. Do not let a fresh/recycled VM's
+		// epoch and subscription ids accidentally match those old frames.
+		next.epoch.Store(max(next.epoch.Load(), p.epoch.Load()+1))
+	}
+	if len(p.messageQueue) == 0 && len(p.upgradeMessages) == 0 {
+		return nil
+	}
+	messages := make([]queuedMessage, 0, len(p.upgradeMessages)+len(p.messageQueue))
+	messages = append(messages, p.upgradeMessages...)
+	for _, qm := range p.messageQueue {
+		if !p.retiredUpgradeMessage(qm) {
+			messages = append(messages, qm)
+		}
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	if !luaTarget {
+		return fmt.Errorf("replacement %T cannot accept a Lua process mailbox", replacement)
+	}
+	if len(next.messageQueue) != 0 {
+		return fmt.Errorf("replacement mailbox is not empty")
+	}
+	// Subscription maps have no iteration order; buffered deliveries and the
+	// retained tail must be restored in their original admission order.
+	slices.SortFunc(messages, func(a, b queuedMessage) int { return cmp.Compare(a.sequence, b.sequence) })
+	for i := range messages {
+		// Use the canonical export boundary for Lua payloads, preserving their
+		// shape without carrying receiver-owned tables into the replacement.
+		cloned := false
+		for j, pl := range messages[i].Payloads {
+			if pl != nil && pl.Format() == payload.Lua {
+				if lv, ok := pl.Data().(lua.LValue); ok {
+					if !cloned {
+						messages[i].Payloads = slices.Clone(messages[i].Payloads)
+						cloned = true
+					}
+					messages[i].Payloads[j] = luaconv.ExportPayload(lv)
+				}
+			}
+		}
+	}
+	for _, qm := range p.messageQueue {
+		if p.retiredUpgradeMessage(qm) {
+			p.releaseQueuedMessage(qm)
+		}
+	}
+	// Native producers can send plain relay payloads, not just routed frames.
+	// Their queued tails and limits belong to the retiring subscriptions too.
+	for topic := range p.upgradeProducerTopics {
+		delete(p.messageQueueItems, topic)
+		delete(p.messageQueueBytes, topic)
+		delete(p.messageQueueItemLimits, topic)
+		delete(p.messageQueueLimits, topic)
+		delete(p.messageQueueOverflowed, topic)
+		delete(p.messageQueueDiscarded, topic)
+	}
+
+	// Move reservations rather than re-admitting already accepted messages:
+	// applying limits again could discard a backlog that fit the old buffer.
+	next.messageQueue = messages
+	next.messageSeq = p.messageSeq
+	next.messageQueueItems, p.messageQueueItems = p.messageQueueItems, nil
+	next.messageQueueBytes, p.messageQueueBytes = p.messageQueueBytes, nil
+	next.messageQueueItemLimits, p.messageQueueItemLimits = p.messageQueueItemLimits, nil
+	next.messageQueueLimits, p.messageQueueLimits = p.messageQueueLimits, nil
+	next.messageQueueOverflowed, p.messageQueueOverflowed = p.messageQueueOverflowed, nil
+	next.messageQueueDiscarded, p.messageQueueDiscarded = p.messageQueueDiscarded, nil
+	clear(p.messageQueue)
+	p.messageQueue = p.messageQueue[:0]
+	clear(p.upgradeMessages)
+	p.upgradeMessages = nil
+	p.upgradeProducerTopics = nil
+	return nil
+}
