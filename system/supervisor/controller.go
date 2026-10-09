@@ -33,11 +33,12 @@ type controllable interface {
 }
 
 type ctrlOp struct {
-	ctx     context.Context
-	retry   context.Context
-	result  chan error
-	kind    ctrlKind
-	attempt int32
+	ctx      context.Context
+	retry    context.Context
+	result   chan error
+	kind     ctrlKind
+	attempt  int32
+	graceful bool
 }
 
 // Controller manages the lifecycle of a service.
@@ -178,6 +179,12 @@ func (c *Controller) StopContext(ctx context.Context) error {
 		return nil
 	}
 	c.state.setDesiredStatus(supervisor.StatusStopped)
+	c.startMu.Lock()
+	completionCancel := c.completionCancel
+	c.startMu.Unlock()
+	if completionCancel != nil {
+		completionCancel()
+	}
 	return c.runCommand(ctrlOp{kind: ctrlStop, ctx: ctx})
 }
 
@@ -338,6 +345,14 @@ func (c *Controller) supervise() {
 
 			case ctrlExit, ctrlRestart:
 				cancelRetry()
+				if op.kind == ctrlRestart && op.graceful && ctx != nil {
+					err = c.tryStop(context.WithoutCancel(ctx))
+					if err != nil {
+						c.updateState(supervisor.StatusFailed, err)
+						respondAndCancel(err)
+						break
+					}
+				}
 				c.updateState(supervisor.StatusExited, nil)
 				respondAndCancel(context.Canceled)
 				if op.kind == ctrlRestart && c.state.getDesiredStatus() == supervisor.StatusRunning {
@@ -463,9 +478,9 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 				}
 				return
 			}
-			if _, restart := details.(supervisor.Restart); restart {
+			if restart, ok := details.(supervisor.Restart); ok {
 				select {
-				case c.ops <- ctrlOp{kind: ctrlRestart}:
+				case c.ops <- ctrlOp{kind: ctrlRestart, graceful: restart.Graceful}:
 				case <-ctx.Done():
 				}
 				return

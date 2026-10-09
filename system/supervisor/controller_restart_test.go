@@ -49,3 +49,29 @@ func TestControllerRestartBackoffRetiresPendingStart(t *testing.T) {
 		})
 	}
 }
+
+func TestControllerStopRetiresRestartCompletionWait(t *testing.T) {
+	svc := &completionService{
+		started: make(chan struct{}), complete: make(chan error, 1), status: make(chan any, 1),
+	}
+	config := supervisor.LifecycleConfig{Startup: supervisor.StartupComplete, StartTimeout: time.Second, StopTimeout: time.Second,
+		RetryPolicy: supervisor.RetryPolicy{InitialDelay: time.Second, MaxDelay: time.Second, MaxAttempts: 1}}
+	ctrl := NewController(t.Context(), svc, config, nil)
+	defer ctrl.close()
+	done := make(chan error, 1)
+	go func() { done <- ctrl.Start() }()
+	select {
+	case <-svc.started:
+	case <-time.After(time.Second):
+		t.Fatal("service does not start")
+	}
+	svc.status <- supervisor.Restart{Graceful: true}
+	require.Eventually(t, func() bool { return ctrl.State().Status == supervisor.StatusExited }, time.Second, time.Millisecond)
+	require.NoError(t, ctrl.Stop())
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("stop leaves the retired restart's completion wait pending")
+	}
+}

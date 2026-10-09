@@ -9,6 +9,10 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 )
 
+// OutdatedSupervisorKey identifies the supervisor PID that owns this execution.
+// Native upgrades retain it; spawned processes do not inherit its restart policy.
+var OutdatedSupervisorKey = &ctxapi.Key{Name: "process.outdated_supervisor", Execution: true}
+
 var outdatedNotifierKey = &ctxapi.Key{Name: "process.outdated_notifier"}
 
 // OutdatedNotifier notifies running process instances whose source node (or a

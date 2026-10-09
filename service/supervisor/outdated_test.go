@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	processapi "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -21,9 +22,11 @@ import (
 	topologyapi "github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	"github.com/wippyai/runtime/service/host"
 	"github.com/wippyai/runtime/system/eventbus"
+	systempayload "github.com/wippyai/runtime/system/payload"
 	sysprocess "github.com/wippyai/runtime/system/process"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -40,7 +43,7 @@ type serviceIncarnation struct {
 }
 
 func TestSupervisedLuaOutdatedTransition(t *testing.T) {
-	for _, mode := range []string{"exit", "native", "ordinary", "ignored"} {
+	for _, mode := range []string{"exit", "native", "ordinary", "ignored", "nonupgradable", "unchanged", "dropped"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -67,6 +70,9 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			h := host.NewHost(hostID, nil, sched, factory, pidGen, zap.NewNop())
 			lifecycle.Register("host", h)
 			appCtx := setupTestContext(node, topo, sysprocess.NewManager(node, zap.NewNop()))
+			transcoder := systempayload.NewTranscoder()
+			luapayload.Register(transcoder)
+			payload.WithTranscoder(appCtx, transcoder)
 			processapi.WithFactory(appCtx, factory)
 			require.NoError(t, node.RegisterHost(hostID.String(), h))
 			require.NoError(t, node.RegisterHost(topologyapi.ControlHost, sysrelay.NewMailbox(ctx)))
@@ -133,6 +139,18 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			if mode == "ignored" {
 				action = "report(\"ignored\")"
 			}
+			if mode == "nonupgradable" || mode == "unchanged" {
+				v1 = strings.ReplaceAll(v1, "upgradable = true", "upgradable = false")
+			}
+			if mode == "dropped" {
+				v1 = strings.ReplaceAll(v1, "local events = process.events()", "local events = process.events(); events:close(); local inbox = process.inbox()")
+			}
+			if mode == "dropped" {
+				v1 = strings.ReplaceAll(v1, `report("v1")`, `report("v1"); inbox:receive(); events = process.events()`)
+			}
+			if mode == "nonupgradable" || mode == "dropped" {
+				v1 = strings.ReplaceAll(v1, "if event.kind == process.event.CANCEL then return end", `if event.kind == process.event.CANCEL then report("stopped"); return end`)
+			}
 			if mode == "ordinary" {
 				v1 = `return {main = function() report("v1"); return end}`
 			} else {
@@ -162,14 +180,22 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 				end
 			end}`, nil)
 			transitionAt := time.Now()
-			if mode != "ordinary" {
+			if mode == "unchanged" {
+				sched.SendOutdated(map[registry.ID]bool{registry.NewID("test", "other"): true})
+			}
+			if mode != "ordinary" && mode != "unchanged" {
 				for range 10 {
 					sched.SendOutdated(map[registry.ID]bool{procID: true})
 				}
 			}
 			close(release)
 			release = nil
+			if mode == "dropped" {
+				require.NoError(t, node.Send(relay.NewPackage(pid.PID{}, first.pid, topologyapi.TopicInbox)))
+			}
 			switch mode {
+			case "unchanged":
+				require.Equal(t, supervisor.StatusRunning, controller.State().Status)
 			case "ordinary":
 				require.Eventually(t, func() bool { return controller.State().Status == supervisor.StatusExited }, 5*time.Second, time.Millisecond)
 			case "ignored":
@@ -177,6 +203,11 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 				require.Equal(t, "ignored", ignored.version)
 				require.Equal(t, first.pid, ignored.pid)
 			default:
+				if mode == "nonupgradable" || mode == "dropped" {
+					stopped := awaitIncarnation(t, entered)
+					require.Equal(t, "stopped", stopped.version)
+					require.Equal(t, first.pid, stopped.pid)
+				}
 				second := awaitIncarnation(t, entered)
 				require.Equal(t, "v2", second.version)
 				if mode == "native" {
@@ -195,7 +226,7 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			case <-time.After(3 * delay):
 			}
 			want := int32(2)
-			if mode == "ordinary" || mode == "ignored" {
+			if mode == "ordinary" || mode == "ignored" || mode == "unchanged" {
 				want = 1
 			}
 			require.Equal(t, want, creates.Load(), "exactly one activation per code transition")

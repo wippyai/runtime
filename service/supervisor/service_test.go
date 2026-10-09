@@ -689,3 +689,17 @@ func BenchmarkNewService(b *testing.B) {
 		_ = NewService(id, config, pidGen)
 	}
 }
+
+func TestService_StopDoesNotConsumeRestartAsCompletion(t *testing.T) {
+	svc := newTestService()
+	svc.statusCh = make(chan any, 1)
+	svc.statusCh <- supervisor.Restart{Graceful: true}
+	svc.restartRequested.Store(true)
+	node := &mockNode{}
+	ctx := setupTestContext(node, &mockTopology{}, &mockProcessManager{})
+	stopCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	err := svc.Stop(stopCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "a pending restart is not an exited process")
+	require.Len(t, node.sent, 1, "stop sends normal cancellation to the live incarnation")
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/topology"
@@ -133,12 +134,14 @@ type Process struct {
 	// every SubscriptionFrame with the epoch they were registered under;
 	// deliverMessage compares atomically so frames from prior incarnations
 	// are dropped without locking.
-	epoch              atomic.Uint64
-	flushingMessages   bool
-	messageBatchActive bool
-	trapLinks          bool
-	upgradable         bool
-	outdatedDelivered  bool
+	epoch                 atomic.Uint64
+	flushingMessages      bool
+	messageBatchActive    bool
+	trapLinks             bool
+	upgradable            bool
+	outdatedDelivered     bool
+	outdatedRejected      bool
+	outdatedRejectionSent bool
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -609,6 +612,8 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.clearMessageQueue()
 	p.pendingOutdated = nil
 	p.outdatedDelivered = false
+	p.outdatedRejected = false
+	p.outdatedRejectionSent = false
 
 	// Seal the frame - no more modifications allowed after this
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
@@ -779,6 +784,15 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		// This ensures messages that arrived while tasks were blocked get delivered
 		if p.subs != nil {
 			p.flushMessageQueue(p.subs)
+		}
+
+		if p.outdatedRejected && !p.outdatedRejectionSent {
+			if err := p.notifyRejectedOutdated(); err != nil {
+				p.clearExecution()
+				out.Done(nil)
+				return toAPIError(err)
+			}
+			p.outdatedRejectionSent = true
 		}
 
 		// Check if LINK_DOWN triggered termination (trap_links=false)
@@ -1489,13 +1503,15 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 
 	// OUTDATED events are gated by the per-instance upgradable option. An
 	// upgradable process coalesces them into a single pending event (delivered
-	// by flushMessageQueue); a non-upgradable process drops them silently and is
-	// never terminated. Either way the queue entry is consumed, so repeated
-	// invalidations never grow the retained queue.
+	// by flushMessageQueue). Rejected delivery notifies the execution's supervisor, when present.
+	// Either way the queue entry is consumed, so repeated invalidations never
+	// grow the retained queue.
 	if topic == topology.TopicEvents {
 		if ev, ok := outdatedEventFromPayloads(qm.Payloads); ok {
 			if p.upgradable {
 				p.mergePendingOutdated(ev)
+			} else {
+				p.outdatedRejected = true
 			}
 			return false
 		}
@@ -1686,12 +1702,40 @@ func (p *Process) tryDeliverPendingOutdated(subs *subscribeContext) {
 			p.closeChannel(sub.channel)
 			p.applyExternalChannelResult(result)
 			p.pendingOutdated = nil // channel gone; drop
+			p.outdatedRejected = true
 		}
 		return // no waiting receiver / full buffer: keep pending, retry
 	}
 	p.applyExternalChannelResult(result)
 	p.pendingOutdated = nil
 	p.outdatedDelivered = true
+}
+
+// notifyRejectedOutdated lets the execution's supervisor apply its lifecycle
+// policy when this incarnation cannot accept a native upgrade.
+func (p *Process) notifyRejectedOutdated() error {
+	frame := ctxapi.FrameFromContext(p.ctx)
+	if frame == nil {
+		return nil
+	}
+	parentValue, exists := frame.Get(process.OutdatedSupervisorKey)
+	if !exists {
+		return nil
+	}
+	parent, ok := parentValue.(pid.PID)
+	if !ok || parent.UniqID == "" {
+		return errors.New("outdated rejection: supervisor PID unavailable")
+	}
+	self, ok := runtime.GetFramePID(p.ctx)
+	if !ok {
+		return errors.New("outdated rejection: process PID unavailable")
+	}
+	node := relay.GetNode(p.ctx)
+	if node == nil {
+		return errors.New("outdated rejection: relay node unavailable")
+	}
+	return node.Send(relay.NewPackage(self, parent, topology.TopicEvents,
+		payload.New(&topology.ExitEvent{From: self, Kind: topology.OutdatedRejected})))
 }
 
 // outdatedEventToLua builds the Lua table surfaced for an OUTDATED event.
@@ -2010,6 +2054,8 @@ func (p *Process) Close() {
 	p.trapLinks = false
 	p.upgradable = false
 	p.outdatedDelivered = false
+	p.outdatedRejected = false
+	p.outdatedRejectionSent = false
 	p.messageSeq = 0
 	p.pendingOutdated = nil
 	p.linkDownError = nil

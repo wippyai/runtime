@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	processapi "github.com/wippyai/runtime/api/process"
@@ -30,6 +32,7 @@ type Service struct {
 	gate              *bootpkg.Gate
 	completion        *bootpkg.Gate
 	restartCompletion *bootpkg.Gate
+	restartRequested  *atomic.Bool
 	supervisorPID     pid.PID
 	childPID          pid.PID
 	id                registry.ID
@@ -40,9 +43,10 @@ type Service struct {
 // NewService creates a new process service instance.
 func NewService(id registry.ID, config supervisorapi.ServiceConfig, pidGen processapi.PIDGenerator) *Service {
 	return &Service{
-		id:     id,
-		config: config,
-		pidGen: pidGen,
+		id:               id,
+		config:           config,
+		pidGen:           pidGen,
+		restartRequested: &atomic.Bool{},
 	}
 }
 
@@ -123,6 +127,10 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		payloads = append(payloads, payload.New(p))
 	}
 
+	svc.statusCh = make(chan any, 1)
+	restartRequested := &atomic.Bool{}
+	svc.restartRequested = restartRequested
+
 	// Start the child process
 	// lifecycle.OnStart will atomically:
 	// - Register child PID in topology
@@ -132,6 +140,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		Source:  svc.config.Process,
 		Input:   payloads,
 		Options: opts,
+		Context: []ctxapi.Pair{{Key: processapi.OutdatedSupervisorKey, Value: svc.supervisorPID}},
 	})
 	if err != nil {
 		detach()
@@ -144,8 +153,6 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	svc.childPID = childPID
-	svc.statusCh = make(chan any, 1)
-
 	// Start monitor goroutine
 	go svc.monitorLoop(ctx, monitorCh, completion)
 
@@ -164,18 +171,22 @@ func (svc *Service) Stop(ctx context.Context) error {
 	// cancel; sending a cancel package can produce a misleading "process not
 	// found" error even though the service is already stopped.
 	select {
-	case <-svc.statusCh:
-		return nil
+	case status, open := <-svc.statusCh:
+		if _, restart := status.(supervisor.Restart); !open || !restart {
+			return nil
+		}
 	default:
 	}
 
-	if svc.gate != nil {
+	if svc.gate != nil && !svc.restartRequested.Load() {
 		svc.gate.Fail(fmt.Errorf("service stopped before completion"))
 	}
 	svc.completionMu.RLock()
 	completion := svc.completion
 	svc.completionMu.RUnlock()
-	completion.Fail(fmt.Errorf("service stopped before completion"))
+	if !svc.restartRequested.Load() {
+		completion.Fail(fmt.Errorf("service stopped before completion"))
+	}
 
 	node := relay.GetNode(ctx)
 	if node == nil {
@@ -188,17 +199,21 @@ func (svc *Service) Stop(ctx context.Context) error {
 	}
 
 	// Wait for status channel to close (indicating process exit)
-	select {
-	case <-svc.statusCh:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	for {
+		select {
+		case status, open := <-svc.statusCh:
+			if _, restart := status.(supervisor.Restart); !open || !restart {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
 // monitorLoop listens for topology exit events and reports them via status channel.
 func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, completion *bootpkg.Gate) {
-	statusCh, detach := svc.statusCh, svc.detachFn
+	statusCh, detach, restartRequested := svc.statusCh, svc.detachFn, svc.restartRequested
 	defer close(statusCh)
 	if detach != nil {
 		defer detach()
@@ -236,16 +251,31 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 						continue
 					}
 
+					if event.Kind == topologyapi.OutdatedRejected {
+						if event.From != svc.childPID {
+							continue
+						}
+						if restartRequested.CompareAndSwap(false, true) {
+							svc.completionMu.Lock()
+							svc.restartCompletion = completion
+							svc.completionMu.Unlock()
+							statusCh <- supervisor.Restart{Graceful: true}
+						}
+						continue
+					}
+
 					if event.Kind == topologyapi.Exit && event.Result != nil && event.Result.Error == nil {
-						if event.Result.Outdated {
+						if event.Result.Outdated && !restartRequested.Load() {
 							svc.completionMu.Lock()
 							svc.restartCompletion = completion
 							svc.completionMu.Unlock()
 							statusCh <- supervisor.Restart{}
 							return
 						}
-						completion.Ready()
-						if svc.gate != nil {
+						if !restartRequested.Load() {
+							completion.Ready()
+						}
+						if svc.gate != nil && !restartRequested.Load() {
 							svc.gate.Ready()
 						}
 						select {
