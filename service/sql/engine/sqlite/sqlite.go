@@ -18,8 +18,8 @@ import (
 )
 
 // defaultDriver is retained for diagnostics and config validation. Physical
-// opens use the connector-owned driver in observer.go when the preupdate build
-// tag is enabled, so no process-global driver name is replaced.
+// opens use pool-owned drivers with shared connection initialization, so no
+// process-global driver name is replaced.
 const defaultDriver = "sqlite3"
 
 type engine struct{}
