@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -27,10 +26,12 @@ func TestModulePackReproducibleAcrossCheckoutTimes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "_index.yaml"), []byte("version: '1.0'\nnamespace: acme.app\nentries:\n  - name: assets\n    kind: fs.directory\n    directory: ./assets\n    auto_init: false\n"), 0o644))
 	asset := filepath.Join(root, "assets", "hello.txt")
 	require.NoError(t, os.WriteFile(asset, []byte("portable content"), 0o644))
+	sourceInfo, err := os.Stat(asset)
+	require.NoError(t, err)
 	pack := func(name, clock string, mtime int64, module string) []byte {
 		t.Helper()
 		require.NoError(t, os.Chtimes(asset, time.Unix(mtime, 0), time.Unix(mtime, 0)))
-		command := exec.Command(os.Args[0], "-test.run=^TestModulePackCLIProcess$")
+		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestModulePackCLIProcess$")
 		command.Dir = root
 		command.Env = []string{"WIPPY_PACK_TEST_HELPER=1", "WIPPY_PACK_TEST_OUTPUT=" + name,
 			"WIPPY_PACK_TEST_CLOCK=" + clock, "WIPPY_PACK_TEST_MODULE=" + module, "HOME=" + root, "TMPDIR=" + root, "PATH=" + os.Getenv("PATH")}
@@ -76,7 +77,7 @@ func TestModulePackReproducibleAcrossCheckoutTimes(t *testing.T) {
 	content, err := fs.ReadFile(fsys, "hello.txt")
 	require.NoError(t, err)
 	require.Equal(t, "portable content", string(content))
-	require.Equal(t, fs.FileMode(0o644), info.Mode().Perm())
+	require.Equal(t, sourceInfo.Mode().Perm(), info.Mode().Perm())
 	require.NoError(t, os.WriteFile(asset, []byte("changed content"), 0o644))
 	require.False(t, bytes.Equal(baseline, pack("changed.wapp", "2026-10-07T00:00:00Z", 100, "acme/app")), "content change must change module bytes")
 }
@@ -90,6 +91,6 @@ func TestModulePackCLIProcess(t *testing.T) {
 	if module := os.Getenv("WIPPY_PACK_TEST_MODULE"); module != "" {
 		args = append(args, "--module", module)
 	}
-	err := ExecuteWithOptions(context.Background(), ExecuteOptions{LockFile: "wippy.lock", Args: args})
+	err := ExecuteWithOptions(t.Context(), ExecuteOptions{LockFile: "wippy.lock", Args: args})
 	require.NoError(t, err)
 }
