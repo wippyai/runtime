@@ -202,6 +202,10 @@ func (s *TokenStore) Validate(ctx context.Context, token security.Token) (securi
 		return security.Actor{}, nil, NewUnmarshalTokenDataError(err)
 	}
 
+	if s.config.SubjectLookup.Name != "" {
+		return s.resolveSubject(ctx, &data)
+	}
+
 	// Reconstruct actor
 	actor := security.Actor{
 		ID:   data.ActorID,

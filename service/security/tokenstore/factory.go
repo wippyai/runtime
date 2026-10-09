@@ -29,6 +29,10 @@ func (f *Factory) CreateTokenStore(ctx context.Context, entry registry.Entry) (s
 		return nil, NewDecodeTokenStoreConfigError(err)
 	}
 
+	if cfg.SubjectLookup.Name != "" {
+		cfg.SubjectLookup = cfg.SubjectLookup.WithDefaultNS(entry.ID.NS)
+	}
+
 	// Create token store with lazy loading capability
 	tokenStore, err := NewStoreTokenStore(cfg, f.dtt, f.resourceRegistry, f.securityRegistry)
 	if err != nil {
