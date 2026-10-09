@@ -104,3 +104,84 @@ func TestOwnerSafeExternalAbsoluteLinkStillChecksOwnership(t *testing.T) {
 		t.Fatalf("external writable target accepted: %q", data)
 	}
 }
+
+func TestOwnerSafeContainedAbsoluteLinkTargetSwap(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "volume")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "target")
+	outside := filepath.Join(parent, "outside")
+	if err := os.WriteFile(target, []byte("inside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("outside secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	volume, err := NewFactory().CreateFS(CreateFSConfig{DirPath: root, Mode: 0700, LinkPolicy: "owner_safe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer volume.(interface{ Close() error }).Close()
+	if data, err := fs.ReadFile(volume, "link"); err != nil || string(data) != "inside" {
+		t.Fatalf("initial contained read: %q, %v", data, err)
+	}
+
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	done := make(chan struct{})
+	var swapErr error // Read only after the worker closes done.
+	go func() {
+		defer close(done)
+		candidate := filepath.Join(root, "candidate")
+		first := true
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if swapErr = os.Symlink(outside, candidate); swapErr != nil {
+				return
+			}
+			if swapErr = os.Rename(candidate, target); swapErr != nil {
+				return
+			}
+			if first {
+				close(started)
+				first = false
+			}
+			if swapErr = os.WriteFile(candidate, []byte("inside"), 0600); swapErr != nil {
+				return
+			}
+			if swapErr = os.Rename(candidate, target); swapErr != nil {
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		<-done
+		if swapErr != nil {
+			t.Error(swapErr)
+		}
+	}()
+	select {
+	case <-started:
+	case <-done:
+		t.Fatalf("target swap did not start: %v", swapErr)
+	}
+	for i := 0; i < 1000; i++ {
+		data, err := fs.ReadFile(volume, "link")
+		if err != nil {
+			continue // Concurrent replacements may fail closed.
+		}
+		if string(data) != "inside" {
+			t.Fatalf("target swap escaped the retained root: %q", data)
+		}
+	}
+}

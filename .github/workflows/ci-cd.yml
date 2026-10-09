@@ -193,6 +193,13 @@ jobs:
         run: |
           go test -race -count=1 ./internal/sqliteconn ./service/sql/... ./system/registry/history/sqlite
           go test -race -count=1 -tags 'fts5 sqlite_vec sqlite_preupdate_hook' ./internal/sqliteconn ./service/sql/... ./system/registry/history/sqlite
+      - name: Test rooted filesystem
+        if: matrix.features == '' && matrix.os != 'windows-latest'
+        run: go test -race -count=1 ./service/fs/directory ./runtime/lua/modules/fs
+      - name: Test rooted filesystem (Windows)
+        if: matrix.features == '' && matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: go test -race -count=1 ./service/fs/directory ./runtime/lua/modules/fs
       - name: Build and smoke check
         if: matrix.os != 'windows-latest'
         shell: bash

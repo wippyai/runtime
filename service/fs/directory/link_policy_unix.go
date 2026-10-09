@@ -108,7 +108,10 @@ func (d *FS) openOwnerSafe(name string) (file *os.File, refusal error) {
 	// Contained targets use the host's existing root authority. The retained
 	// os.Root fences the open even if a component changes after resolution.
 	if relative, err := filepath.Rel(root, canonical); err == nil && filepath.IsLocal(relative) {
-		file, err := d.root.Open(relative)
+		// A FIFO must not block before descriptor-based regular-file validation.
+		// O_NONBLOCK does not change regular-file reads; os.Root still contains
+		// the open if a component is replaced after canonical resolution.
+		file, err := d.root.OpenFile(relative, os.O_RDONLY|unix.O_NONBLOCK, 0)
 		if err != nil {
 			return nil, err
 		}
