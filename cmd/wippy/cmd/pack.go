@@ -36,6 +36,9 @@ and serialize to a compressed binary .wapp file.
 
 The pack file contains fully linked entries ready for loading without additional processing.
 
+Reusable module packs omit the packing timestamp and store embedded file mtimes
+as the Unix epoch, so checkout and packing times do not change their digest.
+
 Examples:
   wippy pack snapshot.wapp
   wippy pack release-v1.2.3.wapp
@@ -555,6 +558,9 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 		}
 	}
 	metadata[packRegistryMetadataKey] = packRegistryMetadata(loadedEntries)
+	if moduleName != "" {
+		resources = normalizeModulePack(metadata, resources)
+	}
 
 	p.Send(progressMsg{stage: stageWrite, percent: 0.8, status: "Writing pack file..."})
 

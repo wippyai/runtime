@@ -544,8 +544,8 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}
 	metadata["wippy_version"] = version.Version
 	metadata["wippy_commit"] = version.Commit
-	metadata["packed_at"] = time.Now().UTC().Format(time.RFC3339)
 	metadata["entry_count"] = len(srcEntries)
+	resources = normalizeModulePack(metadata, resources)
 
 	packWriter := wapp.NewWriter()
 
