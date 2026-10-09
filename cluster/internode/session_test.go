@@ -30,11 +30,6 @@ func TestSessionSurvivesSocketAbortMidStream(t *testing.T) {
 	sideB := newTestSessionSide("node-A")
 	rec := newTrafficRecorder()
 	deliver := func(_ Class, data []byte) { rec.record(data) }
-	// The first socket delivers slowly so the abort lands mid-stream.
-	slow := func(class Class, data []byte) {
-		time.Sleep(20 * time.Microsecond)
-		deliver(class, data)
-	}
 
 	classes := []Class{ClassRaftControl, ClassPGBroadcast, ClassRaftRPC, ClassSurface, ClassGossip}
 	const total = 1000
@@ -56,12 +51,24 @@ func TestSessionSurvivesSocketAbortMidStream(t *testing.T) {
 	}
 
 	first := handshakeInto(t, sideA, sideB)
-	doneA, doneB := runPair(first, slow)
-	queue(0, total/2, true)
-	require.Eventually(t, func() bool { return rec.count(ClassRaftControl) > 10 }, 5*time.Second, time.Millisecond)
-	abortConnection(first.a.conn)
-	<-doneA
-	<-doneB
+	// Fill the disconnected queues without waiting for bounded admission.
+	// Abort from the reader itself at a known delivery boundary, before it
+	// can drain the stream, rather than relying on sleeps or sender timing.
+	queue(0, total/2, false)
+	doneA, doneB := runPair(first, func(class Class, data []byte) {
+		deliver(class, data)
+		if class == ClassRaftControl && rec.count(class) == 11 {
+			abortConnection(first.a.conn)
+		}
+	})
+	for _, done := range []chan *ConnectionError{doneA, doneB} {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("connection did not terminate after socket abort")
+		}
+	}
+	require.GreaterOrEqual(t, rec.count(ClassRaftControl), 11, "the abort must follow delivery")
 	require.Less(t, rec.count(ClassRaftControl), int(sent[ClassRaftControl]), "the abort must land mid-stream")
 
 	// Frames queued while no socket is up.
