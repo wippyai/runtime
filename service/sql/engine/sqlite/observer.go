@@ -20,6 +20,7 @@ import (
 	"github.com/rqlite/go-sqlite3"
 
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/internal/sqliteconn"
 )
 
 var (
@@ -84,7 +85,7 @@ func openSQLite(_ context.Context, dsn string, limits ...int) (*sql.DB, sqlapi.C
 	backend := newSQLiteBackend(maxChanges, maxBytes)
 	connector := &sqliteConnector{
 		dsn:     dsn,
-		driver:  &sqlite3.SQLiteDriver{},
+		driver:  sqliteconn.NewDriver(),
 		backend: backend,
 	}
 	db := sql.OpenDB(connector)

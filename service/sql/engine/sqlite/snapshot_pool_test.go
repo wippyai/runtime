@@ -58,3 +58,46 @@ func TestSnapshotConnectionWaitDoesNotBlockWriterAndCancels(t *testing.T) {
 	stop()
 	require.ErrorIs(t, <-done, context.Canceled)
 }
+
+func TestSnapshotPinnedReaderDefersAutomaticCheckpoint(t *testing.T) {
+	o, err := openObservedDB(t, filepath.Join(t.TempDir(), "checkpoint.db"))
+	require.NoError(t, err)
+	defer o.Close()
+	b := o.opened.Observer.(*sqliteBackend)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err = o.opened.DB.ExecContext(ctx, "CREATE TABLE items (id INTEGER PRIMARY KEY, value BLOB)")
+	require.NoError(t, err)
+	reader, err := b.snapshotDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer reader.Rollback()
+	var count, checkpoint int
+	require.NoError(t, reader.QueryRowContext(ctx, "PRAGMA wal_autocheckpoint").Scan(&checkpoint))
+	require.Equal(t, 1000, checkpoint, "read-only snapshot connections share initialization")
+	require.NoError(t, reader.QueryRowContext(ctx, "SELECT COUNT(*) FROM items").Scan(&count))
+	require.Zero(t, count)
+	for i := 0; i < 1200; i++ {
+		_, err = o.opened.DB.ExecContext(ctx, "INSERT INTO items (value) VALUES (zeroblob(4096))")
+		require.NoError(t, err, "checkpoints must not wait for the snapshot reader")
+	}
+	require.NoError(t, reader.QueryRowContext(ctx, "SELECT COUNT(*) FROM items").Scan(&count))
+	require.Zero(t, count, "the pinned snapshot must remain unchanged")
+	var busy, logged, checkpointed int
+	require.NoError(t, o.opened.DB.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &logged, &checkpointed))
+	require.Zero(t, busy)
+	require.Greater(t, logged, 1000)
+	require.Less(t, checkpointed, logged, "PASSIVE can be incomplete even when busy is zero")
+	require.NoError(t, reader.Rollback())
+	// The first commit can now finish the automatic checkpoint; the next one
+	// can recycle its frames. No explicit checkpoint runs between these writes.
+	for i := 0; i < 2; i++ {
+		_, err = o.opened.DB.ExecContext(ctx, "INSERT INTO items (value) VALUES (zeroblob(4096))")
+		require.NoError(t, err)
+	}
+	require.NoError(t, o.opened.DB.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &logged, &checkpointed))
+	require.Zero(t, busy)
+	require.Less(t, logged, 1000, "automatic checkpointing must resume after the snapshot releases its WAL frames")
+	require.Equal(t, logged, checkpointed)
+	require.NoError(t, o.opened.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM items").Scan(&count))
+	require.Equal(t, 1202, count)
+}
