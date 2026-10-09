@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const includeSourceDependenciesKey = "workspace.options.include_source_dependencies"
+const includeSourceDependenciesKey = "workspace.include_source_dependencies"
 
 // includeSourceDependencies opts a published deployment into host dependency
 // discovery. Source-only workspaces keep their existing behavior.

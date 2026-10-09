@@ -13,7 +13,8 @@ import (
 
 const (
 	workspaceReplacementPrefix = "replacements."
-	workspaceUnpackModulesKey  = "options.unpack_modules"
+	workspaceUnpackModulesKey  = "workspace.unpack_modules"
+	runtimeUnpackModulesKey    = "options.unpack_modules"
 )
 
 // WithWorkspaceConfig applies the effective .wippy.yaml workspace settings to
@@ -34,20 +35,26 @@ func WithWorkspaceConfig(cfg boot.Config) Option {
 	}
 }
 
-// WorkspaceUnpackModules reads options.unpack_modules from the effective
-// runtime config, including --set overrides. Nil means the lock file value
-// applies.
+// WorkspaceUnpackModules reads workspace.unpack_modules from the effective
+// runtime config, including --set overrides. The existing options.unpack_modules
+// setting is used only when the workspace key is absent. An explicit null resets
+// the override to the lock file value.
 func WorkspaceUnpackModules(cfg boot.Config) (*bool, error) {
 	if cfg == nil {
 		return nil, nil
 	}
-	raw, ok := cfg.Get(workspaceUnpackModulesKey)
+	key := workspaceUnpackModulesKey
+	raw, ok := cfg.Get(key)
+	if !ok {
+		key = runtimeUnpackModulesKey
+		raw, ok = cfg.Get(key)
+	}
 	if !ok || raw == nil {
 		return nil, nil
 	}
 	unpack, ok := raw.(bool)
 	if !ok {
-		return nil, fmt.Errorf("%s must be a boolean, got %T", workspaceUnpackModulesKey, raw)
+		return nil, fmt.Errorf("%s must be a boolean, got %T", key, raw)
 	}
 	return &unpack, nil
 }

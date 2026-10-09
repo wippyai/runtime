@@ -16,6 +16,8 @@ func TestAddPublishedRuntimeMetadataRejectsManifestMachineLocalSections(t *testi
 			"replacements": map[string]any{"acme/app": "../app"},
 		}}},
 		"dotted workspace":  {"runtime.workspace.replacements.acme/app": "../app"},
+		"workspace unpack":  {"runtime.workspace.unpack_modules": true},
+		"workspace sources": {"runtime.workspace.include_source_dependencies": true},
 		"nested boot":       {"runtime": map[string]any{"boot": map[string]any{"config_dir": "/build"}}},
 		"dotted extensions": {"runtime.extensions.paths": []any{"/build/ext"}},
 	} {

@@ -31,7 +31,7 @@ Without arguments, scans source directory and re-resolves the entire dependency 
 updating all modules to their latest compatible versions.
 For a published deployment, resolves from the application root in wippy.lock;
 no source directory is required and unrelated local source is not consulted
-unless workspace.options.include_source_dependencies is explicitly enabled.
+unless workspace.include_source_dependencies is explicitly enabled.
 When enabled, host source dependencies join the application's dependency graph.
 
 With module arguments, updates only the specified modules to their highest version

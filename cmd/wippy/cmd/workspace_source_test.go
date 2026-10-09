@@ -57,9 +57,9 @@ entries:
     kind: registry.entry
 `), 0o600))
 	w.cfg = bootapi.NewConfig(bootapi.WithSection("workspace", map[string]any{
-		"options.include_source_dependencies": enabled,
-		"replacements.acme/app":               w.app,
-		"replacements.local/guide":            w.guide,
+		"include_source_dependencies": enabled,
+		"replacements.acme/app":       w.app,
+		"replacements.local/guide":    w.guide,
 	}))
 	locked, err := lock.New(w.lockPath)
 	require.NoError(t, err)
@@ -247,8 +247,8 @@ func TestPrepareRootedWorkspaceAddsLocalGuideToCachedAppOffline(t *testing.T) {
 	w := newHostDependencyWorkspace(t, true)
 	t.Chdir(w.root)
 	w.cfg = bootapi.NewConfig(bootapi.WithSection("workspace", map[string]any{
-		"options.include_source_dependencies": true,
-		"replacements.local/guide":            w.guide,
+		"include_source_dependencies": true,
+		"replacements.local/guide":    w.guide,
 	}))
 	path := filepath.Join(w.root, w.configuredLock(t).GetVendorPath(), "acme", "app-1.0.0.wapp")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
@@ -297,7 +297,7 @@ func TestIncludeSourceDependenciesRequiresExplicitBoolean(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := bootapi.NewConfig(bootapi.WithSection("workspace", map[string]any{
-				"options.include_source_dependencies": tc.value,
+				"include_source_dependencies": tc.value,
 			}))
 			got, err := includeSourceDependencies(cfg)
 			if !tc.valid {
@@ -322,12 +322,10 @@ func TestHostDependencyOptionComposesThroughProfilesAndSet(t *testing.T) {
 profiles:
   development:
     workspace:
-      options:
-        include_source_dependencies: true
+      include_source_dependencies: true
   isolated:
     workspace:
-      options:
-        include_source_dependencies: false
+      include_source_dependencies: false
 `), 0o600))
 	setTestConfigFiles(t, path)
 	for _, tc := range []struct {
@@ -461,8 +459,7 @@ func runRootedWorkspaceGuide(t *testing.T, cached bool) {
 shutdown:
   timeout: 5s
 workspace:
-  options:
-    include_source_dependencies: true
+  include_source_dependencies: true
   replacements:
     acme/app: ./app
     local/guide: ./guide
@@ -496,14 +493,13 @@ entries:
 shutdown:
   timeout: 5s
 workspace:
-  options:
-    include_source_dependencies: true
+  include_source_dependencies: true
   replacements:
     local/guide: ./guide
 `), 0o600))
 		w.cfg = bootapi.NewConfig(bootapi.WithSection("workspace", map[string]any{
-			"options.include_source_dependencies": true,
-			"replacements.local/guide":            w.guide,
+			"include_source_dependencies": true,
+			"replacements.local/guide":    w.guide,
 		}))
 		path := filepath.Join(w.root, w.configuredLock(t).GetVendorPath(), "acme", "app-1.0.0.wapp")
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
@@ -543,8 +539,7 @@ func (w *hostDependencyWorkspace) writeRuntimeConfig(t *testing.T, enabled bool)
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(w.root, ".wippy.yaml"), []byte(fmt.Sprintf(`version: "1.0"
 workspace:
-  options:
-    include_source_dependencies: %t
+  include_source_dependencies: %t
   replacements:
     acme/app: ./app
     local/guide: ./guide

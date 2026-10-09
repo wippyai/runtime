@@ -351,6 +351,25 @@ wippy update --config .wippy.yaml --config .wippy.workspace.yaml --profile works
 wippy install --config .wippy.yaml --config .wippy.workspace.yaml --profile workspace
 ```
 
+Workspace controls are direct children of `workspace`:
+
+```yaml
+workspace:
+  include_source_dependencies: false # true: add host declarations to a rooted app
+  unpack_modules: false             # keep dependency packs as .wapp files
+  replacements:
+    acme/http: ../http
+```
+
+`workspace.unpack_modules` overrides the lock's `options.unpack_modules` setting
+without writing it to the lock. When the workspace key is absent, the existing
+top-level runtime `options.unpack_modules` setting remains supported with its
+previous behavior. If both runtime keys are present, the workspace key wins;
+an explicit YAML `workspace.unpack_modules: null` clears the runtime override and
+uses the lock setting. Replacements retain their existing path resolution and
+profile precedence. These controls use the same configuration composition for
+update, install and run, and are never exported as workspace module metadata.
+
 ### Adding host dependencies to a published application
 
 A lock with an application root resolves from that application by default;
@@ -361,8 +380,7 @@ dependency discovery in your runtime configuration:
 ```yaml
 version: "1.0"
 workspace:
-  options:
-    include_source_dependencies: true
+  include_source_dependencies: true
   replacements:
     local/guide: ../guide
 ```
