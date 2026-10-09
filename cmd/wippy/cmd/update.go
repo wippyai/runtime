@@ -30,7 +30,9 @@ var updateCmd = &cobra.Command{
 Without arguments, scans source directory and re-resolves the entire dependency graph,
 updating all modules to their latest compatible versions.
 For a published deployment, resolves from the application root in wippy.lock;
-no source directory is required and unrelated local source is not consulted.
+no source directory is required and unrelated local source is not consulted
+unless workspace.options.include_source_dependencies is explicitly enabled.
+When enabled, host source dependencies join the application's dependency graph.
 
 With module arguments, updates only the specified modules to their highest version
 compatible with other locked dependencies. New transitive dependencies are auto-added.
@@ -142,7 +144,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Replacement modules expose transitive declarations through the resolver.
 	logger.Info("scanning dependency sources", zap.String("src_dir", srcDir))
 
-	rootDeps, err := loadUpdateRoots(app.Ctx, app.Loader, srcDir, oldLockObj, app.Transcoder, logger)
+	rootDeps, err := loadUpdateRoots(app.Ctx, app.Loader, srcDir, oldLockObj, app.Transcoder, logger, runtimeCfg)
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
@@ -341,12 +343,25 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		effectiveTargets = append(effectiveTargets, moduleName)
 	}
 	if len(effectiveTargets) == 0 {
-		logger.Info("all requested modules are local replacements; nothing to update")
-		return nil
+		includeSource, configErr := includeSourceDependencies(runtimeCfg)
+		if configErr != nil {
+			return NewLoadEntriesFromSourceError(configErr)
+		}
+		if !includeSource || len(lockObj.GetRootModules()) == 0 {
+			logger.Info("all requested modules are local replacements; nothing to update")
+			return nil
+		}
 	}
 
 	// Use the locked deployment root or source application constraints.
-	rootDeps, err := loadUpdateRoots(app.Ctx, app.Loader, srcDir, lockObj, app.Transcoder, logger)
+	var rootDeps []dependencyRequest
+	if len(effectiveTargets) == 0 {
+		// Refresh declared local additions without turning a replacement-only
+		// request into a full update of the published application.
+		rootDeps, err = loadWorkspaceRoots(app.Ctx, app.Loader, srcDir, lockObj, app.Transcoder, logger, runtimeCfg)
+	} else {
+		rootDeps, err = loadUpdateRoots(app.Ctx, app.Loader, srcDir, lockObj, app.Transcoder, logger, runtimeCfg)
+	}
 	if err != nil {
 		return NewLoadEntriesFromSourceError(err)
 	}
@@ -373,7 +388,21 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	logger.Info("resolving targeted dependency graph")
-	resolvedModules, err := resolveUpdatedWorkspaceDependencies(app.Ctx, hubClient, lockObj, lockFilePath, runtimeCfg, rootDeps, effectiveTargets)
+	var resolvedModules []hub.ResolvedModule
+	if len(effectiveTargets) == 0 {
+		offlineCtx := regapi.WithDependencyAccess(app.Ctx, regapi.DependencyAccessVerifiedOffline)
+		result, resolveErr := resolveRunDependencies(offlineCtx, hubClient, lockObj, rootDeps)
+		if resolveErr != nil {
+			onlineCtx := regapi.WithDependencyAccess(app.Ctx, regapi.DependencyAccessOnline)
+			result, resolveErr = resolveRunDependencies(onlineCtx, hubClient, lockObj, rootDeps)
+		}
+		if resolveErr != nil {
+			return resolveErr
+		}
+		resolvedModules = result.Modules
+	} else {
+		resolvedModules, err = resolveUpdatedWorkspaceDependencies(app.Ctx, hubClient, lockObj, lockFilePath, runtimeCfg, rootDeps, effectiveTargets)
+	}
 	if err != nil {
 		return err
 	}
@@ -450,29 +479,48 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	return nil
 }
 
-// loadUpdateRoots preserves the lock's application identity for published
-// deployments. Such deployments need no source directory; scanning the caller's
-// source would allow unrelated files to replace the selected application.
-func loadUpdateRoots(ctx context.Context, ldr boot.Loader, srcDir string, locked *lock.Lock, transcoder payload.Transcoder, logger *zap.Logger) ([]dependencyRequest, error) {
+// loadUpdateRoots releases the selected application's version for an explicit
+// update, while retaining any additional constraints from opted-in host source.
+func loadUpdateRoots(ctx context.Context, ldr boot.Loader, srcDir string, locked *lock.Lock, transcoder payload.Transcoder, logger *zap.Logger, cfg boot.Config) ([]dependencyRequest, error) {
+	requests, err := loadWorkspaceRoots(ctx, ldr, srcDir, locked, transcoder, logger, cfg)
+	if err != nil {
+		return nil, err
+	}
 	if locked != nil {
-		roots := locked.GetRootModules()
-		if len(roots) != 0 {
-			requests := make([]dependencyRequest, 0, len(roots))
-			for _, root := range roots {
-				org, name, ok := strings.Cut(root, "/")
-				if !ok || org == "" || name == "" {
-					return nil, fmt.Errorf("invalid deployment root %q", root)
-				}
-				requests = append(requests, dependencyRequest{Org: org, Module: name})
-			}
+		// Application requests precede source requests. Do not erase a host
+		// constraint that happens to refer to that same application module.
+		for i := range locked.GetRootModules() {
+			requests[i].Constraint = ""
+		}
+	}
+	return requests, nil
+}
+
+// loadWorkspaceRoots keeps published application identity separate from host
+// source. Host declarations are additive only when explicitly opted in; merely
+// configuring a replacement never enrolls that module in the graph.
+func loadWorkspaceRoots(ctx context.Context, ldr boot.Loader, srcDir string, locked *lock.Lock, transcoder payload.Transcoder, logger *zap.Logger, cfg boot.Config) ([]dependencyRequest, error) {
+	includeSource, err := includeSourceDependencies(cfg)
+	if err != nil {
+		return nil, err
+	}
+	requests, err := lockedApplicationRoots(locked)
+	if err != nil {
+		return nil, err
+	}
+	if len(requests) > 0 {
+		if !includeSource {
 			return requests, nil
+		}
+		if strings.TrimSpace(srcDir) == "" {
+			return nil, fmt.Errorf("%s requires a host source directory", includeSourceDependenciesKey)
 		}
 	}
 	loaded, err := loadDependencyScanEntries(ctx, ldr, srcDir, locked, logger)
 	if err != nil {
 		return nil, err
 	}
-	return extractRootDependencies(loaded, transcoder), nil
+	return append(requests, extractRootDependencies(loaded, transcoder)...), nil
 }
 
 func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir string, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, error) {

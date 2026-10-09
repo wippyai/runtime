@@ -498,7 +498,7 @@ func TestUpdateDeploymentUsesLockedRootWithoutSource(t *testing.T) {
 	require.NoError(t, err)
 	locked.SetModule(lock.Module{Name: "acme/desktop", Version: "1.0.0", Root: true})
 	locked.SetModule(lock.Module{Name: "acme/library", Version: "1.0.0"})
-	roots, err := loadUpdateRoots(context.Background(), nil, filepath.Join(t.TempDir(), "missing"), locked, nil, zap.NewNop())
+	roots, err := loadUpdateRoots(context.Background(), nil, filepath.Join(t.TempDir(), "missing"), locked, nil, zap.NewNop(), nil)
 	require.NoError(t, err)
 	require.Equal(t, []dependencyRequest{{Org: "acme", Module: "desktop"}}, roots)
 }
@@ -507,6 +507,6 @@ func TestUpdateSourceWorkspaceStillRequiresLoader(t *testing.T) {
 	locked, err := lock.New(filepath.Join(t.TempDir(), "wippy.lock"))
 	require.NoError(t, err)
 	locked.SetModule(lock.Module{Name: "acme/library", Version: "1.0.0"})
-	_, err = loadUpdateRoots(context.Background(), nil, "missing", locked, nil, zap.NewNop())
+	_, err = loadUpdateRoots(context.Background(), nil, "missing", locked, nil, zap.NewNop(), nil)
 	require.ErrorContains(t, err, "loader not available")
 }

@@ -351,6 +351,57 @@ wippy update --config .wippy.yaml --config .wippy.workspace.yaml --profile works
 wippy install --config .wippy.yaml --config .wippy.workspace.yaml --profile workspace
 ```
 
+### Adding host dependencies to a published application
+
+A lock with an application root resolves from that application by default;
+host source does not add dependencies. To develop a new module alongside a
+published application without publishing it first, explicitly enable host
+dependency discovery in your runtime configuration:
+
+```yaml
+version: "1.0"
+workspace:
+  options:
+    include_source_dependencies: true
+  replacements:
+    local/guide: ../guide
+```
+
+Declare the dependency in the host's source directory using the usual
+`ns.dependency` entry, for example in `src/_index.yaml`:
+
+```yaml
+namespace: host.deps
+entries:
+  - name: guide
+    kind: ns.dependency
+    component: local/guide
+    version: "*"
+```
+
+Use the same runtime configuration or profile for `wippy update` and
+`wippy run`. The declaration enrolls the module; the replacement supplies its
+local source. A replacement alone does not enroll an otherwise unused module.
+An unpublished wildcard replacement uses the resolver's local `0.0.0` version.
+
+The application remains the deployment root, and all dependencies share one
+graph. Startup keeps the application's exact locked version, verifies cached
+artifacts offline first, and completes the graph before services start. A full
+`wippy update` retains its normal latest-compatible selection behavior;
+`wippy update local/guide` refreshes declared local dependencies without
+upgrading the application. Shared dependencies may need compatible version
+changes; conflicting constraints fail resolution rather than creating a
+second graph.
+
+This option is off by default and does not change source-only workspaces.
+Enabling it adds source scanning and graph validation at startup, not work on
+each actor message. Local-only selections require the replacement configuration
+and checkout on restart; they are not independently portable published modules.
+Removing a host declaration prunes its dependency on the next preparation or
+update only if the remaining graph no longer requires it. Disabling the option
+stops host discovery; run `wippy update` to reconcile the lock with the application
+graph. Neither action uninstalls a module from an already running process.
+
 The runtime configuration stack is not a publishing input, and the `workspace`
 section is never exported in module metadata. A module can also restrict which
 non-workspace runtime profiles are published from its `wippy.yaml` manifest:
