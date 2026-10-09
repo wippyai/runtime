@@ -116,7 +116,12 @@ func TestOwnerSafeContainedAbsoluteLinkTargetSwap(t *testing.T) {
 	if err := os.WriteFile(target, []byte("inside"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(outside, []byte("outside secret"), 0600); err != nil {
+	if err := os.WriteFile(outside, []byte("outside secret"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	// owner_safe may admit trusted external files. This one must be unsafe
+	// regardless of the host's temp-directory ownership, permissions or umask.
+	if err := os.Chmod(outside, 0666); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(target, filepath.Join(root, "link")); err != nil {
@@ -181,7 +186,7 @@ func TestOwnerSafeContainedAbsoluteLinkTargetSwap(t *testing.T) {
 			continue // Concurrent replacements may fail closed.
 		}
 		if string(data) != "inside" {
-			t.Fatalf("target swap escaped the retained root: %q", data)
+			t.Fatalf("target swap admitted the forbidden outside target: %q", data)
 		}
 	}
 }
