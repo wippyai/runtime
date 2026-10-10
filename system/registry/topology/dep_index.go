@@ -10,14 +10,15 @@ import (
 // constraint in SortChangeSet can resolve "what depends on D?" in constant time
 // instead of walking every entry in the registry state.
 //
-// Three kinds of dependency identity are tracked separately because they
+// Four kinds of dependency identity are tracked separately because they
 // behave differently under entry mutation. Direct dependencies pin a specific
 // registry.ID. Group dependencies pin a group name; whoever holds that group
 // in registry.TagGroups is part of the group. Namespace dependencies pin a
-// namespace; whoever has the same ID.NS is part of it.
+// namespace; whoever has the same ID.NS is part of it. Environment references
+// pin a variable name; env.variable entries declare that name in their data.
 //
 // The Dependents lookup walks the entry's own identity attributes (its ID,
-// its groups, its namespace) and unions the entries that declared a
+// its groups, its namespace, its environment name) and unions the entries that declared a
 // dependency on any of them.
 //
 // Maintenance is incremental: OnCreate adds an entry's outbound dependency
@@ -27,6 +28,7 @@ type DepIndex struct {
 	direct  map[registry.ID]map[registry.ID]struct{}
 	group   map[string]map[registry.ID]struct{}
 	ns      map[string]map[registry.ID]struct{}
+	env     map[string]map[registry.ID]struct{}
 	ownDeps map[registry.ID]entryDepKeys
 }
 
@@ -34,6 +36,7 @@ type entryDepKeys struct {
 	direct []registry.ID
 	groups []string
 	ns     []string
+	env    []string
 }
 
 // NewDepIndex returns an empty index. Use BuildDepIndex to seed it from an
@@ -43,6 +46,7 @@ func NewDepIndex() *DepIndex {
 		direct:  make(map[registry.ID]map[registry.ID]struct{}),
 		group:   make(map[string]map[registry.ID]struct{}),
 		ns:      make(map[string]map[registry.ID]struct{}),
+		env:     make(map[string]map[registry.ID]struct{}),
 		ownDeps: make(map[registry.ID]entryDepKeys),
 	}
 }
@@ -63,10 +67,13 @@ func BuildDepIndex(state registry.State, resolver registry.DependencyResolver) *
 }
 
 // Dependents writes every entry ID that declared dependency on the given
-// entry (directly, by group, or by namespace) into out. The caller is
+// entry (directly, by group, by namespace, or by environment name) into out. The caller is
 // expected to pass a reusable set so repeated calls inside SortChangeSet can
 // dedupe across multiple delete operations.
 func (d *DepIndex) Dependents(entry registry.Entry, out map[registry.ID]struct{}) {
+	for id := range d.env[envVariableName(entry)] {
+		out[id] = struct{}{}
+	}
 	for id := range d.direct[entry.ID] {
 		out[id] = struct{}{}
 	}
@@ -122,6 +129,9 @@ func (d *DepIndex) Patch(changeSet registry.ChangeSet, resolver registry.Depende
 func (d *DepIndex) add(entry registry.Entry, resolver registry.DependencyResolver) {
 	keys := extractDepKeys(entry, resolver)
 	d.ownDeps[entry.ID] = keys
+	for _, name := range keys.env {
+		addIDToStringMap(d.env, name, entry.ID)
+	}
 	for _, id := range keys.direct {
 		addIDToSetMap(d.direct, id, entry.ID)
 	}
@@ -139,6 +149,9 @@ func (d *DepIndex) remove(entryID registry.ID) {
 		return
 	}
 	delete(d.ownDeps, entryID)
+	for _, name := range keys.env {
+		delIDFromStringMap(d.env, name, entryID)
+	}
 	for _, id := range keys.direct {
 		delIDFromSetMap(d.direct, id, entryID)
 	}
@@ -156,6 +169,12 @@ func extractDepKeys(entry registry.Entry, resolver registry.DependencyResolver) 
 		declarations = append(declarations, resolver.Extract(entry)...)
 	}
 	var keys entryDepKeys
+	if entry.Data != nil {
+		resolverExtractEnvReferences(entry.Data.Data(), true, func(name string) {
+			keys.env = append(keys.env, name)
+			declarations = append(declarations, name)
+		})
+	}
 	for _, dep := range declarations {
 		depType, value := parseDependency(dep)
 		switch depType {

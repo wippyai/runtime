@@ -15,7 +15,7 @@ func VisitDependencies(state registry.StateMap, resolver registry.DependencyReso
 	keysBySource := make(map[registry.ID]entryDepKeys)
 	for id, entry := range state {
 		keys := extractDepKeys(entry, resolver)
-		if len(keys.direct)+len(keys.groups)+len(keys.ns) == 0 {
+		if len(keys.direct)+len(keys.groups)+len(keys.ns)+len(keys.env) == 0 {
 			continue
 		}
 		keysBySource[id] = keys
@@ -45,10 +45,11 @@ func (d *DepIndex) VisitDependencies(state registry.StateMap, changes registry.C
 }
 
 func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]entryDepKeys, visit func(source, target registry.ID) error) error {
-	var needGroups, needNamespace bool
+	var needGroups, needNamespace, needEnv bool
 	for _, keys := range keysBySource {
 		needGroups = needGroups || len(keys.groups) != 0
 		needNamespace = needNamespace || len(keys.ns) != 0
+		needEnv = needEnv || len(keys.env) != 0
 	}
 	if len(keysBySource) == 0 {
 		return nil
@@ -56,14 +57,23 @@ func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]e
 
 	var groups map[string][]registry.ID
 	var namespaces map[string][]registry.ID
+	var variables map[string][]registry.ID
+	if needEnv {
+		variables = make(map[string][]registry.ID)
+	}
 	if needGroups {
 		groups = make(map[string][]registry.ID)
 	}
 	if needNamespace {
 		namespaces = make(map[string][]registry.ID)
 	}
-	if needGroups || needNamespace {
+	if needGroups || needNamespace || needEnv {
 		for id, entry := range state {
+			if needEnv {
+				if name := envVariableName(entry); name != "" {
+					variables[name] = append(variables[name], id)
+				}
+			}
 			if needGroups {
 				for _, group := range entry.Meta.GetSlice(registry.TagGroups) {
 					groups[group] = append(groups[group], id)
@@ -96,6 +106,13 @@ func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]e
 			}
 			seen[target] = visitMark
 			return visit(id, target)
+		}
+		for _, name := range keys.env {
+			for _, target := range variables[name] {
+				if err := add(target); err != nil {
+					return err
+				}
+			}
 		}
 		for _, target := range keys.direct {
 			if err := add(target); err != nil {
@@ -134,4 +151,19 @@ func ResolveDependencies(state registry.StateMap, resolver registry.DependencyRe
 		sort.Slice(result[id], func(i, j int) bool { return result[id][i].String() < result[id][j].String() })
 	}
 	return result
+}
+
+// envVariableName is the shortcut registered by the environment service.
+func envVariableName(entry registry.Entry) string {
+	if entry.Kind != "env.variable" {
+		return ""
+	}
+	if entry.Data != nil {
+		if data, ok := entry.Data.Data().(map[string]any); ok {
+			if name, ok := data["variable"].(string); ok && name != "" {
+				return name
+			}
+		}
+	}
+	return entry.ID.String()
 }
