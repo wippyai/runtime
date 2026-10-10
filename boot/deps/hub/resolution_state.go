@@ -120,7 +120,7 @@ func (h *DependencyHandler) refreshResolvedModules(
 			}
 		}
 	}
-	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions, resolution)
+	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions, resolution, current)
 }
 
 // changedDependencyParameterModules returns the modules whose authored root

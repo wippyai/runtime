@@ -365,7 +365,7 @@ modules:
 	// change the graph or mutate the previous version's checkpoint.
 	previousVersion := v1
 	v1, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: root}})
-	require.NoError(t, err)
+	require.NoError(t, err, "%+v", apierror.BuildChain(err))
 	assertSelected(reg, "2.0.0")
 	unchanged, err := history.GetDependencyResolution(previousVersion)
 	require.NoError(t, err)
