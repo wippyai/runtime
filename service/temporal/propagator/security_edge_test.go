@@ -225,7 +225,8 @@ func TestExtractSecurityPayload_ActorOnly(t *testing.T) {
 	err := secapi.SetActor(ctx, actor)
 	require.NoError(t, err)
 
-	payload := ExtractSecurityPayload(ctx)
+	payload, err := ExtractSecurityPayload(ctx)
+	require.NoError(t, err)
 	require.NotNil(t, payload)
 	assert.NotNil(t, payload.Actor)
 	assert.Equal(t, "actor-only", payload.Actor.ID)
@@ -242,7 +243,8 @@ func TestExtractSecurityPayload_ScopeWithEmptyPolicies(t *testing.T) {
 	err := secapi.SetScope(ctx, scope)
 	require.NoError(t, err)
 
-	payload := ExtractSecurityPayload(ctx)
+	payload, err := ExtractSecurityPayload(ctx)
+	require.NoError(t, err)
 	// Has scope but no policies - payload may be non-nil but policies empty
 	if payload != nil {
 		assert.Empty(t, payload.Policies)

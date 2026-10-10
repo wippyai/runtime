@@ -32,7 +32,7 @@ func (d *Definition) handleCancel() {
 }
 
 func (d *Definition) verifyRelaySignal(name string, header *commonpb.Header) error {
-	if propagator.ExtractSecurityPayload(d.execCtx) == nil {
+	if !hasSecurityContext(d.execCtx) {
 		return nil
 	}
 	audience := d.env.WorkflowInfo().WorkflowExecution.ID
