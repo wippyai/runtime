@@ -252,7 +252,7 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 					}
 
 					if event.Kind == topologyapi.OutdatedRejected {
-						if event.From != svc.childPID {
+						if !event.From.Equal(svc.childPID) {
 							continue
 						}
 						if restartRequested.CompareAndSwap(false, true) {
