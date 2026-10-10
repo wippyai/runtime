@@ -185,6 +185,14 @@ entries:
       startup: complete
       restart:
         initial_delay: 50ms
+  - name: dependent_service
+    kind: process.service
+    process: app:boot_proc
+    host: app:workers
+    lifecycle:
+      auto_start: true
+      startup: complete
+      requires: [app:boot_service]
   - name: command
     kind: process.lua
     method: main
@@ -372,6 +380,19 @@ end}`,
 					"restart": map[string]any{
 						"initial_delay": "50ms",
 					},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("app", "dependent_service"),
+			Kind: "process.service",
+			Data: map[string]any{
+				"process": "app:boot_proc",
+				"host":    "app:workers",
+				"lifecycle": map[string]any{
+					"auto_start": true,
+					"startup":    "complete",
+					"requires":   []string{"app:boot_service"},
 				},
 			},
 		},

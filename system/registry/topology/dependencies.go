@@ -12,15 +12,19 @@ import (
 // adjacency list. It is the low-allocation path for validation and auditing;
 // callers that need materialized edges should use ResolveDependencies.
 func VisitDependencies(state registry.StateMap, resolver registry.DependencyResolver, visit func(source, target registry.ID) error) error {
+	return visitDependencyKeys(state, dependencyKeys(state, resolver), nil, visit)
+}
+
+func dependencyKeys(state registry.StateMap, resolver registry.DependencyResolver) map[registry.ID]entryDepKeys {
 	keysBySource := make(map[registry.ID]entryDepKeys)
 	for id, entry := range state {
 		keys := extractDepKeys(entry, resolver)
-		if len(keys.direct)+len(keys.groups)+len(keys.ns) == 0 {
+		if len(keys.direct)+len(keys.groups)+len(keys.ns)+len(keys.env) == 0 {
 			continue
 		}
 		keysBySource[id] = keys
 	}
-	return visitDependencyKeys(state, keysBySource, visit)
+	return keysBySource
 }
 
 // VisitDependencies validates a candidate state using this index's committed
@@ -41,14 +45,20 @@ func (d *DepIndex) VisitDependencies(state registry.StateMap, changes registry.C
 			delete(keys, change.Entry.ID)
 		}
 	}
-	return visitDependencyKeys(state, keys, visit)
+	return visitDependencyKeys(state, keys, nil, visit)
 }
 
-func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]entryDepKeys, visit func(source, target registry.ID) error) error {
-	var needGroups, needNamespace bool
+func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]entryDepKeys, variables map[string][]registry.ID, visit func(source, target registry.ID) error) error {
+	var needGroups, needNamespace, needEnv bool
 	for _, keys := range keysBySource {
 		needGroups = needGroups || len(keys.groups) != 0
 		needNamespace = needNamespace || len(keys.ns) != 0
+		needEnv = needEnv || len(keys.env) != 0
+		for _, name := range keys.env {
+			kind, _ := parseDependency(name)
+			needGroups = needGroups || kind == "group"
+			needNamespace = needNamespace || kind == "namespace"
+		}
 	}
 	if len(keysBySource) == 0 {
 		return nil
@@ -56,14 +66,23 @@ func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]e
 
 	var groups map[string][]registry.ID
 	var namespaces map[string][]registry.ID
+	indexVariables := needEnv && variables == nil
+	if indexVariables {
+		variables = make(map[string][]registry.ID)
+	}
 	if needGroups {
 		groups = make(map[string][]registry.ID)
 	}
 	if needNamespace {
 		namespaces = make(map[string][]registry.ID)
 	}
-	if needGroups || needNamespace {
+	if needGroups || needNamespace || needEnv {
 		for id, entry := range state {
+			if indexVariables {
+				if name := envVariableName(entry); name != "" {
+					variables[name] = append(variables[name], id)
+				}
+			}
 			if needGroups {
 				for _, group := range entry.Meta.GetSlice(registry.TagGroups) {
 					groups[group] = append(groups[group], id)
@@ -96,6 +115,35 @@ func visitDependencyKeys(state registry.StateMap, keysBySource map[registry.ID]e
 			}
 			seen[target] = visitMark
 			return visit(id, target)
+		}
+		for _, name := range keys.env {
+			if targets := variables[name]; len(targets) > 0 {
+				for _, target := range targets {
+					if err := add(target); err != nil {
+						return err
+					}
+				}
+				continue // Named variables win; do not also bind a relative ID.
+			}
+			kind, value := parseDependency(name)
+			switch kind {
+			case "group":
+				for _, target := range groups[value] {
+					if err := add(target); err != nil {
+						return err
+					}
+				}
+			case "namespace":
+				for _, target := range namespaces[value] {
+					if err := add(target); err != nil {
+						return err
+					}
+				}
+			default:
+				if err := add(resolveDependencyID(id.NS, value)); err != nil {
+					return err
+				}
+			}
 		}
 		for _, target := range keys.direct {
 			if err := add(target); err != nil {
