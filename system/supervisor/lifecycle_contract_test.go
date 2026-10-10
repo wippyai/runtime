@@ -65,7 +65,7 @@ func TestY04LateControlAfterStopIsSafe(t *testing.T) {
 
 	service := newBlockingStartService()
 	config := apisupervisor.LifecycleConfig{StartTimeout: time.Second, StopTimeout: time.Second}
-	controller := NewController(ctx, service, config, sup.createStateHandler("blocked"))
+	controller := newController(ctx, service, config, sup.createStateHandler("blocked"))
 	sup.mu.Lock()
 	sup.controllers["blocked"] = controller
 	sup.mu.Unlock()
