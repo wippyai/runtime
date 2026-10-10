@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -93,6 +94,20 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 							// Validate token
 							actor, scope, err := tokenStore.Validate(ctx, security.Token(tokenStr))
 							if err == nil {
+								var frame ctxapi.FrameContext
+								if current := ctxapi.FrameFromContext(ctx); current != nil && current.IsSealed() {
+									// Continue the same request, preserving its execution-owned HTTP values.
+									ctx, frame, err = ctxapi.ContinueFrameContext(ctx)
+									if err != nil {
+										logger.Error("failed to continue request frame", zap.Error(err))
+										http.Error(w, "failed to continue request frame", http.StatusInternalServerError)
+										return
+									}
+								} else {
+									ctx, frame = ctxapi.OpenFrameContext(ctx)
+								}
+								defer ctxapi.ReleaseFrameContext(frame)
+								r = r.WithContext(ctx)
 								// Token is valid - add actor and scope to context
 								if err := security.SetActor(ctx, actor); err != nil {
 									logger.Error("failed to set actor in context",

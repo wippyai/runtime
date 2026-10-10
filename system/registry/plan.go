@@ -51,6 +51,9 @@ func (e *planExpectation) verify(base registry.Version, all, history registry.Ch
 // effects are unprepared and belong to the caller, including their staging.
 // Caller holds applyMu.
 func (r *Reg) expandLocked(ctx context.Context, changes registry.ChangeSet, snapshot registry.State) (*regexp.Planner, *regexp.Plan, error) {
+	if r.stateLoaded && len(r.directivesByKind[registry.NamespaceDependency]) > 0 {
+		ctx = registry.WithDependencyBaseline(ctx, r.baseline, nil)
+	}
 	planner := regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 	plan, err := planner.Expand(ctx, changes, snapshot)
 	if err != nil {

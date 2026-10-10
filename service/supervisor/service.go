@@ -28,6 +28,7 @@ import (
 type Service struct {
 	pidGen            processapi.PIDGenerator
 	statusCh          chan any
+	doneCh            chan struct{}
 	detachFn          context.CancelFunc
 	gate              *bootpkg.Gate
 	completion        *bootpkg.Gate
@@ -128,6 +129,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	restartRequested := &atomic.Bool{}
 	svc.restartRequested = restartRequested
 
@@ -143,6 +145,8 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		Context: []ctxapi.Pair{{Key: processapi.OutdatedSupervisorKey, Value: svc.supervisorPID}},
 	})
 	if err != nil {
+		close(svc.statusCh)
+		close(svc.doneCh)
 		detach()
 		topo.Remove(svc.supervisorPID)
 		completion.Fail(err)
@@ -162,7 +166,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 // Stop terminates the supervised process gracefully.
 func (svc *Service) Stop(ctx context.Context) error {
 	// Not started or already stopped
-	if svc.statusCh == nil {
+	if svc.doneCh == nil {
 		return nil
 	}
 
@@ -171,10 +175,8 @@ func (svc *Service) Stop(ctx context.Context) error {
 	// cancel; sending a cancel package can produce a misleading "process not
 	// found" error even though the service is already stopped.
 	select {
-	case status, open := <-svc.statusCh:
-		if _, restart := status.(supervisor.Restart); !open || !restart {
-			return nil
-		}
+	case <-svc.doneCh:
+		return nil
 	default:
 	}
 
@@ -195,38 +197,54 @@ func (svc *Service) Stop(ctx context.Context) error {
 
 	cancelPkg := topologyapi.CancelPackage(svc.supervisorPID, svc.childPID, "service stopping")
 	if err := node.Send(cancelPkg); err != nil {
+		select {
+		case <-svc.doneCh:
+			return nil
+		default:
+		}
 		return newSendCancelError(err)
 	}
 
-	// Wait for status channel to close (indicating process exit)
-	for {
-		select {
-		case status, open := <-svc.statusCh:
-			if _, restart := status.(supervisor.Restart); !open || !restart {
-				return nil
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	// Wait for completion without consuming the controller's terminal status.
+	select {
+	case <-svc.doneCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
 // monitorLoop listens for topology exit events and reports them via status channel.
 func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, completion *bootpkg.Gate) {
-	statusCh, detach, restartRequested := svc.statusCh, svc.detachFn, svc.restartRequested
+	statusCh, doneCh, detach, restartRequested := svc.statusCh, svc.doneCh, svc.detachFn, svc.restartRequested
+	childPID, ownerPID := svc.childPID, svc.supervisorPID
+	node, topo := relay.GetNode(ctx), topologyapi.GetTopology(ctx)
+	// Completion broadcasts only after the terminal status and detach cleanup.
+	defer close(doneCh)
 	defer close(statusCh)
 	if detach != nil {
 		defer detach()
 	}
+	if topo != nil {
+		defer topo.Remove(ownerPID)
+	}
+	ctxDone := ctx.Done()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctxDone:
+			// Cancel admission is not an exit acknowledgement. Keep observing
+			// the child until its terminal event, even after startup times out.
+			ctxDone = nil
 			completion.Fail(ctx.Err())
 			if svc.gate != nil {
 				svc.gate.Fail(ctx.Err())
 			}
-			return
+			if node != nil {
+				// Best effort only: cancellation admission does not prove exit.
+				// Explicit Stop reports admission errors and waits on doneCh.
+				_ = node.Send(topologyapi.CancelPackage(ownerPID, childPID, "service context canceled"))
+			}
 
 		case pkg, ok := <-ch:
 			if !ok {
@@ -252,7 +270,7 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 					}
 
 					if event.Kind == topologyapi.OutdatedRejected {
-						if !event.From.Equal(svc.childPID) {
+						if !event.From.Equal(childPID) {
 							continue
 						}
 						if restartRequested.CompareAndSwap(false, true) {

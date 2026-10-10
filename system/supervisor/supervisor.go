@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -454,8 +453,9 @@ func (s *Supervisor) run(ctx context.Context) {
 }
 
 // createStateHandler returns a state change handler function for a service
-func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) {
-	return func(status supervisor.Status, details any) {
+func (s *Supervisor) createStateHandler(id string) func(State) {
+	return func(state State) {
+		status, details := state.Status, state.Details
 		if err, ok := details.(error); ok {
 			switch {
 			case errors.Is(err, supervisor.ErrExit):
@@ -489,13 +489,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 			System: supervisor.System,
 			Path:   id,
 			Kind:   supervisor.ServiceUpdate,
-			Data: State{
-				Status:     status,
-				Details:    details,
-				Desired:    status,
-				RetryCount: 0,
-				LastUpdate: time.Now(),
-			},
+			Data:   state,
 		})
 	}
 }
@@ -669,7 +663,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) (err error) {
 	for _, id := range registerIDs {
 		entry := tx.register[id]
 		if _, exists := s.controllers[id]; !exists {
-			ctrl := NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
+			ctrl := newController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
 			s.controllers[id] = ctrl
 			created[id] = ctrl
 		}
