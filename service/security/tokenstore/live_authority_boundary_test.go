@@ -131,24 +131,28 @@ func TestLiveAuthorityRejectsIDOnlyBoundaries(t *testing.T) {
 			require.NoError(t, security.SetActor(taskCtx, actor))
 			require.NoError(t, security.SetScope(taskCtx, tc.scope))
 			taskCtx = propagator.WithSecurityAudience(taskCtx, "test-workflow")
-			claim, err := propagator.ExtractSecurityPayload(taskCtx)
-			require.ErrorIs(t, err, security.ErrPolicyNotReferenceable)
-			require.Nil(t, claim)
+			t.Run("temporal", func(t *testing.T) {
+				claim, err := propagator.ExtractSecurityPayload(taskCtx)
+				require.ErrorIs(t, err, security.ErrPolicyNotReferenceable)
+				require.Nil(t, claim)
 
-			writer := &authorityHeaderWriter{fields: make(map[string]*commonpb.Payload)}
-			err = propagator.New(converter.GetDefaultDataConverter(), []byte("authority-test-key-0123456789abcd")).Inject(
-				propagator.WithValues(taskCtx, map[string]any{"ordinary": "value"}), writer)
-			require.ErrorIs(t, err, security.ErrPolicyNotReferenceable)
-			require.Empty(t, writer.fields, "rejected security must not emit partial headers")
+				writer := &authorityHeaderWriter{fields: make(map[string]*commonpb.Payload)}
+				err = propagator.New(converter.GetDefaultDataConverter(), []byte("authority-test-key-0123456789abcd")).Inject(
+					propagator.WithValues(taskCtx, map[string]any{"ordinary": "value"}), writer)
+				require.ErrorIs(t, err, security.ErrPolicyNotReferenceable)
+				require.Empty(t, writer.fields, "rejected security must not emit partial headers")
+			})
 
-			before, err := kv.List(ctx, storeapi.ListOptions{})
-			require.NoError(t, err)
-			minted, err := store.Create(ctx, actor, tc.scope, security.TokenDetails{})
-			require.ErrorIs(t, err, security.ErrPolicyNotReferenceable)
-			require.Empty(t, minted)
-			after, err := kv.List(ctx, storeapi.ListOptions{})
-			require.NoError(t, err)
-			require.Equal(t, before, after, "rejected mint must not write a token")
+			t.Run("mint", func(t *testing.T) {
+				before, err := kv.List(ctx, storeapi.ListOptions{})
+				require.NoError(t, err)
+				minted, err := store.Create(ctx, actor, tc.scope, security.TokenDetails{})
+				require.ErrorIs(t, err, security.ErrPolicyNotReferenceable)
+				require.Empty(t, minted)
+				after, err := kv.List(ctx, storeapi.ListOptions{})
+				require.NoError(t, err)
+				require.Equal(t, before, after, "rejected mint must not write a token")
+			})
 		})
 	}
 }
