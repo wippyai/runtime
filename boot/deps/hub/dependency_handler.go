@@ -250,7 +250,7 @@ func (h *DependencyHandler) isDeploymentRoot(module string) bool {
 	return h.lock != nil && h.lock.IsRootModule(module)
 }
 func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, snapshot regapi.State) (regapi.DirectiveResult, error) {
-	return h.expand(ctx, op, snapshot, nil, nil, nil)
+	return h.expand(ctx, op, snapshot, nil, nil, nil, regapi.ChangeSet{op})
 }
 func (h *DependencyHandler) expand(
 	ctx context.Context,
@@ -259,6 +259,7 @@ func (h *DependencyHandler) expand(
 	extraControlled map[string]struct{},
 	extraMutable map[string]struct{},
 	freshRoots map[string]struct{},
+	authoredChanges regapi.ChangeSet,
 ) (regapi.DirectiveResult, error) {
 	if h == nil || h.hub == nil {
 		return regapi.DirectiveResult{}, ErrDependencyHandlerNotConfigured
@@ -281,6 +282,11 @@ func (h *DependencyHandler) expand(
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
+	}
+	// Graph-less historical restoration does not prove the new batch policy.
+	// Only fresh authored applies (whose replay context is empty) record it.
+	if len(regapi.DependencyChangesFromContext(ctx)) > 0 {
+		authoredChanges = nil
 	}
 
 	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
@@ -346,9 +352,13 @@ func (h *DependencyHandler) expand(
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 
-	solverDeps := h.solverDependencies(desiredDeps, mutableModules)
+	authoredIDs := make(map[string]struct{}, len(authoredChanges))
+	for _, change := range authoredChanges {
+		authoredIDs[idKey(change.Entry.ID)] = struct{}{}
+	}
+	solverDeps := h.solverDependencies(desiredDeps, mutableModules, authoredIDs)
 	desiredRoots := dependencyDefinitions(solverDeps)
-	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx))
+	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx), snapshot)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -410,7 +420,6 @@ func (h *DependencyHandler) expand(
 		return regapi.DirectiveResult{}, err
 	}
 	defer func() { _ = unpackPlan.cleanup() }()
-	linkDeps := mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touchedModules), moduleEntries)
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
@@ -427,6 +436,25 @@ func (h *DependencyHandler) expand(
 		combined = append(combined, e)
 	}
 	combined = append(combined, moduleEntries...)
+	for _, change := range authoredChanges {
+		combined = applyOperationToState(combined, change)
+	}
+	bindingArtifacts, bindingPlan, err := h.bindingArtifacts(ctx, resolved, moduleEntries, snapshot, authoredChanges, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	defer func() { _ = bindingPlan.cleanup() }()
+	authoredEntries, err := authoredDependencyEntries(ctx, bindingArtifacts, authoredChanges, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	keptBindings := retainedBindings(h.currentResolution(ctx), snapshot, moduleEntries, authoredChanges)
+	boundEntries, err := bindingDependencies(ctx, combined, keptBindings, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	linkDeps := mergeLinkDependencies(authoredEntries,
+		mergeLinkDependencies(boundEntries, mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touchedModules), moduleEntries)))
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
@@ -499,6 +527,10 @@ func (h *DependencyHandler) expand(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	if err := recordBindings(ctx, selectedResolution, keptBindings, authoredEntries, transcoder); err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	selectedResolution = selectedResolution.Canonical()
 	return regapi.DirectiveResult{
 		Applied:    true,
 		Resolution: selectedResolution,
@@ -570,7 +602,7 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 		if !ok {
 			return regapi.DirectiveResult{}, nil
 		}
-		return h.expand(ctx, driver, snapshot, nil, nil, freshRoots)
+		return h.expand(ctx, driver, snapshot, nil, nil, freshRoots, rootChanges)
 	}
 	changes = rootChanges
 	// Preserve ownership from both sides of the batch. Looking only at the
@@ -615,7 +647,7 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	if !ok {
 		return regapi.DirectiveResult{}, nil
 	}
-	return h.expand(ctx, driver, working, extraControlled, extraMutable, freshRoots)
+	return h.expand(ctx, driver, working, extraControlled, extraMutable, freshRoots, changes)
 }
 
 // ReconcileResolution materializes a previously selected graph. An unchanged
@@ -670,7 +702,7 @@ func (h *DependencyHandler) ReconcileResolution(
 			replacingOwners[dep.definition.Component] = struct{}{}
 		}
 	}
-	solverDeps := h.solverDependencies(desiredDeps, replacingOwners)
+	solverDeps := h.solverDependencies(desiredDeps, replacingOwners, nil)
 	if refreshReason != "" {
 		// A new deployment releases old package pins, not authored overrides
 		// made after that package's last selection. Keep those in the solve.
@@ -759,6 +791,11 @@ func (h *DependencyHandler) ReconcileResolution(
 	effectiveResolution.Deployment = h.deployment.Canonical()
 	if refreshReason != "" || (resolution.BaselineDigest != "" && resolution.BaselineDigest != baselineDigest) {
 		effectiveResolution.BaselineDigest = baselineDigest
+	}
+	if refreshReason != "" {
+		if err := recordBindings(ctx, effectiveResolution, resolutionBindingIndex(resolution), nil, transcoder); err != nil {
+			return regapi.DirectiveResult{}, err
+		}
 	}
 	effectiveResolution = effectiveResolution.Canonical()
 	// A local replacement is a mutable development source. Reconciliation uses
@@ -883,10 +920,38 @@ func (h *DependencyHandler) ReconcileResolution(
 	// All restored declarations are now present, including edits newer than
 	// their owner's selection. Let the canonical linker read this final state
 	// rather than stale declarations from the raw artifact.
+	if refreshReason != "" && len(effectiveResolution.Bindings) > 0 {
+		// A deployment change may select new artifact defaults. Recompute only
+		// modern recorded bindings; older ambiguous history keeps its policy.
+		bindings := resolutionBindingIndex(effectiveResolution)
+		var authored regapi.ChangeSet
+		for _, entry := range combined {
+			if _, recorded := bindings[entry.ID.String()]; recorded {
+				authored = append(authored, regapi.Operation{Kind: regapi.EntryUpdate, Entry: entry})
+			}
+		}
+		artifacts, plan, err := h.bindingArtifacts(ctx, resolved, moduleEntries, combined, authored, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		defer func() { _ = plan.cleanup() }()
+		authoredEntries, err := authoredDependencyEntries(ctx, artifacts, authored, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		if err := recordBindings(ctx, effectiveResolution, make(map[string]regapi.DependencyBinding), authoredEntries, transcoder); err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		effectiveResolution = effectiveResolution.Canonical()
+	}
+	boundEntries, err := bindingDependencies(ctx, combined, resolutionBindingIndex(effectiveResolution), transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
-		stages.Link(stages.WithStrictRequirementModules(sortedSetKeys(touched))),
+		stages.Link(stages.WithDependencies(mergeLinkDependencies(boundEntries, combined)), stages.WithStrictRequirementModules(sortedSetKeys(touched))),
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
@@ -945,10 +1010,15 @@ func (h *DependencyHandler) ReconcileResolution(
 			if err != nil {
 				return regapi.DirectiveResult{}, err
 			}
+			bindings := resolutionBindingIndex(effectiveResolution)
 			effectiveResolution, err = h.resolutionForSnapshot(ctx, combined, rootDeps, refDeps, resolved, transcoder)
 			if err != nil {
 				return regapi.DirectiveResult{}, err
 			}
+			if err := recordBindings(ctx, effectiveResolution, bindings, nil, transcoder); err != nil {
+				return regapi.DirectiveResult{}, err
+			}
+			effectiveResolution = effectiveResolution.Canonical()
 		}
 	}
 	return regapi.DirectiveResult{

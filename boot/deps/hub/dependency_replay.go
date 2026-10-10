@@ -40,8 +40,10 @@ func (h *DependencyHandler) replayOwnedDependencyChanges(ctx context.Context, st
 	for _, entry := range state {
 		byID[entry.ID] = entry
 	}
+	bindings := resolutionBindingIndex(resolution)
 	for _, operation := range overrides {
-		if operation.sameTransaction && operation.Entry.Kind == regapi.NamespaceDependency && operation.Kind != regapi.EntryDelete {
+		_, recordedBinding := bindings[operation.Entry.ID.String()]
+		if !recordedBinding && operation.sameTransaction && operation.Entry.Kind == regapi.NamespaceDependency && operation.Kind != regapi.EntryDelete {
 			if current, exists := byID[operation.Entry.ID]; exists && current.Kind == regapi.NamespaceDependency {
 				fromArtifact, err := decodeDependency(ctx, transcoder, current)
 				if err != nil {

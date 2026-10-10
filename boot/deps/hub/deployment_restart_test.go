@@ -245,15 +245,6 @@ func TestDeploymentRootAndOwnedUpdateInOneBatch(t *testing.T) {
 				changes[0], changes[1] = changes[1], changes[0]
 			}
 			head, err := reg.Apply(ctx, changes)
-			if !appLast {
-				// Preserve the existing live rejection of this combination;
-				// changing batch precedence is a separate API decision.
-				require.Error(t, err)
-				current, headErr := history.Head()
-				require.NoError(t, headErr)
-				require.Equal(t, root.ID(), current.ID())
-				return
-			}
 			require.NoError(t, err)
 			selected := reg.Snapshot().Registry.Resolution
 			ctx, reg, calls := fixture.registry(t, history, true)
@@ -264,7 +255,7 @@ func TestDeploymentRootAndOwnedUpdateInOneBatch(t *testing.T) {
 	}
 }
 
-func TestDeploymentMixedBatchPreservesColdParameterPrecedence(t *testing.T) {
+func TestDeploymentMixedBatchPreservesRecordedBindings(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
 			fixture := newDeploymentRestartFixture(t)
@@ -290,14 +281,14 @@ func TestDeploymentMixedBatchPreservesColdParameterPrecedence(t *testing.T) {
 			require.NoError(t, err)
 			before, err := reg.GetEntry(regapi.NewID("acme.worker", "state"))
 			require.NoError(t, err)
-			require.Equal(t, []any{"scope:default"}, before.Data.Data().(map[string]any)["groups"])
+			require.Equal(t, []any{"scope:overridden"}, before.Data.Data().(map[string]any)["groups"])
 			ctx, reg, calls := fixture.registry(t, history, true)
 			require.NoError(t, reg.LoadState(ctx, fixture.baseline, head))
 			require.Zero(t, *calls)
 			after, err := reg.GetEntry(before.ID)
 			require.NoError(t, err)
 			require.Equal(t, before.Data.Data(), after.Data.Data(),
-				"sorted journal order must not resurrect a same-batch parameter overwritten by the owner update")
+				"sorted journal order must retain the effective binding recorded by the live batch")
 		})
 	}
 }

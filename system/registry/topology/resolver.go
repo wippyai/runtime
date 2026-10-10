@@ -74,18 +74,28 @@ func (r *Resolver) Extract(entry registry.Entry) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.fetchDeps(entry)
+	dependencies, _ := r.fetchDeps(entry, false)
+	return dependencies
+}
+
+// extractForTopology preserves reference provenance. Environment lookups have
+// name-before-ID semantics; explicit registry references must remain ID edges
+// even when their spelling also names an environment variable.
+func (r *Resolver) extractForTopology(entry registry.Entry) ([]string, []string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.fetchDeps(entry, true)
 }
 
 // fetchDeps extracts dependencies using the registered patterns.
 // This function combines meta and data, then processes all patterns.
-func (r *Resolver) fetchDeps(entry registry.Entry) []string {
+func (r *Resolver) fetchDeps(entry registry.Entry, classifyEnvironment bool) ([]string, []string) {
 	var payloadData any
 	if entry.Data != nil {
 		payloadData = entry.Data.Data()
 	}
 	if len(entry.Meta) == 0 && payloadData == nil {
-		return nil
+		return nil, nil
 	}
 
 	combined := make(map[string]any, 2)
@@ -116,43 +126,70 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 		seen[dep] = struct{}{}
 		result = append(result, dep)
 	}
+	var environment []string
+	var envSeen map[string]struct{}
+	addEnvironment := add
+	if classifyEnvironment {
+		addEnvironment = func(name string) {
+			if name == "" {
+				return
+			}
+			if _, duplicate := envSeen[name]; duplicate {
+				return
+			}
+			if envSeen == nil {
+				envSeen = make(map[string]struct{})
+			}
+			envSeen[name] = struct{}{}
+			environment = append(environment, name)
+		}
+	}
 
 	for _, pathCfg := range r.patterns {
 		for _, dep := range resolverExtractFromPath(combined, pathCfg) {
-			add(dep)
+			if classifyEnvironment && (strings.HasSuffix(pathCfg.Path, "_env") || pathCfg.Path == "data.env") {
+				addEnvironment(dep)
+			} else {
+				add(dep)
+			}
 		}
 	}
 
 	// Placeholder references (${env:...} / ${NAME|...}) may appear in any data
 	// string value, not only registered pattern paths. Only entry data is
 	// resolved at decode time, so meta is excluded to avoid edges for
-	// placeholder-shaped text that is never resolved. Emitted as-is: ID-form
-	// refs create edges, bare names dangle and drop downstream.
+	// placeholder-shaped text that is never resolved. Public extraction emits
+	// names as-is; internal topology keeps them distinct from explicit ID edges.
 	if data, ok := combined["data"]; ok {
-		resolverExtractPlaceholders(data, add)
+		resolverExtractEnvReferences(data, classifyEnvironment, addEnvironment)
 	}
 
 	sort.Strings(result)
+	sort.Strings(environment)
 
-	return result
+	return result, environment
 }
 
-// resolverExtractPlaceholders walks every string value in the entry data and
-// emits the variable names referenced by placeholders. Strings without a
-// placeholder marker cost near nothing (the parser has a fast path).
-func resolverExtractPlaceholders(value any, add func(string)) {
+// resolverExtractEnvReferences walks entry data for placeholder and companion
+// field references, including nested configuration.
+func resolverExtractEnvReferences(value any, companions bool, add func(string)) {
 	switch v := value.(type) {
 	case string:
 		for _, name := range placeholder.ExtractNames(v) {
 			add(name)
 		}
 	case map[string]any:
-		for _, item := range v {
-			resolverExtractPlaceholders(item, add)
+		for key, item := range v {
+			if companions && strings.HasSuffix(key, "_env") {
+				if name, ok := item.(string); ok && name != "" {
+					add(name)
+				}
+			}
+			resolverExtractEnvReferences(item, companions, add)
 		}
 	case []any:
 		for _, item := range v {
-			resolverExtractPlaceholders(item, add)
+			resolverExtractEnvReferences(item, companions, add)
 		}
 	case []string:
 		for _, item := range v {
