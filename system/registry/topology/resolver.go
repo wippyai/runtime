@@ -127,9 +127,9 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 	// string value, not only registered pattern paths. Only entry data is
 	// resolved at decode time, so meta is excluded to avoid edges for
 	// placeholder-shaped text that is never resolved. Emitted as-is: ID-form
-	// refs create edges, bare names dangle and drop downstream.
+	// refs create direct edges; topology also resolves declared variable names.
 	if data, ok := combined["data"]; ok {
-		resolverExtractPlaceholders(data, add)
+		resolverExtractEnvReferences(data, false, add)
 	}
 
 	sort.Strings(result)
@@ -137,22 +137,26 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 	return result
 }
 
-// resolverExtractPlaceholders walks every string value in the entry data and
-// emits the variable names referenced by placeholders. Strings without a
-// placeholder marker cost near nothing (the parser has a fast path).
-func resolverExtractPlaceholders(value any, add func(string)) {
+// resolverExtractEnvReferences walks entry data for placeholder and companion
+// field references, including nested configuration.
+func resolverExtractEnvReferences(value any, companions bool, add func(string)) {
 	switch v := value.(type) {
 	case string:
 		for _, name := range placeholder.ExtractNames(v) {
 			add(name)
 		}
 	case map[string]any:
-		for _, item := range v {
-			resolverExtractPlaceholders(item, add)
+		for key, item := range v {
+			if companions && strings.HasSuffix(key, "_env") {
+				if name, ok := item.(string); ok && name != "" {
+					add(name)
+				}
+			}
+			resolverExtractEnvReferences(item, companions, add)
 		}
 	case []any:
 		for _, item := range v {
-			resolverExtractPlaceholders(item, add)
+			resolverExtractEnvReferences(item, companions, add)
 		}
 	case []string:
 		for _, item := range v {
