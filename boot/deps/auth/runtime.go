@@ -21,6 +21,11 @@ func ClearRuntimeToken(registry string) {
 	runtimeMu.Unlock()
 }
 
+// RuntimeToken returns the token set for this process only.
+func RuntimeToken(registry string) string {
+	return runtimeToken(registry)
+}
+
 func runtimeToken(registry string) string {
 	runtimeMu.RLock()
 	defer runtimeMu.RUnlock()

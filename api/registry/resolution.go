@@ -18,6 +18,9 @@ import (
 // checkpoint the result, but must not treat any other storage error as legacy.
 var ErrDependencyResolutionNotFound = errors.New("dependency resolution not found")
 
+// ErrBaselineNotFound means the history has no stored deployment baseline.
+var ErrBaselineNotFound = errors.New("history baseline not found")
+
 // ErrInvalidDependencyResolution means a caller supplied a graph that cannot
 // be made into a durable snapshot without losing dependency semantics.
 var ErrInvalidDependencyResolution = errors.New("invalid dependency resolution")
