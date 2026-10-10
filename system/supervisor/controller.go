@@ -47,7 +47,7 @@ type Controller struct {
 	service          supervisor.Service
 	root             context.Context
 	ctx              context.Context
-	securityErr      error
+	setupErr         error
 	stateChanged     chan struct{}
 	onStateChange    func(State)
 	cancel           context.CancelFunc
@@ -92,15 +92,16 @@ func newController(
 		root:          ctx,
 		ops:           make(chan ctrlOp, 10),
 	}
+	ctrl.setupErr = config.RetryPolicy.Validate()
 
 	// Create isolated FrameContext for this service lifecycle.
 	ctx, fc := ctxapi.ForkFrameContext(ctx)
 
-	if config.Security != nil {
+	if config.Security != nil && ctrl.setupErr == nil {
 		var securityErr error
 		ctx, securityErr = securitysys.WithSecurityConfigE(ctx, config.Security)
 		if securityErr != nil {
-			ctrl.securityErr = fmt.Errorf("resolve service security: %w", securityErr)
+			ctrl.setupErr = fmt.Errorf("resolve service security: %w", securityErr)
 		}
 	}
 
@@ -138,9 +139,9 @@ func (c *Controller) startContext(ctx context.Context) error {
 	}
 	c.state.setDesiredStatus(supervisor.StatusRunning)
 	c.startMu.Unlock()
-	if c.securityErr != nil {
-		c.updateState(supervisor.StatusExited, c.securityErr)
-		return c.securityErr
+	if c.setupErr != nil {
+		c.updateState(supervisor.StatusExited, c.setupErr)
+		return c.setupErr
 	}
 	if c.config.Startup == supervisor.StartupComplete {
 		waitCtx, cancel := context.WithCancel(ctx)
@@ -175,7 +176,7 @@ func (c *Controller) startContext(ctx context.Context) error {
 
 // Stop gracefully stops the service and transitions it to the stopped state.
 func (c *Controller) Stop() error {
-	if c.securityErr != nil {
+	if c.setupErr != nil {
 		c.state.setDesiredStatus(supervisor.StatusStopped)
 		c.cancel()
 		return nil
@@ -188,7 +189,7 @@ func (c *Controller) StopContext(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if c.securityErr != nil {
+	if c.setupErr != nil {
 		c.state.setDesiredStatus(supervisor.StatusStopped)
 		c.cancel()
 		return nil
@@ -287,6 +288,8 @@ func (c *Controller) supervise() {
 	var ctx context.Context
 	var cancel context.CancelFunc
 	var retryCancel context.CancelFunc
+	retryBackoff := backoff.NewCalculator(c.config.RetryPolicy)
+	restarts := restartWindow{policy: c.config.RetryPolicy.Intensity}
 	cancelRetry := func() {
 		if retryCancel != nil {
 			retryCancel()
@@ -298,7 +301,13 @@ func (c *Controller) supervise() {
 		cancelRetry()
 		var retryCtx context.Context
 		retryCtx, retryCancel = context.WithCancel(c.ctx)
-		go c.tryRetry(retryCtx, attempt)
+		delay := retryBackoff.NextInterval()
+		if attempt == 0 {
+			// A planned code restart waits the initial interval but does not
+			// consume the failure backoff sequence.
+			retryBackoff.Reset()
+		}
+		go c.tryRetry(retryCtx, attempt, delay)
 	}
 
 	respondStart := func(err error) {
@@ -372,6 +381,7 @@ func (c *Controller) supervise() {
 				respondAndCancel(context.Canceled)
 				if op.kind == ctrlRestart && c.state.getDesiredStatus() == supervisor.StatusRunning {
 					c.state.resetRetryCount()
+					retryBackoff.Reset()
 					c.runStart = time.Time{}
 					scheduleRetry(0)
 				}
@@ -382,6 +392,7 @@ func (c *Controller) supervise() {
 				if c.state.getDesiredStatus() == supervisor.StatusRunning {
 					if !c.runStart.IsZero() && time.Since(c.runStart) >= c.config.StableThreshold {
 						c.state.resetRetryCount()
+						retryBackoff.Reset()
 						attempt = 1
 					}
 					c.runStart = time.Time{}
@@ -408,6 +419,15 @@ func (c *Controller) supervise() {
 					break
 				}
 				if c.state.getCurrentStatus() == supervisor.StatusRunning {
+					break
+				}
+				if op.retry == nil {
+					retryBackoff.Reset()
+				}
+				if op.retry != nil && op.attempt > 0 && !restarts.admit(time.Now()) {
+					err = NewRestartIntensityError(*c.config.RetryPolicy.Intensity)
+					c.updateState(supervisor.StatusExited, err)
+					respondAndCancel(err)
 					break
 				}
 				ctx, cancel = context.WithCancel(c.ctx)
@@ -636,15 +656,13 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	}
 }
 
-func (c *Controller) tryRetry(ctx context.Context, attempt int32) {
+func (c *Controller) tryRetry(ctx context.Context, attempt int32, delay time.Duration) {
 	if int(attempt) >= c.config.RetryPolicy.MaxAttempts && c.config.RetryPolicy.MaxAttempts != 0 {
 		return
 	}
 	if c.state.getDesiredStatus() != supervisor.StatusRunning {
 		return
 	}
-	bf := backoff.NewCalculator(c.config.RetryPolicy)
-	delay := bf.NextInterval()
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {

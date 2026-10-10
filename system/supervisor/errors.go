@@ -8,7 +8,16 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/supervisor"
 )
+
+func NewRestartIntensityError(limit supervisor.RestartIntensity) apierror.Error {
+	return apierror.New(apierror.Unavailable, "restart intensity exceeded").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"max_restarts": limit.MaxRestarts, "window": limit.Window.String(),
+		}))
+}
 
 var (
 	ErrStartTimeout                 = apierror.New(apierror.Timeout, "service start timed out").WithRetryable(apierror.True)
