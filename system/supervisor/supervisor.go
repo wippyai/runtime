@@ -357,12 +357,27 @@ func (s *Supervisor) run(ctx context.Context) {
 	defer s.logger.Info("supervisor control loop stopped")
 	defer s.wg.Done()
 
+	// Lifecycle commands belong to the supervisor, not the transaction's
+	// change set: even discard or a failed commit must release them. Store IDs
+	// so replay resolves replacements/removals against the resulting registry.
+	var deferred []action
 	for {
 		var next action
-		select {
-		case <-s.done:
-			return
-		case next = <-s.actions:
+		replaying := !s.tx.open && len(deferred) > 0
+		if replaying {
+			// Drain before receiving newer actions, including another TxBegin.
+			next = deferred[0]
+			deferred[0] = action{}
+			deferred = deferred[1:]
+			if len(deferred) == 0 {
+				deferred = nil
+			}
+		} else {
+			select {
+			case <-s.done:
+				return
+			case next = <-s.actions:
+			}
 		}
 		select {
 		case <-s.done:
@@ -411,7 +426,7 @@ func (s *Supervisor) run(ctx context.Context) {
 
 		case actStart:
 			if s.tx.open {
-				s.logger.Warn("transaction already open")
+				deferred = append(deferred, next)
 				continue
 			}
 
@@ -427,11 +442,13 @@ func (s *Supervisor) run(ctx context.Context) {
 				if err := s.executeOperations(ctx, ops); err != nil {
 					s.logger.Error("failed to execute start operations", zap.Error(err))
 				}
+			} else if replaying {
+				l.Error("failed to build start operations", zap.Error(NewServiceNotFoundError(next.serviceID)))
 			}
 
 		case actStop:
 			if s.tx.open {
-				s.logger.Warn("transaction already open")
+				deferred = append(deferred, next)
 				continue
 			}
 
@@ -447,6 +464,8 @@ func (s *Supervisor) run(ctx context.Context) {
 				if err := s.executeOperations(ctx, ops); err != nil {
 					s.logger.Error("failed to execute stop operations", zap.Error(err))
 				}
+			} else if replaying {
+				l.Error("failed to build stop operations", zap.Error(NewServiceNotFoundError(next.serviceID)))
 			}
 		}
 	}
