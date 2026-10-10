@@ -49,7 +49,7 @@ type Controller struct {
 	ctx              context.Context
 	securityErr      error
 	stateChanged     chan struct{}
-	onStateChange    func(supervisor.Status, any)
+	onStateChange    func(State)
 	cancel           context.CancelFunc
 	ops              chan ctrlOp
 	startCancel      context.CancelFunc
@@ -67,6 +67,21 @@ func NewController(
 	service supervisor.Service,
 	config supervisor.LifecycleConfig,
 	onStateChange func(status supervisor.Status, details any),
+) *Controller {
+	var handler func(State)
+	if onStateChange != nil {
+		handler = func(state State) { onStateChange(state.Status, state.Details) }
+	}
+	return newController(ctx, service, config, handler)
+}
+
+// newController gives the supervisor complete state snapshots while preserving
+// NewController's status/details callback for existing callers.
+func newController(
+	ctx context.Context,
+	service supervisor.Service,
+	config supervisor.LifecycleConfig,
+	onStateChange func(State),
 ) *Controller {
 	ctrl := &Controller{
 		service:       service,
@@ -363,7 +378,7 @@ func (c *Controller) supervise() {
 
 			case ctrlFailed:
 				attempt := c.state.incRetryCount()
-				c.updateState(supervisor.StatusFailed, c.state.details)
+				c.updateState(supervisor.StatusFailed, c.State().Details)
 				if c.state.getDesiredStatus() == supervisor.StatusRunning {
 					if !c.runStart.IsZero() && time.Since(c.runStart) >= c.config.StableThreshold {
 						c.state.resetRetryCount()
@@ -492,9 +507,9 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 				}
 				return
 			}
-			status, updatedDetails := c.state.updateDetails(details)
+			state := c.state.updateDetailsState(details)
 			if c.onStateChange != nil {
-				c.onStateChange(status, updatedDetails)
+				c.onStateChange(state)
 			}
 		}
 	}
@@ -659,9 +674,9 @@ func (c *Controller) Service() supervisor.Service {
 }
 
 func (c *Controller) updateState(status supervisor.Status, details any) {
-	c.state.updateState(status, details)
+	state := c.state.updateState(status, details)
 	if c.onStateChange != nil {
-		c.onStateChange(status, details)
+		c.onStateChange(state)
 	}
 	select {
 	case c.stateChanged <- struct{}{}:
