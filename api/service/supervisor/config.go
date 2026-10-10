@@ -40,6 +40,9 @@ func (c *ServiceConfig) Validate() error {
 	if err := c.Lifecycle.ValidateStartupMode(); err != nil {
 		return err
 	}
+	if err := c.Lifecycle.RetryPolicy.Validate(); err != nil {
+		return err
+	}
 	if c.Lifecycle.Startup == supervisor.StartupComplete && !c.Lifecycle.AutoStart {
 		return ErrStartupCompleteRequiresAutoStart
 	}

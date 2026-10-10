@@ -31,6 +31,9 @@ type (
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.
 	RetryPolicy struct {
+		// Intensity optionally bounds failure-driven restarts in a rolling window.
+		// Nil preserves the existing retry policy without a window limit.
+		Intensity *RestartIntensity `json:"intensity,omitempty" yaml:"intensity,omitempty"`
 		// InitialDelay specifies the initial delay before the first retry attempt.
 		InitialDelay time.Duration `json:"initial_delay,omitzero" yaml:"initial_delay" default:"1s"`
 		// MaxDelay specifies the maximum delay between retry attempts.
@@ -218,11 +221,12 @@ func (cfg LifecycleConfig) MarshalJSON() ([]byte, error) {
 
 // retryPolicyJSON is used for JSON marshaling/unmarshaling with string durations
 type retryPolicyJSON struct {
-	InitialDelay  string  `json:"initial_delay,omitempty"`
-	MaxDelay      string  `json:"max_delay,omitempty"`
-	BackoffFactor float64 `json:"backoff_factor"`
-	Jitter        float64 `json:"jitter"`
-	MaxAttempts   int     `json:"max_attempts"`
+	Intensity     *RestartIntensity `json:"intensity,omitempty"`
+	InitialDelay  string            `json:"initial_delay,omitempty"`
+	MaxDelay      string            `json:"max_delay,omitempty"`
+	BackoffFactor float64           `json:"backoff_factor"`
+	Jitter        float64           `json:"jitter"`
+	MaxAttempts   int               `json:"max_attempts"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler to handle duration strings
@@ -235,6 +239,7 @@ func (rp *RetryPolicy) UnmarshalJSON(data []byte) error {
 	rp.BackoffFactor = raw.BackoffFactor
 	rp.Jitter = raw.Jitter
 	rp.MaxAttempts = raw.MaxAttempts
+	rp.Intensity = raw.Intensity
 
 	if raw.InitialDelay != "" {
 		d, err := time.ParseDuration(raw.InitialDelay)
@@ -251,15 +256,19 @@ func (rp *RetryPolicy) UnmarshalJSON(data []byte) error {
 		rp.MaxDelay = d
 	}
 
-	return nil
+	return rp.Validate()
 }
 
 // MarshalJSON implements json.Marshaler to output durations as strings
 func (rp RetryPolicy) MarshalJSON() ([]byte, error) {
+	if err := rp.Validate(); err != nil {
+		return nil, err
+	}
 	raw := retryPolicyJSON{
 		BackoffFactor: rp.BackoffFactor,
 		Jitter:        rp.Jitter,
 		MaxAttempts:   rp.MaxAttempts,
+		Intensity:     rp.Intensity,
 	}
 	if rp.InitialDelay != 0 {
 		raw.InitialDelay = rp.InitialDelay.String()
