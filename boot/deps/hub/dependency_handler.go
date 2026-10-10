@@ -431,7 +431,10 @@ func (h *DependencyHandler) expand(
 		combined = append(combined, e)
 	}
 	combined = append(combined, moduleEntries...)
-	combined, authoredEntries, err := applyAuthoredDependencyChanges(ctx, combined, authoredChanges, transcoder)
+	for _, change := range authoredChanges {
+		combined = applyOperationToState(combined, change)
+	}
+	authoredEntries, err := authoredDependencyEntries(ctx, moduleEntries, authoredChanges, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}

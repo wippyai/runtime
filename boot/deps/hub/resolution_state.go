@@ -46,21 +46,20 @@ func applyOperationToState(snapshot regapi.State, op regapi.Operation) regapi.St
 
 // Authored dependency operations override package declarations, retaining
 // additional bindings from the selected artifact for linking the same component.
-func applyAuthoredDependencyChanges(ctx context.Context, state regapi.State, changes regapi.ChangeSet, transcoder payload.Transcoder) (regapi.State, []regapi.Entry, error) {
-	byID := entriesByID(state)
+func authoredDependencyEntries(ctx context.Context, moduleEntries regapi.State, changes regapi.ChangeSet, transcoder payload.Transcoder) ([]regapi.Entry, error) {
+	byID := entriesByID(moduleEntries)
 	authored := make([]regapi.Entry, 0, len(changes))
 	for _, change := range changes {
-		state = applyOperationToState(state, change)
 		switch change.Kind {
 		case regapi.EntryCreate, regapi.EntryUpdate:
 			if selected, ok := byID[idKey(change.Entry.ID)]; ok && selected.Kind == regapi.NamespaceDependency && change.Entry.Kind == regapi.NamespaceDependency {
 				packageDep, err := decodeDependency(ctx, transcoder, selected)
 				if err != nil {
-					return nil, nil, err
+					return nil, err
 				}
 				explicitDep, err := decodeDependency(ctx, transcoder, change.Entry)
 				if err != nil {
-					return nil, nil, err
+					return nil, err
 				}
 				if packageDep.Component == explicitDep.Component {
 					params := append([]Parameter(nil), explicitDep.Parameters...)
@@ -79,13 +78,10 @@ func applyAuthoredDependencyChanges(ctx context.Context, state regapi.State, cha
 					}
 				}
 			}
-			authored = append(authored, change.Entry)
-			byID[idKey(change.Entry.ID)] = change.Entry
-		case regapi.EntryDelete:
-			delete(byID, idKey(change.Entry.ID))
 		}
+		authored = applyOperationToState(authored, change)
 	}
-	return state, authored, nil
+	return authored, nil
 }
 func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Operation, bool) {
 	if entry, ok := resolveOperationEntry(op, snapshot); ok && isRootDependency(entry) {
