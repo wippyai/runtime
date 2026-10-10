@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
@@ -103,8 +102,8 @@ func (g *Gate) Wait(ctx context.Context) error {
 // Services may call Add/Done directly or use Track() for scoped lifecycle.
 type Readiness struct {
 	err     error
-	wg      sync.WaitGroup
-	pending atomic.Int64
+	changed chan struct{}
+	pending int64
 	mu      sync.Mutex
 }
 
@@ -118,8 +117,25 @@ func (r *Readiness) Add(delta int) {
 	if r == nil || delta <= 0 {
 		return
 	}
-	r.pending.Add(int64(delta))
-	r.wg.Add(delta)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pending += int64(delta)
+}
+
+func (r *Readiness) signalLocked() {
+	if r.changed != nil {
+		close(r.changed)
+		r.changed = nil
+	}
+}
+
+func (r *Readiness) doneLocked() {
+	if r.pending > 0 {
+		r.pending--
+		if r.pending == 0 {
+			r.signalLocked()
+		}
+	}
 }
 
 // Done marks a readiness task as completed.
@@ -127,34 +143,23 @@ func (r *Readiness) Done() {
 	if r == nil {
 		return
 	}
-
-	for {
-		current := r.pending.Load()
-		if current <= 0 {
-			return
-		}
-		if r.pending.CompareAndSwap(current, current-1) {
-			r.wg.Done()
-			return
-		}
-	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.doneLocked()
 }
 
-// Fail records a failure error and marks one readiness task as completed.
+// Fail records a failure, completes one task and wakes readiness waiters.
 func (r *Readiness) Fail(err error) {
 	if r == nil {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err != nil {
-		r.mu.Lock()
-		if r.err == nil {
-			r.err = err
-		} else {
-			r.err = errors.Join(r.err, err)
-		}
-		r.mu.Unlock()
+		r.err = errors.Join(r.err, err)
+		r.signalLocked()
 	}
-	r.Done()
+	r.doneLocked()
 }
 
 // RegisterGate registers a boot gate for the given service ID and returns a Gate handle.
@@ -182,34 +187,33 @@ func (r *Readiness) Pending() int64 {
 	if r == nil {
 		return 0
 	}
-	return r.pending.Load()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pending
 }
 
-// Wait blocks until all readiness tasks are completed or context is canceled.
-// Returns any failure error recorded during readiness.
+// Wait blocks until readiness completes, a gate fails, or context is canceled.
 func (r *Readiness) Wait(ctx context.Context) error {
 	if r == nil {
 		return nil
 	}
-	if r.Pending() == 0 {
+	for {
 		r.mu.Lock()
-		defer r.mu.Unlock()
-		return r.err
-	}
-
-	done := make(chan struct{})
-	go func() {
-		r.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		return r.err
-	case <-ctx.Done():
-		return ctx.Err()
+		if r.err != nil || r.pending == 0 {
+			err := r.err
+			r.mu.Unlock()
+			return err
+		}
+		if r.changed == nil {
+			r.changed = make(chan struct{})
+		}
+		changed := r.changed
+		r.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
