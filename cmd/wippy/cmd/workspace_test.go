@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"go.uber.org/zap"
@@ -66,4 +67,79 @@ replacements:
 	require.Len(t, observed.All(), 1)
 	require.Contains(t, observed.All()[0].Message, "DEPRECATED")
 	require.Contains(t, observed.All()[0].Message, "workspace.replacements")
+}
+
+func TestCanonicalWorkspaceControlsComposeThroughFilesProfilesAndSet(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.yaml")
+	overlay := filepath.Join(dir, "overlay.yaml")
+	require.NoError(t, os.WriteFile(base, []byte(`version: "1.0"
+options:
+  unpack_modules: false
+workspace:
+  unpack_modules: false
+  include_host_dependencies: false
+  replacements:
+    acme/app: ./app
+profiles:
+  isolated:
+    workspace:
+      unpack_modules: false
+      include_host_dependencies: false
+  reset:
+    workspace:
+      unpack_modules: null
+      include_host_dependencies: null
+`), 0o600))
+	require.NoError(t, os.WriteFile(overlay, []byte(`version: "1.0"
+workspace:
+  unpack_modules: true
+  include_host_dependencies: true
+  replacements:
+    acme/app: ./overlay-app
+`), 0o600))
+	setTestConfigFiles(t, base, overlay)
+	resetRuntimeFlagGlobals(t)
+	path := filepath.Join(dir, defaultLockFile)
+	locked, err := lock.New(path)
+	require.NoError(t, err)
+	locked.SetOptions(lock.Options{UnpackModules: true})
+	require.NoError(t, locked.Write())
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name       string
+		profiles   []string
+		sets       []string
+		wantUnpack bool
+		wantHost   bool
+	}{
+		{name: "later-file", wantUnpack: true, wantHost: true},
+		{name: "profile", profiles: []string{"isolated"}},
+		{name: "set", profiles: []string{"isolated"}, sets: []string{"workspace.unpack_modules=true", "workspace.include_host_dependencies=true"}, wantUnpack: true, wantHost: true},
+		{name: "canonical-beats-old-key", sets: []string{"options.unpack_modules=false"}, wantUnpack: true, wantHost: true},
+		{name: "reset-to-lock", profiles: []string{"isolated", "reset"}, wantUnpack: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := runtimeConfigCommand(t, tc.profiles, tc.sets)
+			early, err := loadWorkspaceConfig(cmd, zap.NewNop())
+			require.NoError(t, err)
+			full, err := loadRuntimeConfigWithPinnedWorkspace(cmd, zap.NewNop(), nil, early)
+			require.NoError(t, err)
+			for _, cfg := range []boot.Config{early, full} {
+				configured, err := newConfiguredLock(path, cfg, zap.NewNop())
+				require.NoError(t, err)
+				require.Equal(t, tc.wantUnpack, configured.ShouldUnpackModules())
+				enabled, err := includeHostDependencies(cfg)
+				require.NoError(t, err)
+				require.Equal(t, tc.wantHost, enabled)
+				replacement, ok := configured.GetReplacement("acme/app")
+				require.True(t, ok)
+				require.Equal(t, filepath.Join(dir, "overlay-app"), replacement.To)
+			}
+		})
+	}
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "runtime composition must not persist workspace controls")
 }
