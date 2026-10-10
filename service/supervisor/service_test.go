@@ -5,6 +5,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,9 +32,12 @@ type mockNode struct {
 	attachCh   chan *relay.Package
 	detachFunc context.CancelFunc
 	sent       []*relay.Package
+	mu         sync.Mutex
 }
 
 func (m *mockNode) Send(pkg *relay.Package) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sent = append(m.sent, pkg)
 	return m.sendErr
 }
@@ -60,9 +64,12 @@ type mockTopology struct {
 	registerErr error
 	registered  []pid.PID
 	removed     []pid.PID
+	mu          sync.Mutex
 }
 
 func (m *mockTopology) Register(p pid.PID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.registerErr != nil {
 		return m.registerErr
 	}
@@ -71,6 +78,8 @@ func (m *mockTopology) Register(p pid.PID) error {
 }
 
 func (m *mockTopology) Remove(p pid.PID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.removed = append(m.removed, p)
 }
 func (m *mockTopology) HandleNodeExit(pid.NodeID, error) {}
@@ -138,6 +147,7 @@ func TestService_OutdatedCompletionWaitsForReplacement(t *testing.T) {
 	defer cancel()
 	status, err := svc.Start(ctx)
 	require.NoError(t, err)
+	firstDone := svc.doneCh
 	completed := make(chan error, 1)
 	initialCompletion := svc.completion
 	go func() { completed <- initialCompletion.Wait(ctx) }()
@@ -154,6 +164,11 @@ func TestService_OutdatedCompletionWaitsForReplacement(t *testing.T) {
 		t.Fatalf("outdated code completes the startup barrier: %v", err)
 	default:
 	}
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first incarnation did not finish cleanup")
+	}
 	manager.startedPID = pid.PID{UniqID: "second"}
 	_, err = svc.Start(ctx)
 	require.NoError(t, err)
@@ -165,6 +180,7 @@ func TestService_OutdatedCompletionWaitsForReplacement(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("replacement completion does not release the startup barrier")
 	}
+	<-svc.doneCh
 }
 
 func TestNewService(t *testing.T) {
@@ -198,6 +214,8 @@ func TestService_Start_Success(t *testing.T) {
 	assert.NotNil(t, statusCh)
 	assert.Equal(t, "child-123", svc.childPID.UniqID)
 	assert.Len(t, topo.registered, 1)
+	close(node.attachCh)
+	<-svc.doneCh
 }
 
 func TestService_Start_NoRelayNode(t *testing.T) {
@@ -283,6 +301,7 @@ func TestService_Stop_NotStarted(t *testing.T) {
 func TestService_Stop_NoRelayNode(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	ctx := setupTestContext(nil, nil, nil)
 
 	err := svc.Stop(ctx)
@@ -293,6 +312,7 @@ func TestService_Stop_NoRelayNode(t *testing.T) {
 func TestService_Stop_SendCancelError(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	node := &mockNode{sendErr: errors.New("send failed")}
 	ctx := setupTestContext(node, nil, nil)
@@ -306,8 +326,10 @@ func TestService_Stop_SendCancelError(t *testing.T) {
 func TestService_Stop_AlreadyExitedDoesNotSendCancel(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.statusCh <- errors.New("process failed")
 	close(svc.statusCh)
+	close(svc.doneCh)
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	node := &mockNode{sendErr: errors.New("process not found")}
 	ctx := setupTestContext(node, nil, nil)
@@ -321,7 +343,9 @@ func TestService_Stop_AlreadyExitedDoesNotSendCancel(t *testing.T) {
 func TestService_Stop_AlreadyClosedDoesNotSendCancel(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any)
+	svc.doneCh = make(chan struct{})
 	close(svc.statusCh)
+	close(svc.doneCh)
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	node := &mockNode{sendErr: errors.New("process not found")}
 	ctx := setupTestContext(node, nil, nil)
@@ -335,6 +359,7 @@ func TestService_Stop_AlreadyClosedDoesNotSendCancel(t *testing.T) {
 func TestService_Stop_Success(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	svc.supervisorPID = pid.PID{UniqID: "supervisor-123"}
 	node := &mockNode{}
@@ -343,6 +368,7 @@ func TestService_Stop_Success(t *testing.T) {
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		close(svc.statusCh)
+		close(svc.doneCh)
 	}()
 
 	err := svc.Stop(ctx)
@@ -354,6 +380,7 @@ func TestService_Stop_Success(t *testing.T) {
 func TestService_Stop_ContextCanceled(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	node := &mockNode{}
 	ctx, cancel := context.WithCancel(setupTestContext(node, nil, nil))
@@ -371,6 +398,7 @@ func TestService_Stop_ContextCanceled(t *testing.T) {
 func TestService_MonitorLoop_ContextCanceled(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -378,19 +406,25 @@ func TestService_MonitorLoop_ContextCanceled(t *testing.T) {
 	go svc.monitorLoop(ctx, monitorCh, nil)
 
 	cancel()
-	time.Sleep(50 * time.Millisecond)
-
+	// Cancellation is not proof of child exit. The monitor retains ownership
+	// until relay completion rather than closing the public status early.
 	select {
-	case _, ok := <-svc.statusCh:
-		assert.False(t, ok) // channel should be closed
+	case <-svc.doneCh:
+		t.Fatal("cancellation was reported as process completion")
 	default:
-		t.Fatal("status channel should be closed")
+	}
+	close(monitorCh)
+	select {
+	case <-svc.doneCh:
+	case <-time.After(time.Second):
+		t.Fatal("monitor did not finish after relay completion")
 	}
 }
 
 func TestService_MonitorLoop_ChannelClosed(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
@@ -411,6 +445,7 @@ func TestService_MonitorLoop_ChannelClosed(t *testing.T) {
 func TestService_MonitorLoop_ExitEventWithError(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
@@ -440,6 +475,7 @@ func TestService_MonitorLoop_ExitEventWithError(t *testing.T) {
 func TestService_MonitorLoop_ExitEventWithoutError(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
@@ -466,6 +502,7 @@ func TestService_MonitorLoop_ExitEventWithoutError(t *testing.T) {
 func TestService_MonitorLoop_IgnoresNonEventsTopic(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -485,6 +522,8 @@ func TestService_MonitorLoop_IgnoresNonEventsTopic(t *testing.T) {
 	}
 
 	cancel()
+	close(monitorCh)
+	<-svc.doneCh
 }
 
 func TestService_StartupComplete_ReturnOk(t *testing.T) {
@@ -494,6 +533,7 @@ func TestService_StartupComplete_ReturnOk(t *testing.T) {
 	svc := newTestService()
 	svc.SetGate(gate)
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
@@ -572,6 +612,7 @@ func TestService_StartupComplete_ExternalCancelOrKillFailsGate(t *testing.T) {
 	svc := newTestService()
 	svc.SetGate(gate)
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
@@ -604,6 +645,7 @@ func TestService_StartupComplete_ReturnError(t *testing.T) {
 	svc := newTestService()
 	svc.SetGate(gate)
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.detachFn = func() {}
 	monitorCh := make(chan *relay.Package, 1)
 	ctx := context.Background()
@@ -638,6 +680,7 @@ func TestService_StartupComplete_StopFailsGate(t *testing.T) {
 	svc := newTestService()
 	svc.SetGate(gate)
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.childPID = pid.PID{UniqID: "child-123"}
 	node := &mockNode{}
 	ctx := setupTestContext(node, nil, nil)
@@ -645,6 +688,7 @@ func TestService_StartupComplete_StopFailsGate(t *testing.T) {
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		close(svc.statusCh)
+		close(svc.doneCh)
 	}()
 
 	err := svc.Stop(ctx)
@@ -693,6 +737,7 @@ func BenchmarkNewService(b *testing.B) {
 func TestService_StopDoesNotConsumeRestartAsCompletion(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
 	svc.statusCh <- supervisor.Restart{Graceful: true}
 	svc.restartRequested.Store(true)
 	node := &mockNode{}

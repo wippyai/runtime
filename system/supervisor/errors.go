@@ -24,6 +24,11 @@ var (
 	ErrStartupCompletionUnsupported = apierror.New(apierror.Invalid, "startup: complete service cannot report completion").WithRetryable(apierror.False)
 )
 
+func NewStartCleanupError(cause error) apierror.Error {
+	return apierror.New(apierror.Unavailable, "previous service cleanup failed").
+		WithRetryable(apierror.False).WithCause(cause)
+}
+
 func NewServiceNotFoundError(serviceID string) apierror.Error {
 	return apierror.New(apierror.NotFound, "service not found").
 		WithRetryable(apierror.False).
@@ -166,7 +171,11 @@ func NewSupervisorStoppedError(err error) apierror.Error {
 // could not bring back. They were running before the commit and are not running
 // after it.
 func NewRetirementRestoreError(serviceIDs []string, cause error) error {
-	return apierror.New(apierror.Internal, "services left stopped by a rejected retirement").
+	message := "services left stopped by a rejected retirement"
+	if len(serviceIDs) > 0 {
+		message += ": " + strings.Join(serviceIDs, ", ")
+	}
+	return apierror.New(apierror.Internal, message).
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"services": serviceIDs})).
 		WithCause(cause)
