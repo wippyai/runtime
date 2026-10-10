@@ -10,7 +10,9 @@ A failed late cleanup blocks retry and explicit starts with a typed,
 non-retryable Unavailable error. It leaves status failed, not exited: failure to
 stop is not proof that the child is gone. A later successful explicit Stop clears
 the barrier. A failed explicit Stop likewise reports failed instead of stopped.
-Canceling a queued caller does not replay its start after cleanup.
+Canceling a queued caller does not replay its start after cleanup. A failed Stop
+also blocks a manual Start until Stop succeeds; reporting a failure alone is not
+permission to create another live child.
 
 Process services now broadcast completion on a separate internal channel. Stop
 does not consume the controller's terminal status or planned-restart notices.

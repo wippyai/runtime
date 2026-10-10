@@ -25,7 +25,7 @@ var (
 )
 
 func NewStartCleanupError(cause error) apierror.Error {
-	return apierror.New(apierror.Unavailable, "previous startup cleanup failed").
+	return apierror.New(apierror.Unavailable, "previous service cleanup failed").
 		WithRetryable(apierror.False).WithCause(cause)
 }
 

@@ -49,6 +49,7 @@ type Controller struct {
 	root             context.Context
 	ctx              context.Context
 	setupErr         error
+	stopFailure      error // lifecycle goroutine only
 	stateChanged     chan struct{}
 	onStateChange    func(State)
 	cancel           context.CancelFunc
@@ -376,6 +377,7 @@ func (c *Controller) supervise() {
 				if err == nil {
 					c.startAttempt = nil
 				}
+				c.stopFailure = err
 				if cancel != nil {
 					cancel()
 					cancel = nil
@@ -393,6 +395,7 @@ func (c *Controller) supervise() {
 				cancelRetry()
 				if op.kind == ctrlRestart && op.graceful && ctx != nil {
 					err = c.tryStop(context.WithoutCancel(ctx))
+					c.stopFailure = err
 					if err != nil {
 						c.updateState(supervisor.StatusFailed, err)
 						respondAndCancel(err)
@@ -441,6 +444,12 @@ func (c *Controller) supervise() {
 					break
 				}
 				if c.state.getCurrentStatus() == supervisor.StatusRunning {
+					break
+				}
+				if c.stopFailure != nil {
+					err = NewStartCleanupError(c.stopFailure)
+					c.updateState(supervisor.StatusFailed, err)
+					respondAndCancel(err)
 					break
 				}
 				if pending := c.startAttempt; pending != nil && !pending.admitted {

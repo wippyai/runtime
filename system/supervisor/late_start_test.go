@@ -265,3 +265,36 @@ func TestControllerCanceledQueuedStartDoesNotResurrect(t *testing.T) {
 	require.NoError(t, c.Stop())
 	require.Equal(t, int32(1), starts.Load())
 }
+
+func TestControllerFailedStopBlocksNewStart(t *testing.T) {
+	var starts, stops atomic.Int32
+	var details chan any
+	stopErr := errors.New("live child refused to stop")
+	svc := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			starts.Add(1)
+			details = make(chan any)
+			return details, nil
+		},
+		stopFunc: func(context.Context) error {
+			if stops.Add(1) == 1 {
+				return stopErr
+			}
+			close(details)
+			return nil
+		},
+	}
+	c := NewController(context.Background(), svc, api.LifecycleConfig{
+		StartTimeout: time.Second, StopTimeout: time.Second,
+	}, nil)
+	defer c.close()
+	require.NoError(t, c.Start())
+	require.ErrorIs(t, c.Stop(), stopErr)
+	require.Equal(t, api.StatusFailed, c.State().Status)
+	require.ErrorIs(t, c.Start(), stopErr)
+	require.Equal(t, int32(1), starts.Load(), "failed stop is not permission to create a second live incarnation")
+	require.NoError(t, c.Stop())
+	require.NoError(t, c.Start())
+	require.Equal(t, int32(2), starts.Load())
+	require.NoError(t, c.Stop())
+}
