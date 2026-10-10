@@ -23,6 +23,7 @@ const (
 	ctrlStop
 	ctrlFailed
 	ctrlExit
+	ctrlRestart
 )
 
 // controllable defines the interface for service lifecycle control operations.
@@ -32,10 +33,12 @@ type controllable interface {
 }
 
 type ctrlOp struct {
-	ctx     context.Context
-	result  chan error
-	kind    ctrlKind
-	attempt int32
+	ctx      context.Context
+	retry    context.Context
+	result   chan error
+	kind     ctrlKind
+	attempt  int32
+	graceful bool
 }
 
 // Controller manages the lifecycle of a service.
@@ -176,6 +179,12 @@ func (c *Controller) StopContext(ctx context.Context) error {
 		return nil
 	}
 	c.state.setDesiredStatus(supervisor.StatusStopped)
+	c.startMu.Lock()
+	completionCancel := c.completionCancel
+	c.startMu.Unlock()
+	if completionCancel != nil {
+		completionCancel()
+	}
 	return c.runCommand(ctrlOp{kind: ctrlStop, ctx: ctx})
 }
 
@@ -262,6 +271,20 @@ func (c *Controller) supervise() {
 	var exitCh chan any
 	var ctx context.Context
 	var cancel context.CancelFunc
+	var retryCancel context.CancelFunc
+	cancelRetry := func() {
+		if retryCancel != nil {
+			retryCancel()
+			retryCancel = nil
+		}
+	}
+	defer cancelRetry()
+	scheduleRetry := func(attempt int32) {
+		cancelRetry()
+		var retryCtx context.Context
+		retryCtx, retryCancel = context.WithCancel(c.ctx)
+		go c.tryRetry(retryCtx, attempt)
+	}
 
 	respondStart := func(err error) {
 		if startCh != nil {
@@ -300,6 +323,7 @@ func (c *Controller) supervise() {
 			var err error
 			switch op.kind {
 			case ctrlStop:
+				cancelRetry()
 				if ctx == nil {
 					break
 				}
@@ -319,12 +343,22 @@ func (c *Controller) supervise() {
 				}
 				respondAndCancel(context.Canceled)
 
-			case ctrlExit:
+			case ctrlExit, ctrlRestart:
+				cancelRetry()
+				if op.kind == ctrlRestart && op.graceful && ctx != nil {
+					err = c.tryStop(context.WithoutCancel(ctx))
+					if err != nil {
+						c.updateState(supervisor.StatusFailed, err)
+						respondAndCancel(err)
+						break
+					}
+				}
 				c.updateState(supervisor.StatusExited, nil)
 				respondAndCancel(context.Canceled)
-				if cancel != nil {
-					cancel()
-					cancel = nil
+				if op.kind == ctrlRestart && c.state.getDesiredStatus() == supervisor.StatusRunning {
+					c.state.resetRetryCount()
+					c.runStart = time.Time{}
+					scheduleRetry(0)
 				}
 
 			case ctrlFailed:
@@ -337,12 +371,16 @@ func (c *Controller) supervise() {
 					}
 					c.runStart = time.Time{}
 					if c.config.RetryPolicy.MaxAttempts == 0 || int(attempt) < c.config.RetryPolicy.MaxAttempts {
-						go c.tryRetry(attempt)
+						scheduleRetry(attempt)
 					}
 				}
 				continue
 
 			case ctrlStart:
+				if op.retry != nil && op.retry.Err() != nil {
+					break
+				}
+				cancelRetry()
 				if op.ctx != nil {
 					if startErr := op.ctx.Err(); startErr != nil {
 						c.state.setDesiredStatus(supervisor.StatusStopped)
@@ -406,7 +444,7 @@ func (c *Controller) supervise() {
 						respondStart(err)
 						break
 					}
-					go c.tryRetry(attempt)
+					scheduleRetry(attempt)
 					break
 				}
 				exitCh = make(chan any, 1)
@@ -437,6 +475,13 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 					case c.ops <- ctrlOp{kind: ctrlFailed}:
 					case <-ctx.Done():
 					}
+				}
+				return
+			}
+			if restart, ok := details.(supervisor.Restart); ok {
+				select {
+				case c.ops <- ctrlOp{kind: ctrlRestart, graceful: restart.Graceful}:
+				case <-ctx.Done():
 				}
 				return
 			}
@@ -576,7 +621,7 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	}
 }
 
-func (c *Controller) tryRetry(attempt int32) {
+func (c *Controller) tryRetry(ctx context.Context, attempt int32) {
 	if int(attempt) >= c.config.RetryPolicy.MaxAttempts && c.config.RetryPolicy.MaxAttempts != 0 {
 		return
 	}
@@ -593,10 +638,10 @@ func (c *Controller) tryRetry(attempt int32) {
 			return
 		}
 		select {
-		case c.ops <- ctrlOp{kind: ctrlStart, attempt: attempt}:
-		case <-c.ctx.Done():
+		case c.ops <- ctrlOp{kind: ctrlStart, attempt: attempt, retry: ctx}:
+		case <-ctx.Done():
 		}
-	case <-c.ctx.Done():
+	case <-ctx.Done():
 	}
 }
 

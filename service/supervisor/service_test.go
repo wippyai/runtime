@@ -129,6 +129,44 @@ func setupTestContext(node relay.Node, topo topologyapi.Topology, manager proces
 	return ctx
 }
 
+func TestService_OutdatedCompletionWaitsForReplacement(t *testing.T) {
+	svc := newTestService()
+	svc.config.Lifecycle.Startup = supervisor.StartupComplete
+	node := &mockNode{}
+	manager := &mockProcessManager{startedPID: pid.PID{UniqID: "first"}}
+	ctx, cancel := context.WithCancel(setupTestContext(node, &mockTopology{}, manager))
+	defer cancel()
+	status, err := svc.Start(ctx)
+	require.NoError(t, err)
+	completed := make(chan error, 1)
+	initialCompletion := svc.completion
+	go func() { completed <- initialCompletion.Wait(ctx) }()
+	node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+		payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{Outdated: true}}))
+	select {
+	case reason := <-status:
+		require.IsType(t, supervisor.Restart{}, reason)
+	case <-time.After(time.Second):
+		t.Fatal("outdated exit does not request a restart")
+	}
+	select {
+	case err := <-completed:
+		t.Fatalf("outdated code completes the startup barrier: %v", err)
+	default:
+	}
+	manager.startedPID = pid.PID{UniqID: "second"}
+	_, err = svc.Start(ctx)
+	require.NoError(t, err)
+	node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+		payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
+	select {
+	case err := <-completed:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("replacement completion does not release the startup barrier")
+	}
+}
+
 func TestNewService(t *testing.T) {
 	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "test-node")
 	id := registry.ID{NS: "test", Name: "svc"}
@@ -650,4 +688,18 @@ func BenchmarkNewService(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = NewService(id, config, pidGen)
 	}
+}
+
+func TestService_StopDoesNotConsumeRestartAsCompletion(t *testing.T) {
+	svc := newTestService()
+	svc.statusCh = make(chan any, 1)
+	svc.statusCh <- supervisor.Restart{Graceful: true}
+	svc.restartRequested.Store(true)
+	node := &mockNode{}
+	ctx := setupTestContext(node, &mockTopology{}, &mockProcessManager{})
+	stopCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	err := svc.Stop(stopCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "a pending restart is not an exited process")
+	require.Len(t, node.sent, 1, "stop sends normal cancellation to the live incarnation")
 }

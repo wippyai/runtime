@@ -58,12 +58,13 @@ type UpgradeRequest struct {
 // Scheduler owns this, process writes yields and completion status.
 // Inline buffer for common case (1-2 yields), overflow slice for rare cases.
 type StepOutput struct {
-	result  payload.Payload
-	upgrade *UpgradeRequest
-	buf     [MaxYields]Yield
-	ext     []Yield
-	count   int
-	status  StepStatus
+	result   payload.Payload
+	upgrade  *UpgradeRequest
+	buf      [MaxYields]Yield
+	ext      []Yield
+	count    int
+	status   StepStatus
+	outdated bool
 }
 
 // Yield adds a command to be dispatched.
@@ -80,6 +81,19 @@ func (o *StepOutput) Yield(cmd dispatcher.Command, tag uint64) {
 func (o *StepOutput) Done(result payload.Payload) {
 	o.status = StepDone
 	o.result = result
+	o.outdated = false
+}
+
+// DoneOutdated completes an incarnation after it receives a code-change signal.
+// The successful result remains available; a supervisor can restart its service.
+func (o *StepOutput) DoneOutdated(result payload.Payload) {
+	o.Done(result)
+	o.outdated = true
+}
+
+// IsOutdated reports whether completion follows a delivered code-change signal.
+func (o *StepOutput) IsOutdated() bool {
+	return o.status == StepDone && o.outdated
 }
 
 // Idle marks process as waiting for external events (messages).
@@ -106,6 +120,7 @@ func (o *StepOutput) Reset() {
 	o.status = StepContinue
 	o.result = nil
 	o.upgrade = nil
+	o.outdated = false
 }
 
 // SetUpgrade sets upgrade request and status.

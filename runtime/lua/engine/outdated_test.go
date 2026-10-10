@@ -8,10 +8,16 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
+	sysrelay "github.com/wippyai/runtime/system/relay"
 )
 
 // queueOutdated appends an OUTDATED event to the process message queue.
@@ -237,5 +243,49 @@ func TestOutdatedDeliveredAfterSubscribe(t *testing.T) {
 	}
 	if src := tbl.RawGetString("sources").(*lua.LTable).RawGetInt(1).String(); src != "app:worker" {
 		t.Fatalf("expected sources[1]=app:worker, got %q", src)
+	}
+}
+
+type outdatedNoticeReceiver struct{ packages []*relay.Package }
+
+func (r *outdatedNoticeReceiver) Send(pkg *relay.Package) error {
+	r.packages = append(r.packages, pkg)
+	return nil
+}
+
+func TestOutdatedDoesNotRestartOrdinaryMonitoredProcess(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	node := sysrelay.NewNode("node")
+	ctx = relay.WithNode(ctx, node)
+	ctx, frame := ctxapi.OpenFrameContext(ctx)
+	parent := pid.PID{Node: "node", Host: "parent", UniqID: "parent"}
+	self := pid.PID{Node: "node", Host: "child", UniqID: "child"}
+	options := attrs.NewBag()
+	options.Set(process.ProcessMonitorKey, true)
+	options.Set(process.ProcessParentKey, parent)
+	if err := frame.SetMultiple(ctxapi.Pair{Key: runtime.FramePIDKey, Value: self}, ctxapi.Pair{Key: runtime.FrameLifecycleOptionsKey, Value: options}); err != nil {
+		t.Fatal(err)
+	}
+	notices := &outdatedNoticeReceiver{}
+	if err := node.RegisterHost(parent.Host, notices); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, pkg := range notices.packages {
+			relay.ReleasePackage(pkg)
+		}
+	}()
+	proc := mustNewProcess(t, WithScript("return 1", "test.lua"))
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+	queueOutdated(proc, registry.NewID("app", "worker"))
+	var out process.StepOutput
+	if err := proc.Step(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(notices.packages) != 0 {
+		t.Fatal("ordinary monitoring does not install a supervised restart policy")
 	}
 }
