@@ -25,11 +25,16 @@ import (
 // declarations to the index, OnDelete undoes them, OnUpdate diffs old vs new.
 // The index never has to revisit unrelated entries on an apply.
 type DepIndex struct {
-	direct  map[registry.ID]map[registry.ID]struct{}
-	group   map[string]map[registry.ID]struct{}
-	ns      map[string]map[registry.ID]struct{}
-	env     map[string]map[registry.ID]struct{}
-	ownDeps map[registry.ID]entryDepKeys
+	direct map[registry.ID]map[registry.ID]struct{}
+	group  map[string]map[registry.ID]struct{}
+	ns     map[string]map[registry.ID]struct{}
+	env    map[string]map[registry.ID]struct{}
+	// Fallbacks remain symbolic: creating/removing a named variable can
+	// shadow/unshadow an ID without rewriting every consumer's declaration.
+	envFallback   map[string]map[registry.ID]struct{}
+	variables     map[registry.ID]string
+	variableNames map[string]map[registry.ID]struct{}
+	ownDeps       map[registry.ID]entryDepKeys
 }
 
 type entryDepKeys struct {
@@ -46,7 +51,6 @@ func NewDepIndex() *DepIndex {
 		direct:  make(map[registry.ID]map[registry.ID]struct{}),
 		group:   make(map[string]map[registry.ID]struct{}),
 		ns:      make(map[string]map[registry.ID]struct{}),
-		env:     make(map[string]map[registry.ID]struct{}),
 		ownDeps: make(map[registry.ID]entryDepKeys),
 	}
 }
@@ -72,19 +76,36 @@ func BuildDepIndex(state registry.State, resolver registry.DependencyResolver) *
 // dedupe across multiple delete operations.
 func (d *DepIndex) Dependents(entry registry.Entry, out map[registry.ID]struct{}) {
 	for id := range d.env[envVariableName(entry)] {
-		out[id] = struct{}{}
-	}
-	for id := range d.direct[entry.ID] {
-		out[id] = struct{}{}
-	}
-	for _, g := range entry.Meta.GetSlice(registry.TagGroups) {
-		for id := range d.group[g] {
+		if !id.Equal(entry.ID) {
 			out[id] = struct{}{}
 		}
 	}
-	if entry.ID.NS != "" {
-		for id := range d.ns[entry.ID.NS] {
+	if len(d.envFallback) > 0 {
+		d.environmentFallbackDependents("id:"+entry.ID.String(), entry.ID, out)
+	}
+	for id := range d.direct[entry.ID] {
+		if !id.Equal(entry.ID) {
 			out[id] = struct{}{}
+		}
+	}
+	for _, g := range entry.Meta.GetSlice(registry.TagGroups) {
+		if len(d.envFallback) > 0 {
+			d.environmentFallbackDependents(groupPrefix+g, entry.ID, out)
+		}
+		for id := range d.group[g] {
+			if !id.Equal(entry.ID) {
+				out[id] = struct{}{}
+			}
+		}
+	}
+	if entry.ID.NS != "" {
+		if len(d.envFallback) > 0 {
+			d.environmentFallbackDependents(nsPrefix+entry.ID.NS, entry.ID, out)
+		}
+		for id := range d.ns[entry.ID.NS] {
+			if !id.Equal(entry.ID) {
+				out[id] = struct{}{}
+			}
 		}
 	}
 }
@@ -129,8 +150,21 @@ func (d *DepIndex) Patch(changeSet registry.ChangeSet, resolver registry.Depende
 func (d *DepIndex) add(entry registry.Entry, resolver registry.DependencyResolver) {
 	keys := extractDepKeys(entry, resolver)
 	d.ownDeps[entry.ID] = keys
+	if name := envVariableName(entry); name != "" {
+		if d.variables == nil {
+			d.variables = make(map[registry.ID]string)
+			d.variableNames = make(map[string]map[registry.ID]struct{})
+		}
+		d.variables[entry.ID] = name
+		addIDToStringMap(d.variableNames, name, entry.ID)
+	}
+	if len(keys.env) > 0 && d.env == nil {
+		d.env = make(map[string]map[registry.ID]struct{})
+		d.envFallback = make(map[string]map[registry.ID]struct{})
+	}
 	for _, name := range keys.env {
 		addIDToStringMap(d.env, name, entry.ID)
+		addIDToStringMap(d.envFallback, environmentFallbackKey(entry.ID.NS, name), entry.ID)
 	}
 	for _, id := range keys.direct {
 		addIDToSetMap(d.direct, id, entry.ID)
@@ -149,8 +183,13 @@ func (d *DepIndex) remove(entryID registry.ID) {
 		return
 	}
 	delete(d.ownDeps, entryID)
+	if name, variable := d.variables[entryID]; variable {
+		delete(d.variables, entryID)
+		delIDFromStringMap(d.variableNames, name, entryID)
+	}
 	for _, name := range keys.env {
 		delIDFromStringMap(d.env, name, entryID)
+		delIDFromStringMap(d.envFallback, environmentFallbackKey(entryID.NS, name), entryID)
 	}
 	for _, id := range keys.direct {
 		delIDFromSetMap(d.direct, id, entryID)
@@ -164,16 +203,26 @@ func (d *DepIndex) remove(entryID registry.ID) {
 }
 
 func extractDepKeys(entry registry.Entry, resolver registry.DependencyResolver) entryDepKeys {
-	declarations := entry.Meta.GetSlice(registry.TagDependsOn)
-	if resolver != nil {
-		declarations = append(declarations, resolver.Extract(entry)...)
-	}
+	declarations := append([]string(nil), entry.Meta.GetSlice(registry.TagDependsOn)...)
 	var keys entryDepKeys
-	if entry.Data != nil {
-		resolverExtractEnvReferences(entry.Data.Data(), true, func(name string) {
-			keys.env = append(keys.env, name)
-			declarations = append(declarations, name)
-		})
+	if builtIn, ok := resolver.(*Resolver); ok {
+		var registryReferences []string
+		registryReferences, keys.env = builtIn.extractForTopology(entry)
+		declarations = append(declarations, registryReferences...)
+	} else {
+		// Custom resolver outputs retain their explicit registry semantics.
+		if resolver != nil {
+			declarations = append(declarations, resolver.Extract(entry)...)
+		}
+		if entry.Data != nil {
+			seen := make(map[string]struct{})
+			resolverExtractEnvReferences(entry.Data.Data(), true, func(name string) {
+				if _, duplicate := seen[name]; !duplicate {
+					seen[name] = struct{}{}
+					keys.env = append(keys.env, name)
+				}
+			})
+		}
 	}
 	for _, dep := range declarations {
 		depType, value := parseDependency(dep)
@@ -191,6 +240,20 @@ func extractDepKeys(entry registry.Entry, resolver registry.DependencyResolver) 
 		}
 	}
 	return keys
+}
+
+func (d *DepIndex) environmentFallbackDependents(key string, target registry.ID, out map[registry.ID]struct{}) {
+	for id := range d.envFallback[key] {
+		if id.Equal(target) {
+			continue
+		}
+		for _, name := range d.ownDeps[id].env {
+			if len(d.variableNames[name]) == 0 && environmentFallbackKey(id.NS, name) == key {
+				out[id] = struct{}{}
+				break
+			}
+		}
+	}
 }
 
 func addIDToSetMap(m map[registry.ID]map[registry.ID]struct{}, key, value registry.ID) {

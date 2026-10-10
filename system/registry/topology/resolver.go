@@ -74,18 +74,28 @@ func (r *Resolver) Extract(entry registry.Entry) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.fetchDeps(entry)
+	dependencies, _ := r.fetchDeps(entry, false)
+	return dependencies
+}
+
+// extractForTopology preserves reference provenance. Environment lookups have
+// name-before-ID semantics; explicit registry references must remain ID edges
+// even when their spelling also names an environment variable.
+func (r *Resolver) extractForTopology(entry registry.Entry) ([]string, []string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.fetchDeps(entry, true)
 }
 
 // fetchDeps extracts dependencies using the registered patterns.
 // This function combines meta and data, then processes all patterns.
-func (r *Resolver) fetchDeps(entry registry.Entry) []string {
+func (r *Resolver) fetchDeps(entry registry.Entry, classifyEnvironment bool) ([]string, []string) {
 	var payloadData any
 	if entry.Data != nil {
 		payloadData = entry.Data.Data()
 	}
 	if len(entry.Meta) == 0 && payloadData == nil {
-		return nil
+		return nil, nil
 	}
 
 	combined := make(map[string]any, 2)
@@ -116,25 +126,48 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 		seen[dep] = struct{}{}
 		result = append(result, dep)
 	}
+	var environment []string
+	var envSeen map[string]struct{}
+	addEnvironment := add
+	if classifyEnvironment {
+		addEnvironment = func(name string) {
+			if name == "" {
+				return
+			}
+			if _, duplicate := envSeen[name]; duplicate {
+				return
+			}
+			if envSeen == nil {
+				envSeen = make(map[string]struct{})
+			}
+			envSeen[name] = struct{}{}
+			environment = append(environment, name)
+		}
+	}
 
 	for _, pathCfg := range r.patterns {
 		for _, dep := range resolverExtractFromPath(combined, pathCfg) {
-			add(dep)
+			if classifyEnvironment && (strings.HasSuffix(pathCfg.Path, "_env") || pathCfg.Path == "data.env") {
+				addEnvironment(dep)
+			} else {
+				add(dep)
+			}
 		}
 	}
 
 	// Placeholder references (${env:...} / ${NAME|...}) may appear in any data
 	// string value, not only registered pattern paths. Only entry data is
 	// resolved at decode time, so meta is excluded to avoid edges for
-	// placeholder-shaped text that is never resolved. Emitted as-is: ID-form
-	// refs create direct edges; topology also resolves declared variable names.
+	// placeholder-shaped text that is never resolved. Public extraction emits
+	// names as-is; internal topology keeps them distinct from explicit ID edges.
 	if data, ok := combined["data"]; ok {
-		resolverExtractEnvReferences(data, false, add)
+		resolverExtractEnvReferences(data, classifyEnvironment, addEnvironment)
 	}
 
 	sort.Strings(result)
+	sort.Strings(environment)
 
-	return result
+	return result, environment
 }
 
 // resolverExtractEnvReferences walks entry data for placeholder and companion
