@@ -16,6 +16,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/internal/requirements"
 )
 
 type desiredDependency struct {
@@ -48,6 +49,19 @@ func applyOperationToState(snapshot regapi.State, op regapi.Operation) regapi.St
 // additional bindings from the selected artifact for linking the same component.
 func authoredDependencyEntries(ctx context.Context, moduleEntries regapi.State, changes regapi.ChangeSet, transcoder payload.Transcoder) ([]regapi.Entry, error) {
 	byID := entriesByID(moduleEntries)
+	namespaces, err := requirements.ModuleNamespaces(moduleEntries)
+	if err != nil {
+		return nil, err
+	}
+	addresses := make(map[string]struct{})
+	var requirementIDs []string
+	for _, entry := range moduleEntries {
+		if entry.Kind == regapi.NamespaceRequirement {
+			addresses[entry.ID.String()] = struct{}{}
+			requirementIDs = append(requirementIDs, entry.ID.String())
+		}
+	}
+	sort.Strings(requirementIDs)
 	authored := make([]regapi.Entry, 0, len(changes))
 	for _, change := range changes {
 		switch change.Kind {
@@ -64,12 +78,31 @@ func authoredDependencyEntries(ctx context.Context, moduleEntries regapi.State, 
 				if packageDep.Component == explicitDep.Component {
 					params := append([]Parameter(nil), explicitDep.Parameters...)
 					names := make(map[string]struct{}, len(params))
+					bound := make(map[string]struct{})
+					owned := requirements.AddressIndex(namespaces[explicitDep.Component], requirementIDs)
 					for _, param := range params {
 						names[param.Name] = struct{}{}
+						for _, id := range requirements.Resolve(param.Name, addresses, owned) {
+							bound[id] = struct{}{}
+						}
 					}
 					for _, param := range packageDep.Parameters {
-						if _, overridden := names[param.Name]; !overridden {
+						if _, overridden := names[param.Name]; overridden {
+							continue
+						}
+						ids := requirements.Resolve(param.Name, addresses, owned)
+						remaining := make([]string, 0, len(ids))
+						for _, id := range ids {
+							if _, overridden := bound[id]; !overridden {
+								remaining = append(remaining, id)
+							}
+						}
+						if len(remaining) == len(ids) {
 							params = append(params, param)
+						} else {
+							for _, id := range remaining {
+								params = append(params, Parameter{Name: id, Value: param.Value})
+							}
 						}
 					}
 					if len(params) > len(explicitDep.Parameters) {
