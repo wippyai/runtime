@@ -43,6 +43,13 @@ grants no access. The host must return an error when a stored restriction cannot
 be resolved, rather than omit the ceiling. Issuance-time `scope_policies` is an
 access snapshot, not an explicit credential ceiling.
 
+Credential ceilings are enforced in native scopes and remain attached to copied
+policies. The current Temporal security envelope and token issuance format carry
+policy IDs only, so they cannot represent these constraints. Propagating such a
+scope through Temporal or minting another token directly from it returns an
+explicit non-retryable error instead of silently discarding the ceiling. Ordinary
+policy-ID scopes retain their existing formats and behavior.
+
 The function can return a runtime error or a structured failure:
 
 ```lua

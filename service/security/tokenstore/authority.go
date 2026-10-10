@@ -3,7 +3,9 @@
 package tokenstore
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -16,13 +18,25 @@ import (
 )
 
 type subjectAuthority struct {
-	Ceiling   *authorityScope `json:"ceiling"`
-	Error     *subjectError   `json:"error"`
-	Meta      attrs.Bag       `json:"meta"`
-	Success   *bool           `json:"success"`
-	SubjectID string          `json:"subject_id"`
-	Groups    []registry.ID   `json:"groups"`
-	Retriable bool            `json:"retriable"`
+	Ceiling   *authorityScope   `json:"ceiling"`
+	Error     *subjectError     `json:"error"`
+	Meta      authorityMetadata `json:"meta"`
+	Success   *bool             `json:"success"`
+	SubjectID string            `json:"subject_id"`
+	Groups    []registry.ID     `json:"groups"`
+	Retriable bool              `json:"retriable"`
+}
+
+// A Lua empty table encodes as [] unless it has string keys. Accept that empty
+// representation only at these object-shaped lookup fields, not in global JSON.
+type authorityMetadata attrs.Bag
+
+func (m *authorityMetadata) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("[]")) {
+		*m = authorityMetadata{}
+		return nil
+	}
+	return json.Unmarshal(data, (*attrs.Bag)(m))
 }
 
 type subjectError struct {
@@ -33,6 +47,14 @@ type subjectError struct {
 type authorityScope struct {
 	Groups   []registry.ID `json:"groups"`
 	Policies []registry.ID `json:"policies"`
+}
+
+func (s *authorityScope) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("[]")) {
+		data = []byte("{}")
+	}
+	type scopeJSON authorityScope
+	return json.Unmarshal(data, (*scopeJSON)(s))
 }
 
 func (s *TokenStore) resolveSubject(ctx context.Context, data *tokenData) (security.Actor, security.Scope, error) {
@@ -92,7 +114,7 @@ func (s *TokenStore) resolveSubject(ctx context.Context, data *tokenData) (secur
 		}
 		scope = &restrictedScope{authority: scope, ceiling: ceiling}
 	}
-	return security.Actor{ID: data.ActorID, Meta: authority.Meta}, scope, nil
+	return security.Actor{ID: data.ActorID, Meta: attrs.Bag(authority.Meta)}, scope, nil
 }
 
 func invalidAuthority(message string) error {
@@ -107,6 +129,10 @@ func (s *TokenStore) authorityScope(config authorityScope) (security.Scope, erro
 type restrictedScope struct {
 	authority security.Scope
 	ceiling   security.Scope
+}
+
+func (s *restrictedScope) ReferenceIDs() ([]registry.ID, error) {
+	return nil, security.ErrPolicyNotReferenceable
 }
 
 func (s *restrictedScope) With(policy security.Policy) security.Scope {
@@ -130,6 +156,11 @@ func (s *restrictedScope) Policies() []security.Policy {
 type restrictedPolicy struct {
 	security.Policy
 	ceiling security.Scope
+}
+
+// Reconstructing this policy from ID alone would discard its credential ceiling.
+func (p restrictedPolicy) ReferenceID() (registry.ID, error) {
+	return registry.ID{}, security.ErrPolicyNotReferenceable
 }
 
 func (p restrictedPolicy) Evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {

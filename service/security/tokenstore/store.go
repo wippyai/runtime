@@ -92,6 +92,12 @@ func (s *TokenStore) Create(
 	scope security.Scope,
 	details security.TokenDetails,
 ) (security.Token, error) {
+	// Reject execution-local constraints before acquiring storage or minting bytes.
+	policies, err := security.PolicyReferenceIDs(scope)
+	if err != nil {
+		return "", err
+	}
+
 	// Acquire store only when needed
 	kvStore, storeRes, err := s.acquireStore(ctx)
 	if err != nil {
@@ -125,14 +131,6 @@ func (s *TokenStore) Create(
 	if expiration > 0 {
 		exp := time.Now().Add(expiration)
 		expires = &exp
-	}
-
-	// Extract policies from scope
-	var policies []registry.ID
-	if scope != nil {
-		for _, policy := range scope.Policies() {
-			policies = append(policies, policy.ID())
-		}
 	}
 
 	err = kvStore.Set(ctx, store.Entry{

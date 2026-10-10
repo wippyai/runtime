@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
+	securityapi "github.com/wippyai/runtime/api/security"
 	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
@@ -305,7 +306,9 @@ func (d *Definition) getContextHeaderForAudience(ctx context.Context, audience s
 }
 
 func hasSecurityContext(ctx context.Context) bool {
-	return propagator.ExtractSecurityPayload(ctx) != nil
+	_, hasActor := securityapi.GetActor(ctx)
+	_, hasScope := securityapi.GetScope(ctx)
+	return hasActor || hasScope
 }
 
 func (d *Definition) securityChildWorkflowID(ctx context.Context, workflowID string) string {
@@ -361,7 +364,10 @@ func (d *Definition) getContextHeaderFrom(ctx context.Context, extra map[string]
 		}
 	}
 
-	secPayload := propagator.ExtractSecurityPayload(ctx)
+	secPayload, err := propagator.ExtractSecurityPayload(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract security context: %w", err)
+	}
 	if secPayload != nil {
 		var err error
 		header, err = propagator.AddSecurityToHeader(d.dc, header, secPayload, securitykeys.Keys(d.ctx)...)
