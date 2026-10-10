@@ -11,6 +11,16 @@ history roots remain independent constraints. The committed resolution records
 the materialized declarations and their deployment baseline; cached history
 supports undo, redo, and offline restart through the same registry APIs.
 
+The deployment baseline identifies the source declarations and locked/embedded
+artifacts before registry history is applied. Hub updates, including updates to
+source-owned roots, do not change that identity. With unchanged deployment
+inputs, cold boot restores the saved exact versions and artifact digests from
+the local cache. Genuine deployment changes re-resolve with history reapplied.
+Recognized older runtime digest bindings are verified against the original
+deployment inputs and checkpointed automatically after a successful restore.
+An unverified binding takes the normal deployment-refresh path; recovery never
+requires exporting history into source files.
+
 ## Loading
 
 ```lua

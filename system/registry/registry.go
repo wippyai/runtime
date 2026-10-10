@@ -271,9 +271,13 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if err != nil {
 		return err
 	}
-	targetState, err := r.stateAtVersion(ctx, targetVersion)
+	targetState, dependencyChanges, err := r.stateAtVersion(ctx, targetVersion)
 	if err != nil {
 		return err
+	}
+	directiveCtx := ctx
+	if r.stateLoaded && len(r.directivesByKind[registry.NamespaceDependency]) > 0 {
+		directiveCtx = registry.WithDependencyBaseline(ctx, r.baseline, dependencyChanges)
 	}
 
 	r.log.Debug("resolving version transition",
@@ -304,7 +308,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		stateMap := topology.NewStateMap(targetState)
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
-			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive, snapshot, topology.StateMapToSlice(stateMap), targetResolution)
+			result, ok, reconcileErr := reconcileStoredResolution(directiveCtx, directive, snapshot, topology.StateMapToSlice(stateMap), targetResolution)
 			if !ok {
 				continue
 			}
@@ -357,7 +361,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				continue
 			}
 			intermediate := topology.StateMapToSlice(stateMap)
-			plan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, intermediate)
+			plan, expandErr := planner.Expand(directiveCtx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, intermediate)
 			if expandErr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(expandErr)
@@ -499,21 +503,23 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 // history at target. Live version selection must use the same authority model
 // as cold boot; reversing operations against the expanded resident state can
 // otherwise delete baseline entries hidden by an overlay.
-func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, error) {
+func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, []registry.ChangeSet, error) {
 	stateMap := topology.NewStateMap(r.baseline)
+	var dependencyChanges []registry.ChangeSet
 	if target == nil || target.ID() == registry.RootVersion {
-		return topology.StateMapToSlice(stateMap), nil
+		return topology.StateMapToSlice(stateMap), nil, nil
 	}
 	apply := func(changes registry.ChangeSet) error {
 		canonicalizeChangeSetIDs(changes)
+		dependencyChanges = appendDependencyReplayChanges(dependencyChanges, changes, stateMap)
 		applyStateOperations(stateMap, changes)
 		return nil
 	}
 	if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
 		if err := replayer.ReplayChanges(ctx, target, apply); err != nil {
-			return nil, NewGetChangesetError(target.ID(), err)
+			return nil, nil, NewGetChangesetError(target.ID(), err)
 		}
-		return topology.StateMapToSlice(stateMap), nil
+		return topology.StateMapToSlice(stateMap), dependencyChanges, nil
 	}
 	var lineage []registry.Version
 	for current := target; current != nil && current.ID() > registry.RootVersion; current = current.Previous() {
@@ -522,13 +528,13 @@ func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (regi
 	for i := len(lineage) - 1; i >= 0; i-- {
 		changes, err := r.history.Get(lineage[i])
 		if err != nil {
-			return nil, NewGetChangesetError(lineage[i].ID(), err)
+			return nil, nil, NewGetChangesetError(lineage[i].ID(), err)
 		}
 		if err := apply(changes); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return topology.StateMapToSlice(stateMap), nil
+	return topology.StateMapToSlice(stateMap), dependencyChanges, nil
 }
 
 func compareAndSetHistoryHead(history registry.History, expected, target registry.Version) error {
@@ -652,6 +658,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	var planner *regexp.Planner
 	var preparedEff []registry.Effect
 	var resolution *registry.DependencyResolution
+	var dependencyChanges []registry.ChangeSet
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 	}
@@ -662,6 +669,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	if targetVersion.ID() > 0 {
 		applyChanges := func(cs registry.ChangeSet) error {
 			canonicalizeChangeSetIDs(cs)
+			dependencyChanges = appendDependencyReplayChanges(dependencyChanges, cs, stateMap)
 			applyStateOperations(stateMap, cs)
 			return nil
 		}
@@ -688,6 +696,10 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			}
 		}
 	}
+	directiveCtx := ctx
+	if len(r.directivesByKind[registry.NamespaceDependency]) > 0 {
+		directiveCtx = registry.WithDependencyBaseline(ctx, baseline, dependencyChanges)
+	}
 
 	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
 		stored, err := resolutionHistory.GetDependencyResolution(targetVersion)
@@ -708,7 +720,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
 			snapshot := topology.StateMapToSlice(stateMap)
-			result, ok, err := reconcileStoredResolution(ctx, directive, baseline, snapshot, resolution)
+			result, ok, err := reconcileStoredResolution(directiveCtx, directive, baseline, snapshot, resolution)
 			if !ok {
 				continue
 			}
@@ -754,7 +766,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 				continue
 			}
 			snapshot := topology.StateMapToSlice(stateMap)
-			plan, err := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, snapshot)
+			plan, err := planner.Expand(directiveCtx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, snapshot)
 			if err != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(err)

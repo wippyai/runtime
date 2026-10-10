@@ -287,7 +287,7 @@ jobs:
         env:
           GORACE: "halt_on_error=1"
           WIPPY_POSTGRES_HISTORY_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-        run: go test -race -count=1 ./system/registry ./system/registry/history/postgres
+        run: go test -race -count=1 ./system/registry ./system/registry/history/postgres ./boot/deps/hub
 
   test-sqlite-cdc:
     name: Test SQLite CDC (Linux, CGO, race)
