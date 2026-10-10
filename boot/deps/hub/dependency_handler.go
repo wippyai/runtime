@@ -653,16 +653,13 @@ func (h *DependencyHandler) ReconcileResolution(
 	}
 	desiredDeps := append(append([]desiredDependency(nil), rootDeps...), refDeps...)
 
-	// Deployment identity is evaluated on the state the stored graph
-	// describes. The current state names the version being left; comparing
-	// against it makes every transition across a baseline-owned declaration
-	// change look like a deployment change and rebind graphs in both
-	// directions.
+	// The registry carries the pristine deployment separately from both the
+	// live state and history target. Neither is a deployment input.
 	baselineDigest, err := h.deploymentBaselineDigest(ctx, target, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	refreshReason, err := h.resolutionRefreshReason(ctx, current, rootDeps, refDeps, resolution, baselineDigest, transcoder)
+	refreshReason, err := h.resolutionRefreshReason(ctx, target, rootDeps, refDeps, resolution, baselineDigest, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -674,6 +671,26 @@ func (h *DependencyHandler) ReconcileResolution(
 		}
 	}
 	solverDeps := h.solverDependencies(desiredDeps, replacingOwners)
+	if refreshReason != "" {
+		// A new deployment releases old package pins, not authored overrides
+		// made after that package's last selection. Keep those in the solve.
+		overrides, replayErr := h.ownedDependencyChanges(ctx, resolution, transcoder)
+		if replayErr != nil {
+			return regapi.DirectiveResult{}, replayErr
+		}
+		retained := make(map[regapi.ID]struct{}, len(solverDeps))
+		for _, dep := range solverDeps {
+			retained[dep.entry.ID] = struct{}{}
+		}
+		for _, dep := range desiredDeps {
+			if _, already := retained[dep.entry.ID]; already {
+				continue
+			}
+			if operation, authored := overrides[dep.entry.ID]; authored && operation.Kind != regapi.EntryDelete {
+				solverDeps = append(solverDeps, dep)
+			}
+		}
+	}
 	var resolved []ResolvedModule
 	effectiveResolution := resolution.Canonical()
 	if refreshReason != "" {
@@ -702,17 +719,23 @@ func (h *DependencyHandler) ReconcileResolution(
 			effectiveResolution = effectiveResolution.Canonical()
 		}
 	} else {
-		rootDeps, refDeps, err = h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots, resolution.References)
-		if err != nil {
-			return regapi.DirectiveResult{}, err
-		}
-		desiredDeps = append(append([]desiredDependency(nil), rootDeps...), refDeps...)
-		solverDeps = desiredDeps
-		if got := dependencyInputDigest(rootDeps); got != resolution.InputDigest {
-			return regapi.DirectiveResult{}, NewStoredResolutionError("stored dependency input digest does not match declarations", map[string]any{
-				"stored":  resolution.InputDigest,
-				"current": got,
-			})
+		// Unowned declaration drift is not module materialization. Reject it
+		// before attempting artifact access, as on the original strict path.
+		rootDeps, refDeps, declarationErr := h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots, resolution.References)
+		if declarationErr != nil {
+			ownedRoots := false
+			for _, entry := range target {
+				if entry.Kind == regapi.NamespaceDependency && entry.Registry.Root && entryModule(entry) != "" {
+					ownedRoots = true
+					break
+				}
+			}
+			if !ownedRoots {
+				return regapi.DirectiveResult{}, declarationErr
+			}
+			solverDeps = nil
+		} else {
+			solverDeps = append(append([]desiredDependency(nil), rootDeps...), refDeps...)
 		}
 		resolved, err = resolvedModulesFromStored(resolution)
 		if err != nil {
@@ -734,6 +757,9 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 	effectiveResolution.Deployment = h.deployment.Canonical()
+	if refreshReason != "" || (resolution.BaselineDigest != "" && resolution.BaselineDigest != baselineDigest) {
+		effectiveResolution.BaselineDigest = baselineDigest
+	}
 	effectiveResolution = effectiveResolution.Canonical()
 	// A local replacement is a mutable development source. Reconciliation uses
 	// its current identity to decide which resident entries must be reloaded,
@@ -801,10 +827,6 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 	defer func() { _ = unpackPlan.cleanup() }()
-	desiredDepEntries := make([]regapi.Entry, 0, len(desiredDeps))
-	for _, dep := range desiredDeps {
-		desiredDepEntries = append(desiredDepEntries, dep.entry)
-	}
 	combined := make([]regapi.Entry, 0, len(target)+len(moduleEntries))
 	for _, entry := range target {
 		if module := entryModule(entry); module != "" {
@@ -821,11 +843,50 @@ func (h *DependencyHandler) ReconcileResolution(
 	}
 	combined = append(combined, residentUnchangedModuleEntries(current, combined, controlled, desiredModules, touched)...)
 	combined = append(combined, moduleEntries...)
+	combined, err = h.replayOwnedDependencyChanges(ctx, combined, effectiveResolution, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	if refreshReason == "" {
+		recordedRoots := make(map[string]struct{}, len(resolution.Roots)+len(resolution.References))
+		for _, root := range resolution.Roots {
+			recordedRoots[root.ID] = struct{}{}
+		}
+		for _, ref := range resolution.References {
+			recordedRoots[ref.ID] = struct{}{}
+		}
+		for i := range combined {
+			if combined[i].Kind != regapi.NamespaceDependency || entryModule(combined[i]) == "" {
+				continue
+			}
+			if _, recorded := recordedRoots[combined[i].ID.String()]; recorded {
+				combined[i].Registry.Root = true
+			}
+		}
+		// Root application materialization can replace its dependency
+		// declarations. Validate the saved root/reference partition only after
+		// restoring that artifact, not against old files plus authored replay.
+		rootDeps, _, err = h.collectResolutionDependencies(ctx, combined, transcoder, resolution.Roots, resolution.References)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		if got := dependencyInputDigest(rootDeps); got != resolution.InputDigest {
+			return regapi.DirectiveResult{}, NewStoredResolutionError("stored dependency input digest does not match declarations", map[string]any{
+				"stored": resolution.InputDigest, "current": got,
+			})
+		}
+		if err := validateMaterializedDependencies(ctx, combined, resolved, transcoder); err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+	}
 
+	// All restored declarations are now present, including edits newer than
+	// their owner's selection. Let the canonical linker read this final state
+	// rather than stale declarations from the raw artifact.
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
-		stages.Link(stages.WithDependencies(mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touched), moduleEntries)), stages.WithStrictRequirementModules(sortedSetKeys(touched))),
+		stages.Link(stages.WithStrictRequirementModules(sortedSetKeys(touched))),
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {

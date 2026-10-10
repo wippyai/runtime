@@ -519,6 +519,13 @@ func TestSupervisor_RejectedRetirementReportsUnrestoredServices(t *testing.T) {
 	h := newTestHarness(t)
 	h.start(context.Background())
 	defer h.stop()
+	t.Cleanup(func() {
+		if t.Failed() {
+			for _, entry := range h.logs.All() {
+				t.Logf("%s: %v", entry.Message, entry.ContextMap())
+			}
+		}
+	})
 
 	noRetry := supervisor.LifecycleConfig{
 		AutoStart:    true,
