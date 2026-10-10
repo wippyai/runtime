@@ -14,12 +14,12 @@ import (
 
 // Context keys for storing HTTP-specific values in the request context
 var (
-	requestCtx         = &ctxapi.Key{Name: "http.request"}
-	routeCtx           = &ctxapi.Key{Name: "http.route"}
-	routeLabelCtx      = &ctxapi.Key{Name: "http.route_label"}
-	serverIDCtx        = &ctxapi.Key{Name: "http.server_id"}
-	serverHostCtx      = &ctxapi.Key{Name: "http.server.host"}
-	serverCtx          = &ctxapi.Key{Name: "http.server"}
+	requestCtx         = &ctxapi.Key{Name: "http.request", Execution: true}
+	routeCtx           = &ctxapi.Key{Name: "http.route", Execution: true}
+	routeLabelCtx      = &ctxapi.Key{Name: "http.route_label", Execution: true}
+	serverIDCtx        = &ctxapi.Key{Name: "http.server_id", Execution: true}
+	serverHostCtx      = &ctxapi.Key{Name: "http.server.host", Execution: true}
+	serverCtx          = &ctxapi.Key{Name: "http.server", Execution: true}
 	middlewareRegistry = &ctxapi.Key{Name: "http.middleware_registry"}
 )
 
