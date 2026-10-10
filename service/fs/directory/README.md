@@ -8,6 +8,11 @@ Omission (or `contained`) preserves `os.Root` containment for every operation.
 On Unix, `owner_safe` also admits reads (`Stat`, `Open`, read-only `OpenFile`,
 Lua `readfile` and `exists`) through links to external regular files. Resolution
 allows at most 40 symlink expansions and detects repeated resolution states.
+Absolute links whose canonical targets remain inside the configured volume
+open through its retained `os.Root`, under the same authority as other contained
+reads. Ownership checks apply only when the target escapes that boundary.
+Owner-safe fallback opens are non-blocking until the opened descriptor is
+validated as a regular file, so a FIFO cannot hang a read or `Stat` request.
 The canonical target and **every canonical parent through the filesystem root**
 must be owned by the process UID or root, with `mode & 022 == 0`. Sticky
 permissions do not exempt a directory. This follows the owner/mode checks in

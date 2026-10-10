@@ -101,6 +101,31 @@ func (d *FS) openOwnerSafe(name string) (file *os.File, refusal error) {
 	if err != nil {
 		return nil, err
 	}
+	root, err := resolveLinkTarget(d.dirPath)
+	if err != nil {
+		return nil, err
+	}
+	// Contained targets use the host's existing root authority. The retained
+	// os.Root fences the open even if a component changes after resolution.
+	if relative, err := filepath.Rel(root, canonical); err == nil && filepath.IsLocal(relative) {
+		// A FIFO must not block before descriptor-based regular-file validation.
+		// O_NONBLOCK does not change regular-file reads; os.Root still contains
+		// the open if a component is replaced after canonical resolution.
+		file, err := d.root.OpenFile(relative, os.O_RDONLY|unix.O_NONBLOCK, 0)
+		if err != nil {
+			return nil, err
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			_ = file.Close()
+			return nil, fmt.Errorf("owner_safe: %s: not a regular file", canonical)
+		}
+		return file, nil
+	}
 	current, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, &fs.PathError{Op: "owner_safe", Path: "/", Err: err}
