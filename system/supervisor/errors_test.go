@@ -130,4 +130,28 @@ func TestErrors(t *testing.T) {
 		serviceID, _ := err.Details().Get("service_id")
 		assert.Equal(t, "my-service", serviceID)
 	})
+
+	t.Run("NewRetirementRestoreError", func(t *testing.T) {
+		// The cause may describe only the first of several restore failures.
+		// Every affected ID must still survive plain-text error logging.
+		serviceIDs := []string{"test:stubborn", "test:unrestorable"}
+		for _, restoreCause := range []error{nil, errors.New("start refused for test:stubborn")} {
+			err := NewRetirementRestoreError(serviceIDs, restoreCause)
+			assert.Contains(t, err.Error(), "services left stopped by a rejected retirement")
+			for _, id := range serviceIDs {
+				assert.Contains(t, err.Error(), id)
+			}
+			var typed apierror.Error
+			if assert.True(t, errors.As(err, &typed)) {
+				assert.Equal(t, apierror.Internal, typed.Kind())
+				assert.Equal(t, apierror.True, typed.Retryable())
+				ids, ok := typed.Details().Get("services")
+				assert.True(t, ok)
+				assert.Equal(t, serviceIDs, ids)
+			}
+			if restoreCause != nil {
+				assert.True(t, errors.Is(err, restoreCause))
+			}
+		}
+	})
 }

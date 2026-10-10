@@ -171,7 +171,11 @@ func NewSupervisorStoppedError(err error) apierror.Error {
 // could not bring back. They were running before the commit and are not running
 // after it.
 func NewRetirementRestoreError(serviceIDs []string, cause error) error {
-	return apierror.New(apierror.Internal, "services left stopped by a rejected retirement").
+	message := "services left stopped by a rejected retirement"
+	if len(serviceIDs) > 0 {
+		message += ": " + strings.Join(serviceIDs, ", ")
+	}
+	return apierror.New(apierror.Internal, message).
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"services": serviceIDs})).
 		WithCause(cause)

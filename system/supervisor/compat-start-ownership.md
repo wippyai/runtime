@@ -14,6 +14,10 @@ Canceling a queued caller does not replay its start after cleanup. A failed Stop
 also blocks a manual Start until Stop succeeds; reporting a failure alone is not
 permission to create another live child.
 
+A rejected replacement still reports all services it could not restore, both
+in structured error details and the logged message. The report does not depend
+on which of several restore failures completes first.
+
 Process services now broadcast completion on a separate internal channel. Stop
 does not consume the controller's terminal status or planned-restart notices.
 Run-context cancellation requests child cancellation but is not itself an exit
