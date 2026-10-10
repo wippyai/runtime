@@ -43,6 +43,50 @@ func applyOperationToState(snapshot regapi.State, op regapi.Operation) regapi.St
 	}
 	return next
 }
+
+// Authored dependency operations override package declarations, retaining
+// additional bindings from the selected artifact for linking the same component.
+func applyAuthoredDependencyChanges(ctx context.Context, state regapi.State, changes regapi.ChangeSet, transcoder payload.Transcoder) (regapi.State, []regapi.Entry, error) {
+	byID := entriesByID(state)
+	authored := make([]regapi.Entry, 0, len(changes))
+	for _, change := range changes {
+		state = applyOperationToState(state, change)
+		switch change.Kind {
+		case regapi.EntryCreate, regapi.EntryUpdate:
+			if selected, ok := byID[idKey(change.Entry.ID)]; ok && selected.Kind == regapi.NamespaceDependency && change.Entry.Kind == regapi.NamespaceDependency {
+				packageDep, err := decodeDependency(ctx, transcoder, selected)
+				if err != nil {
+					return nil, nil, err
+				}
+				explicitDep, err := decodeDependency(ctx, transcoder, change.Entry)
+				if err != nil {
+					return nil, nil, err
+				}
+				if packageDep.Component == explicitDep.Component {
+					params := append([]Parameter(nil), explicitDep.Parameters...)
+					names := make(map[string]struct{}, len(params))
+					for _, param := range params {
+						names[param.Name] = struct{}{}
+					}
+					for _, param := range packageDep.Parameters {
+						if _, overridden := names[param.Name]; !overridden {
+							params = append(params, param)
+						}
+					}
+					if len(params) > len(explicitDep.Parameters) {
+						explicitDep.Parameters = params
+						change.Entry.Data = payload.New(explicitDep)
+					}
+				}
+			}
+			authored = append(authored, change.Entry)
+			byID[idKey(change.Entry.ID)] = change.Entry
+		case regapi.EntryDelete:
+			delete(byID, idKey(change.Entry.ID))
+		}
+	}
+	return state, authored, nil
+}
 func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Operation, bool) {
 	if entry, ok := resolveOperationEntry(op, snapshot); ok && isRootDependency(entry) {
 		return op, true
@@ -368,7 +412,7 @@ func (h *DependencyHandler) collectSnapshotDependencies(
 // solverDependencies leaves declarations throughout a replaced deployment's
 // owned dependency closure to the selected packages' manifests.
 // Independent host and history roots continue to constrain the whole graph.
-func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replacing map[string]struct{}) []desiredDependency {
+func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replacing, authored map[string]struct{}) []desiredDependency {
 	selectedOwners := make(map[string]struct{})
 	children := make(map[string][]string)
 	var pending []string
@@ -393,7 +437,9 @@ func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replaci
 	}
 	result := make([]desiredDependency, 0, len(deps))
 	for _, dep := range deps {
-		if _, selected := selectedOwners[entryModule(dep.entry)]; !selected {
+		_, selected := selectedOwners[entryModule(dep.entry)]
+		_, explicit := authored[idKey(dep.entry.ID)]
+		if !selected || explicit {
 			result = append(result, dep)
 		}
 	}

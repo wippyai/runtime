@@ -250,7 +250,7 @@ func (h *DependencyHandler) isDeploymentRoot(module string) bool {
 	return h.lock != nil && h.lock.IsRootModule(module)
 }
 func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, snapshot regapi.State) (regapi.DirectiveResult, error) {
-	return h.expand(ctx, op, snapshot, nil, nil, nil)
+	return h.expand(ctx, op, snapshot, nil, nil, nil, regapi.ChangeSet{op})
 }
 func (h *DependencyHandler) expand(
 	ctx context.Context,
@@ -259,6 +259,7 @@ func (h *DependencyHandler) expand(
 	extraControlled map[string]struct{},
 	extraMutable map[string]struct{},
 	freshRoots map[string]struct{},
+	authoredChanges regapi.ChangeSet,
 ) (regapi.DirectiveResult, error) {
 	if h == nil || h.hub == nil {
 		return regapi.DirectiveResult{}, ErrDependencyHandlerNotConfigured
@@ -346,7 +347,11 @@ func (h *DependencyHandler) expand(
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 
-	solverDeps := h.solverDependencies(desiredDeps, mutableModules)
+	authoredIDs := make(map[string]struct{}, len(authoredChanges))
+	for _, change := range authoredChanges {
+		authoredIDs[idKey(change.Entry.ID)] = struct{}{}
+	}
+	solverDeps := h.solverDependencies(desiredDeps, mutableModules, authoredIDs)
 	desiredRoots := dependencyDefinitions(solverDeps)
 	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx))
 	if err != nil {
@@ -410,7 +415,6 @@ func (h *DependencyHandler) expand(
 		return regapi.DirectiveResult{}, err
 	}
 	defer func() { _ = unpackPlan.cleanup() }()
-	linkDeps := mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touchedModules), moduleEntries)
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
@@ -427,6 +431,12 @@ func (h *DependencyHandler) expand(
 		combined = append(combined, e)
 	}
 	combined = append(combined, moduleEntries...)
+	combined, authoredEntries, err := applyAuthoredDependencyChanges(ctx, combined, authoredChanges, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	linkDeps := mergeLinkDependencies(authoredEntries,
+		mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touchedModules), moduleEntries))
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
@@ -570,7 +580,7 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 		if !ok {
 			return regapi.DirectiveResult{}, nil
 		}
-		return h.expand(ctx, driver, snapshot, nil, nil, freshRoots)
+		return h.expand(ctx, driver, snapshot, nil, nil, freshRoots, rootChanges)
 	}
 	changes = rootChanges
 	// Preserve ownership from both sides of the batch. Looking only at the
@@ -615,7 +625,7 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	if !ok {
 		return regapi.DirectiveResult{}, nil
 	}
-	return h.expand(ctx, driver, working, extraControlled, extraMutable, freshRoots)
+	return h.expand(ctx, driver, working, extraControlled, extraMutable, freshRoots, changes)
 }
 
 // ReconcileResolution materializes a previously selected graph. An unchanged
@@ -673,7 +683,7 @@ func (h *DependencyHandler) ReconcileResolution(
 			replacingOwners[dep.definition.Component] = struct{}{}
 		}
 	}
-	solverDeps := h.solverDependencies(desiredDeps, replacingOwners)
+	solverDeps := h.solverDependencies(desiredDeps, replacingOwners, nil)
 	var resolved []ResolvedModule
 	effectiveResolution := resolution.Canonical()
 	if refreshReason != "" {
