@@ -2411,6 +2411,7 @@ func TestDependencyHandler_ResolveModules_PinsInstalledTransitiveVersions(t *tes
 		[]DependencyDefinition{{Component: "acme/app", Version: "1.0.0"}},
 		map[string]string{"wippy/facade": "0.5.39"},
 		nil,
+		nil,
 	)
 
 	require.NoError(t, err)
@@ -2453,6 +2454,7 @@ modules:
 	modules, err := handler.resolveModules(ctx,
 		[]DependencyDefinition{{Component: "acme/http", Version: "2.0.0"}},
 		map[string]string{},
+		nil,
 		nil,
 	)
 
@@ -2588,6 +2590,7 @@ replacements:
 			{Component: "local/mod", Version: "0.1.0"},
 		},
 		map[string]string{"local/mod": "0.1.0"},
+		nil,
 		nil,
 	)
 
@@ -2745,6 +2748,7 @@ replacements:
 		[]DependencyDefinition{{Component: "local/mod", Version: ">=v0.1.0"}},
 		map[string]string{},
 		nil,
+		nil,
 	)
 
 	require.NoError(t, err, "a replaced module with a range constraint and no locked version must resolve from its local wippy.yaml")
@@ -2796,6 +2800,7 @@ replacements:
 	modules, err := handler.resolveModules(ctx,
 		[]DependencyDefinition{{Component: "local/mod", Version: ">=v0.1.0"}},
 		map[string]string{},
+		nil,
 		nil,
 	)
 

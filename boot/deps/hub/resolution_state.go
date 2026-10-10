@@ -16,6 +16,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/internal/requirements"
 )
 
 type desiredDependency struct {
@@ -42,6 +43,78 @@ func applyOperationToState(snapshot regapi.State, op regapi.Operation) regapi.St
 		next = append(next, op.Entry)
 	}
 	return next
+}
+
+// Authored dependency operations override package declarations, retaining
+// additional bindings from the selected artifact for linking the same component.
+func authoredDependencyEntries(ctx context.Context, moduleEntries regapi.State, changes regapi.ChangeSet, transcoder payload.Transcoder) ([]regapi.Entry, error) {
+	byID := entriesByID(moduleEntries)
+	namespaces, err := requirements.ModuleNamespaces(moduleEntries)
+	if err != nil {
+		return nil, err
+	}
+	addresses := make(map[string]struct{})
+	var requirementIDs []string
+	for _, entry := range moduleEntries {
+		if entry.Kind == regapi.NamespaceRequirement {
+			addresses[entry.ID.String()] = struct{}{}
+			requirementIDs = append(requirementIDs, entry.ID.String())
+		}
+	}
+	sort.Strings(requirementIDs)
+	authored := make([]regapi.Entry, 0, len(changes))
+	for _, change := range changes {
+		switch change.Kind {
+		case regapi.EntryCreate, regapi.EntryUpdate:
+			if selected, ok := byID[idKey(change.Entry.ID)]; ok && selected.Kind == regapi.NamespaceDependency && change.Entry.Kind == regapi.NamespaceDependency {
+				packageDep, err := decodeDependency(ctx, transcoder, selected)
+				if err != nil {
+					return nil, err
+				}
+				explicitDep, err := decodeDependency(ctx, transcoder, change.Entry)
+				if err != nil {
+					return nil, err
+				}
+				if packageDep.Component == explicitDep.Component {
+					params := append([]Parameter(nil), explicitDep.Parameters...)
+					names := make(map[string]struct{}, len(params))
+					bound := make(map[string]struct{})
+					owned := requirements.AddressIndex(namespaces[explicitDep.Component], requirementIDs)
+					for _, param := range params {
+						names[param.Name] = struct{}{}
+						for _, id := range requirements.Resolve(param.Name, addresses, owned) {
+							bound[id] = struct{}{}
+						}
+					}
+					for _, param := range packageDep.Parameters {
+						if _, overridden := names[param.Name]; overridden {
+							continue
+						}
+						ids := requirements.Resolve(param.Name, addresses, owned)
+						remaining := make([]string, 0, len(ids))
+						for _, id := range ids {
+							if _, overridden := bound[id]; !overridden {
+								remaining = append(remaining, id)
+							}
+						}
+						if len(remaining) == len(ids) {
+							params = append(params, param)
+						} else {
+							for _, id := range remaining {
+								params = append(params, Parameter{Name: id, Value: param.Value})
+							}
+						}
+					}
+					if len(params) > len(explicitDep.Parameters) {
+						explicitDep.Parameters = params
+						change.Entry.Data = payload.New(explicitDep)
+					}
+				}
+			}
+		}
+		authored = applyOperationToState(authored, change)
+	}
+	return authored, nil
 }
 func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Operation, bool) {
 	if entry, ok := resolveOperationEntry(op, snapshot); ok && isRootDependency(entry) {
@@ -80,7 +153,7 @@ func (h *DependencyHandler) refreshResolvedModules(
 			}
 		}
 	}
-	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions, resolution)
+	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions, resolution, current)
 }
 
 // changedDependencyParameterModules returns the modules whose authored root
@@ -368,7 +441,7 @@ func (h *DependencyHandler) collectSnapshotDependencies(
 // solverDependencies leaves declarations throughout a replaced deployment's
 // owned dependency closure to the selected packages' manifests.
 // Independent host and history roots continue to constrain the whole graph.
-func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replacing map[string]struct{}) []desiredDependency {
+func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replacing, authored map[string]struct{}) []desiredDependency {
 	selectedOwners := make(map[string]struct{})
 	children := make(map[string][]string)
 	var pending []string
@@ -393,7 +466,9 @@ func (h *DependencyHandler) solverDependencies(deps []desiredDependency, replaci
 	}
 	result := make([]desiredDependency, 0, len(deps))
 	for _, dep := range deps {
-		if _, selected := selectedOwners[entryModule(dep.entry)]; !selected {
+		_, selected := selectedOwners[entryModule(dep.entry)]
+		_, explicit := authored[idKey(dep.entry.ID)]
+		if !selected || explicit {
 			result = append(result, dep)
 		}
 	}
