@@ -3,6 +3,7 @@
 package registry
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -54,12 +55,22 @@ func (d *Deployment) Canonical() *Deployment {
 }
 
 // DependencyRoot records one authored dependency declaration used as a solver
-// input. Parameters remain in the ordinary registry changeset because they
-// configure linking rather than version selection.
+// input. Authored parameters remain in the ordinary registry changeset;
+// effective link parameters are checkpointed separately from version inputs.
 type DependencyRoot struct {
 	ID        string `json:"id"`
 	Component string `json:"component"`
 	Version   string `json:"version"`
+}
+
+// DependencyBinding records the effective link parameters for an authored
+// root/reference. Values remain JSON, detached from mutable registry payloads.
+// An empty array records a decision with no parameters; an absent binding
+// retains the historical replay policy. This is checkpoint metadata, not an
+// app setting.
+type DependencyBinding struct {
+	ID         string          `json:"id"`
+	Parameters json.RawMessage `json:"parameters"`
 }
 
 // DependencyResolution is the exact graph selected for a registry version.
@@ -76,10 +87,11 @@ type DependencyResolution struct {
 	// deployment already installs. They are recorded facts of the selection —
 	// their constraints joined the solve — but they do not control install or
 	// uninstall and stay outside InputDigest, so the declared root-set identity
-	// is unchanged; a reference-free Digest stays byte-identical to prior
-	// releases while referenced graphs are content-distinct.
-	References []DependencyRoot `json:"references,omitempty"`
-	Modules    []ResolvedModule `json:"modules"`
+	// is unchanged. Omitting optional checkpoint metadata keeps the old
+	// digest recipe; referenced graphs are content-distinct.
+	References []DependencyRoot    `json:"references,omitempty"`
+	Modules    []ResolvedModule    `json:"modules"`
+	Bindings   []DependencyBinding `json:"bindings,omitempty"`
 }
 
 // CanRebaseDependencyResolution reports whether next may replace the graph
@@ -115,7 +127,15 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 		Roots:          append([]DependencyRoot(nil), r.Roots...),
 		References:     append([]DependencyRoot(nil), r.References...),
 		Modules:        append([]ResolvedModule(nil), r.Modules...),
+		Bindings:       make([]DependencyBinding, len(r.Bindings)),
 	}
+	for i, binding := range r.Bindings {
+		out.Bindings[i] = DependencyBinding{ID: binding.ID, Parameters: append(json.RawMessage(nil), binding.Parameters...)}
+	}
+	if len(out.Bindings) == 0 {
+		out.Bindings = nil
+	}
+	sort.Slice(out.Bindings, func(i, j int) bool { return out.Bindings[i].ID < out.Bindings[j].ID })
 	out.Deployment = r.Deployment.Canonical()
 	if len(out.References) == 0 {
 		out.References = nil
@@ -199,6 +219,31 @@ func (r *DependencyResolution) Valid() bool {
 		referenceIDs[reference.ID] = struct{}{}
 	}
 	modules := make(map[string]string, len(r.Modules))
+	bindingIDs := make(map[string]struct{}, len(r.Bindings))
+	for _, binding := range r.Bindings {
+		if _, duplicate := bindingIDs[binding.ID]; duplicate {
+			return false
+		}
+		_, root := rootIDs[binding.ID]
+		_, reference := referenceIDs[binding.ID]
+		if !root && !reference {
+			return false
+		}
+		var parameters []struct {
+			Name  string          `json:"name"`
+			Value json.RawMessage `json:"value"`
+		}
+		encoded := bytes.TrimSpace(binding.Parameters)
+		if len(encoded) == 0 || encoded[0] != '[' || json.Unmarshal(encoded, &parameters) != nil {
+			return false
+		}
+		for _, parameter := range parameters {
+			if parameter.Name == "" || !json.Valid(parameter.Value) {
+				return false
+			}
+		}
+		bindingIDs[binding.ID] = struct{}{}
+	}
 	if !validResolvedModules(r.Modules, modules) {
 		return false
 	}
@@ -275,8 +320,9 @@ func (r *DependencyResolution) computeDigest() string {
 		// omitempty keeps a reference-free digest byte-identical to prior
 		// releases while distinct reference sets produce distinct graphs in
 		// content-addressed stores.
-		References []DependencyRoot `json:"references,omitempty"`
-		Modules    []ResolvedModule `json:"modules"`
+		References []DependencyRoot    `json:"references,omitempty"`
+		Modules    []ResolvedModule    `json:"modules"`
+		Bindings   []DependencyBinding `json:"bindings,omitempty"`
 	}{
 		InputDigest:    r.InputDigest,
 		BaselineDigest: r.BaselineDigest,
@@ -284,8 +330,14 @@ func (r *DependencyResolution) computeDigest() string {
 		References:     r.References,
 		Modules:        r.Modules,
 		Deployment:     r.Deployment,
+		Bindings:       r.Bindings,
 	}
-	data, _ := json.Marshal(payload) // Struct contains only JSON-safe primitives.
+	data, err := json.Marshal(payload)
+	if err != nil {
+		// Malformed raw binding data has no content identity and must never
+		// receive the digest of an empty serialization.
+		return ""
+	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
