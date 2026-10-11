@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -21,7 +22,10 @@ type diagnosticPlanRegistry struct{ *mockRegistry }
 func (r diagnosticPlanRegistry) Plan(ctx context.Context, _ regapi.Version, _ regapi.ChangeSet) (*regapi.Plan, error) {
 	entries := []regapi.Entry{
 		{ID: regapi.NewID("app", "audience"), Kind: regapi.NamespaceRequirement,
-			Data: payload.New(map[string]any{"targets": []any{map[string]any{"entry": "service", "path": ".config.audience"}}})},
+			Meta: attrs.Bag{"description": "Select the audience", "value_kind": "security.scope",
+				"options": []any{"app:read", "app:write"}, "applicability": map[string]any{"mode": "review"}},
+			Data: payload.New(map[string]any{"targets": []any{map[string]any{"entry": "service", "path": ".config.audience"}},
+				"options": map[string]any{"allow_custom": false}})},
 		{ID: regapi.NewID("app", "service"), Kind: regapi.EntryKind, Data: payload.New(map[string]any{})},
 	}
 	err := build.New(stages.Link(stages.WithStrictRequirements())).Execute(ctx, &entries)
@@ -48,5 +52,16 @@ func TestChangesPlanPreservesNativeRequirementDiagnostic(t *testing.T) {
 		assert(details.requirements[1].requirement == "app:audience")
 		assert(details.requirements[1].targets[1].entry == "service")
 		assert(details.requirements[1].targets[1].path == ".config.audience")
+		local declaration = details.requirements[1].declaration
+		assert(type(declaration) == "table")
+		assert(declaration.id == "app:audience" and declaration.kind == "ns.requirement")
+		assert(declaration.meta.description == "Select the audience")
+		assert(declaration.meta.value_kind == "security.scope")
+		assert(declaration.meta.options[1] == "app:read" and declaration.meta.options[2] == "app:write")
+		assert(declaration.meta.applicability.mode == "review")
+		assert(declaration.data.default == nil)
+		assert(declaration.data.targets[1].entry == "service")
+		assert(declaration.data.targets[1].path == ".config.audience")
+		assert(declaration.data.options.allow_custom == false)
 	`)
 }

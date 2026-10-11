@@ -109,7 +109,11 @@ func NewUnresolvedRequirementsError(errs []error) apierror.Error {
 			if diagnostic != nil && diagnostic.Details() != nil {
 				if address, ok := diagnostic.Details().Get("requirement"); ok {
 					targets, _ := diagnostic.Details().Get("targets")
-					requirements = append(requirements, map[string]any{"requirement": address, "targets": targets})
+					requirement := map[string]any{"requirement": address, "targets": targets}
+					if declaration, ok := diagnostic.Details().Get("declaration"); ok {
+						requirement["declaration"] = declaration
+					}
+					requirements = append(requirements, requirement)
 				}
 			}
 		}

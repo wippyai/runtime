@@ -178,8 +178,15 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 				}
 				var diagnostic apierror.Error
 				if errors.As(err, &diagnostic) {
+					data, decodeErr := entry.DecodeEntryConfigRaw[map[string]any](ctx, transcoder, req.entry)
+					if decodeErr != nil {
+						return NewDecodeRequirementError(id, decodeErr)
+					}
+					declaration := map[string]any{
+						"id": id, "kind": req.entry.Kind, "meta": map[string]any(req.entry.Meta), "data": *data,
+					}
 					err = apierror.E(diagnostic.Kind(), "unresolved requirement "+id, diagnostic.Retryable(),
-						attrs.Bag{"requirement": id, "targets": targets}, err)
+						attrs.Bag{"requirement": id, "targets": targets, "declaration": declaration}, err)
 				}
 				unresolved = append(unresolved, err)
 			}
