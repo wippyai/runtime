@@ -62,6 +62,9 @@ func frameValue(value any) any {
 type frameContext struct {
 	values atomic.Pointer[frameValues]
 	parent *frameContext
+	// onComplete is installed before publication and is not inherited. It runs
+	// once, after this frame and every retained child have closed their values.
+	onComplete func()
 	// generation increments whenever the frame lifecycle changes.
 	// Context values carry the generation to reject stale frame references.
 	generation atomic.Uint64
@@ -444,7 +447,7 @@ func ContinueFrameContext(ctx context.Context) (context.Context, FrameContext, e
 	// is sealed so the continuation is always a fork, never the frame itself.
 	fc.Seal()
 	if ref, ok := fc.(*frameContextRef); ok {
-		next, frame := forkFrameContextMode(ctx, ref, true)
+		next, frame := forkFrameContextMode(ctx, ref, true, nil)
 		return next, frame, nil
 	}
 	var carried []Pair
@@ -559,11 +562,19 @@ func releaseFrame(f *frameContext, expectedGeneration uint64) {
 	f.values.Store(&values)
 	parent := f.parent
 	f.parent = nil
+	onComplete := f.onComplete
+	f.onComplete = nil
 	f.sealed.Store(false)
 	f.writers.Store(0)
 
 	for _, closer := range closers {
 		_ = closer.Close()
+	}
+
+	// Complete children before releasing their parent, so an ancestor's
+	// completion cannot overtake a descendant's cleanup or completion.
+	if onComplete != nil {
+		onComplete()
 	}
 
 	if parent != nil {
@@ -594,20 +605,45 @@ func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 }
 
 // OpenFrameContextOn creates a new frame on targetCtx, inheriting from parentCtx.
-// Uses reference counting to ensure parent frame stays alive while child iterates.
+// The child retains the parent frame until the child is released.
 func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (context.Context, FrameContext) {
-	parentRef, _ := FrameFromContext(parentCtx).(*frameContextRef)
-	parentFC := parentRef.resolveFrame()
-	if parentFC != nil && !parentFC.IsSealed() {
-		// Forking implies immutable parent snapshot for safe copy-on-fork.
-		parentFC.Seal()
+	return openFrameContextOn(targetCtx, parentCtx, nil)
+}
+
+// SnapshotFrameContextOn creates an independent frame on targetCtx, copying
+// inheritable values from sourceCtx with the same Clone rules as a fork.
+// It seals and retains the source only while copying; the returned frame does
+// not extend the source frame's lifetime. Cancellation comes from targetCtx.
+// Use a fork instead when the child is part of the source's execution.
+func SnapshotFrameContextOn(targetCtx context.Context, sourceCtx context.Context) (context.Context, FrameContext) {
+	ctx, ref := openFrameContextOn(targetCtx, sourceCtx, nil)
+	// The new frame is still unpublished. Its values have been copied, so it
+	// no longer needs the temporary reference used to protect that copy.
+	parent := ref.frame.parent
+	ref.frame.parent = nil
+	if parent != nil {
+		releaseFrame(parent, 0)
 	}
-	return forkFrameContext(targetCtx, parentRef)
+	return ctx, ref
+}
+
+func openFrameContextOn(targetCtx context.Context, parentCtx context.Context, onComplete func()) (context.Context, *frameContextRef) {
+	parentRef, _ := FrameFromContext(parentCtx).(*frameContextRef)
+	return forkFrameContextMode(targetCtx, parentRef, false, onComplete)
 }
 
 // ForkFrameContext creates a new frame on ctx inheriting from the frame in ctx.
 func ForkFrameContext(ctx context.Context) (context.Context, FrameContext) {
 	return OpenFrameContextOn(ctx, ctx)
+}
+
+// ForkFrameContextWithCompletion forks an owned frame and calls onComplete
+// exactly once after its values and all retained descendants finish cleanup.
+// Completion runs synchronously on the final releasing goroutine, before the
+// frame releases its parent; it must not wait for that parent to close.
+// A nil callback is equivalent to ForkFrameContext.
+func ForkFrameContextWithCompletion(ctx context.Context, onComplete func()) (context.Context, FrameContext) {
+	return openFrameContextOn(ctx, ctx, onComplete)
 }
 
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
@@ -617,6 +653,7 @@ func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc.refcount.Store(1)
 	fc.writers.Store(0)
 	fc.parent = nil
+	fc.onComplete = nil
 	fc.execution = nil
 	fc.borrowed = nil
 	values := make(frameValues, 8)
@@ -628,14 +665,14 @@ func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 // forkFrameContext creates a new child frame from a parent frame.
 // Uses CAS to increment parent refcount only if still alive, preventing
 // a race where FrameFromContext returns a frame that is concurrently released.
-// Parent is always sealed when forking, so no lock needed for copying.
+// The retained parent is sealed before its inheritance snapshot is copied.
 func forkFrameContext(ctx context.Context, parentRef *frameContextRef) (context.Context, *frameContextRef) {
-	return forkFrameContextMode(ctx, parentRef, false)
+	return forkFrameContextMode(ctx, parentRef, false, nil)
 }
 
 // A continuation shares execution-owned values; a normal fork applies the
 // existing inheritance/Clone rules. Both acquire the same parent reference.
-func forkFrameContextMode(ctx context.Context, parentRef *frameContextRef, continuing bool) (context.Context, *frameContextRef) {
+func forkFrameContextMode(ctx context.Context, parentRef *frameContextRef, continuing bool, onComplete func()) (context.Context, *frameContextRef) {
 	parent := parentRef.resolveFrame()
 	if parent != nil {
 		if !tryIncRef(parent, parentRef.generation) {
@@ -649,12 +686,17 @@ func forkFrameContextMode(ctx context.Context, parentRef *frameContextRef, conti
 	fc.refcount.Store(1)
 	fc.writers.Store(0)
 	fc.parent = parent
+	fc.onComplete = onComplete
 	fc.execution = nil
 	fc.borrowed = nil
 	values := make(frameValues, 8)
 
-	// Parent is sealed (checked in OpenFrameContext), safe to read without lock
+	// Retain the parent before sealing or reading it, so concurrent owner
+	// release cannot reclaim it while inheritance is being copied.
 	if parent != nil {
+		if !parent.IsSealed() {
+			parent.Seal()
+		}
 		parentValues := parent.valuesSnapshot()
 		values = make(frameValues, len(parentValues))
 		for k, v := range parentValues {

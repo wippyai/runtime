@@ -22,7 +22,7 @@ Returned by `funcs.async()` and executor methods. Provides access to async opera
 | is_canceled | () | boolean | Returns true if cancel() was called |
 | result | () | value, error | Returns cached result or error |
 | error | () | error, boolean | Returns error if failed, ok=true if has error |
-| cancel | () | - | Cancels async operation, yields |
+| cancel | () | boolean, error | Requests best-effort cancellation, yields |
 
 #### future:response() -> Channel
 
@@ -65,11 +65,13 @@ Note: Just because cancel was called doesn't mean the operation stopped. The und
 
 #### future:result() -> value, error
 
-Returns the cached result if available.
+Returns the cached result if available. Native process futures expose the actual
+outcome. Workflow futures preserve their cancellation result: after `cancel()`,
+`result()` returns a cancellation error even if an outcome was already cached.
 
 **Returns:**
 - Not complete: `nil, nil`
-- Canceled: `nil, error` with kind `errors.CANCELED`
+- Completed with cancellation: `nil, error` with kind `errors.CANCELED`
 - Error: `nil, error` (structured error from async operation)
 - Success: `value, nil` (Payload or table of Payloads)
 
@@ -105,13 +107,25 @@ if ok then
 end
 ```
 
-#### future:cancel() -> -
+#### future:cancel() -> boolean, error
 
-Cancels the async operation. Marks the future as canceled.
+Requests cancellation of the async operation. Marks the cancellation request
+for `is_canceled()`.
 
 **Yields:** until cancel command is sent
 
-**Note:** Cancel is best-effort. The async operation may still complete if already in progress.
+**Native processes:** Cancellation is non-blocking and best-effort. The future
+completes only after the function returns and its execution frame, including
+retained nested calls, finishes cleanup. Receive on `response()` to wait for
+teardown, then read `result()` for the actual outcome, which may be cancellation,
+another error, or success. Independently spawned actors have their own lifetime
+and are not joined by the spawning function's future. Until completion,
+`result()` returns `nil, nil`, including after a cancellation request.
+
+**Workflows:** Temporal cancellation retains its existing contract: it closes the
+future topic immediately and `result()` reports cancellation. The configured
+`activity.wait_for_cancellation` policy is preserved. A closed workflow future
+does not guarantee physical cleanup on a remote activity worker.
 
 ```lua
 local future = funcs.async("app.test:slow", 5000)

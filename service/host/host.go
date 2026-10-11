@@ -299,7 +299,7 @@ func (h *Host) preparePID(_ context.Context, start *process.Start) pid.PID {
 
 // prepareContext creates a frame context for the process.
 func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *process.Start) context.Context {
-	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
+	pCtx, fc := ctxapi.SnapshotFrameContextOn(h.ctx, ctx)
 
 	pairsLen := 3 + len(start.Context)
 	pairs := make([]ctxapi.Pair, pairsLen)

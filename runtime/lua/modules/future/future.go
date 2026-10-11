@@ -9,6 +9,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
@@ -202,8 +203,10 @@ func futureResult(l *lua.LState) int {
 		return 0
 	}
 
-	// Check if canceled
-	if f.IsCanceled() {
+	// Temporal workflows retain their recorded cancellation semantics. Changing
+	// this result can change subsequent commands during history replay. Native
+	// futures instead expose only the actual outcome after call/frame teardown.
+	if f.IsCanceled() && workflowapi.IsDeterministic(l.Context()) {
 		luaErr := lua.NewLuaError(l, "canceled").
 			WithKind(lua.Canceled).
 			WithRetryable(false)

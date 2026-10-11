@@ -375,17 +375,8 @@ func TestAsyncCancelHandler(t *testing.T) {
 	require.NoError(t, err)
 	<-done
 
-	// Should have sent terminal package
-	select {
-	case pkg := <-mockNode.packages:
-		assert.Equal(t, testPID, pkg.Target)
-		require.Len(t, pkg.Messages, 1)
-		assert.Equal(t, "@future:test-123", pkg.Messages[0].Topic)
-		require.Len(t, pkg.Messages[0].Payloads, 1)
-		assert.True(t, payload.IsTerminal(pkg.Messages[0].Payloads[0]))
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for package")
-	}
+	// An unknown or completed call has no outcome to publish here.
+	require.Empty(t, mockNode.packages)
 }
 
 func TestAsyncCancelHandler_CancelsRunningCallContext(t *testing.T) {

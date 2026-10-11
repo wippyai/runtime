@@ -353,7 +353,7 @@ func (h *Host) preparePID(ctx context.Context, start *process.Start) pid.PID {
 
 // prepareContext creates a frame context for the terminal process.
 func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *process.Start) context.Context {
-	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
+	pCtx, fc := ctxapi.SnapshotFrameContextOn(h.ctx, ctx)
 
 	// Extract args from Input payloads
 	var args []string

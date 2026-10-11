@@ -21,12 +21,21 @@ import (
 type Dispatcher struct {
 	node       relay.Node
 	logger     *zap.Logger
-	asyncCalls sync.Map // map[asyncCallKey]context.CancelFunc
+	asyncCalls sync.Map // map[asyncCallKey]*asyncCall
+}
+
+type asyncCall struct {
+	cancel  context.CancelFunc
+	outcome payload.Payload
 }
 
 type asyncCallKey struct {
 	target string
 	topic  string
+}
+
+func makeAsyncCallKey(target pid.PID, topic string) asyncCallKey {
+	return asyncCallKey{target: target.String(), topic: topic}
 }
 
 // NewDispatcher creates a new function dispatcher with relay node for message routing.
@@ -112,30 +121,31 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 		return nil
 	}
 
-	topic := startCmd.Topic
-	node := d.node
 	task := startCmd.Task
-	logger := d.logger
 
-	callCtx, fc := ctxapi.ForkFrameContext(ctx)
-	callCtx, cancel := context.WithCancel(callCtx)
-	key := asyncCallKey{target: framePID.String(), topic: topic}
-	d.asyncCalls.Store(key, cancel)
-
-	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
-		defer ctxapi.ReleaseFrameContext(callFC)
-		defer cancel()
-		defer d.asyncCalls.Delete(key)
-		result, err := registry.Call(callCtx, task)
-
-		resultPayload := resultToPayload(result, err)
-		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
-			logger.Warn("failed to send async result",
-				zap.String("topic", topic),
-				zap.String("target", framePID.String()),
+	key := makeAsyncCallKey(framePID, startCmd.Topic)
+	call := &asyncCall{}
+	callCtx, fc := ctxapi.ForkFrameContextWithCompletion(ctx, func() {
+		defer d.asyncCalls.CompareAndDelete(key, call)
+		if err := sendAsyncResult(d.node, framePID, key.topic, call.outcome); err != nil {
+			d.logger.Warn("failed to send async result",
+				zap.String("topic", key.topic),
+				zap.String("target", key.target),
 				zap.Error(err))
 		}
-	}(callCtx, fc)
+	})
+	callCtx, call.cancel = context.WithCancel(callCtx)
+	d.asyncCalls.Store(key, call)
+
+	go func() {
+		// The owner reference keeps completion from reading the outcome until
+		// this release. Descendants may retain it after the call has returned.
+		defer ctxapi.ReleaseFrameContext(fc)
+		// Cancel before closers join context-bound workers, on every exit.
+		defer call.cancel()
+		result, err := registry.Call(callCtx, task)
+		call.outcome = resultToPayload(result, err)
+	}()
 
 	receiver.CompleteYield(tag, function.AsyncStartResult{}, nil)
 	return nil
@@ -169,18 +179,14 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 		return nil
 	}
 
-	topic := cancelCmd.Topic
-	key := asyncCallKey{target: framePID.String(), topic: topic}
-	if cancelFn, ok := d.asyncCalls.LoadAndDelete(key); ok {
-		cancelFn.(context.CancelFunc)()
+	key := makeAsyncCallKey(framePID, cancelCmd.Topic)
+	if value, ok := d.asyncCalls.Load(key); ok {
+		call := value.(*asyncCall)
+		call.cancel()
 	}
 
-	if err := sendAsyncCancel(d.node, framePID, topic); err != nil {
-		d.logger.Warn("failed to send async cancel",
-			zap.String("topic", topic),
-			zap.String("target", framePID.String()),
-			zap.Error(err))
-	}
+	// Cancellation only requests that the call stop. Frame completion publishes
+	// the actual outcome after the call and its retained descendants finish cleanup.
 
 	receiver.CompleteYield(tag, nil, nil)
 	return nil
@@ -188,10 +194,10 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 
 func sendAsyncResult(node relay.Node, target pid.PID, topic string, result payload.Payload) error {
 	pkg := relay.NewPackage(pid.PID{}, target, topic, result, payload.NewTerminal())
-	return node.Send(pkg)
-}
-
-func sendAsyncCancel(node relay.Node, target pid.PID, topic string) error {
-	pkg := relay.NewPackage(pid.PID{}, target, topic, payload.NewTerminal())
-	return node.Send(pkg)
+	if err := node.Send(pkg); err != nil {
+		// Failed admission leaves ownership with the sender.
+		relay.ReleasePackage(pkg)
+		return err
+	}
+	return nil
 }

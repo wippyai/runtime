@@ -72,6 +72,18 @@ Starts an async function call, returns immediately.
 
 **Context inheritance:** Automatically inherits actor, scope, and values from calling frame context.
 
+**Native process completion:** The future publishes the actual outcome only after
+the function and its execution frame, including retained nested calls, finish
+teardown. `cancel()` requests cancellation without waiting; receive on the same
+future to wait for completion. Independently spawned actors are not joined by
+the spawning function's future.
+
+**Workflow cancellation:** Temporal futures retain their existing behavior:
+`cancel()` closes the future topic immediately and `result()` reports cancellation.
+The activity's cancellation policy remains controlled by
+`activity.wait_for_cancellation`. Closing the workflow future does not establish
+physical cleanup completion on a remote activity worker.
+
 ```lua
 local future, err = funcs.async("app.process:heavy", 42)
 if err then error(err) end
@@ -266,7 +278,7 @@ Returned by `funcs.async()` and `executor:async()`.
 | is_canceled | () | boolean |
 | result | () | value, error |
 | error | () | error, boolean |
-| cancel | () | - |
+| cancel | () | boolean, error |
 
 See: `runtime/lua/modules/future/spec.md`
 
