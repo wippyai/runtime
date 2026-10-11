@@ -74,6 +74,9 @@ const (
 	// Outdated indicates a process's source code (or a transitively imported
 	// dependency) changed in the registry and the process may hot-swap.
 	Outdated Kind = "pid.outdated"
+	// OutdatedRejected asks a monitoring parent to replace an incarnation
+	// that cannot accept the code-change signal. The process is still running.
+	OutdatedRejected Kind = "pid.outdated.rejected"
 	// MonitorRequest requests monitoring of a remote PID.
 	MonitorRequest Kind = "pid.monitor.request"
 	// MonitorRelease releases monitoring of a remote PID.

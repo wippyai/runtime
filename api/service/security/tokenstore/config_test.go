@@ -33,6 +33,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: Config{
+				SubjectLookup:     registry.NewID("users", "lookup"),
 				Store:             registry.NewID("stores", "tokens"),
 				TokenLength:       32,
 				TokenKey:          "secret-key",
@@ -62,6 +63,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			var decoded Config
 			err = json.Unmarshal(data, &decoded)
 			require.NoError(t, err)
+			assert.Equal(t, tt.config.SubjectLookup, decoded.SubjectLookup)
 			assert.Equal(t, tt.config.Store, decoded.Store)
 			assert.Equal(t, tt.config.TokenLength, decoded.TokenLength)
 		})

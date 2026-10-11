@@ -365,7 +365,7 @@ modules:
 	// change the graph or mutate the previous version's checkpoint.
 	previousVersion := v1
 	v1, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: root}})
-	require.NoError(t, err)
+	require.NoError(t, err, "%+v", apierror.BuildChain(err))
 	assertSelected(reg, "2.0.0")
 	unchanged, err := history.GetDependencyResolution(previousVersion)
 	require.NoError(t, err)
@@ -425,13 +425,13 @@ func TestSolverDependenciesPreservesIndependentConstraints(t *testing.T) {
 	handler := &DependencyHandler{deployment: &regapi.Deployment{Root: "acme/app"}}
 	for _, target := range []string{"", "acme/worker", "acme/addon"} {
 		t.Run("unchanged_closure_"+target, func(t *testing.T) {
-			got := handler.solverDependencies(deps, map[string]struct{}{target: {}})
+			got := handler.solverDependencies(deps, map[string]struct{}{target: {}}, nil)
 			require.Equal(t, ids(deps), ids(got), "only selecting the deployment root releases its owned declarations")
 		})
 	}
 	expected := []string{"app", "addon", "addon_leaf", "worker_pin", "helper_pin"}
 	t.Run("deep_owned_closure", func(t *testing.T) {
-		got := handler.solverDependencies(deps, map[string]struct{}{"acme/app": {}})
+		got := handler.solverDependencies(deps, map[string]struct{}{"acme/app": {}}, nil)
 		require.Equal(t, expected, ids(got))
 	})
 	t.Run("declaration_order", func(t *testing.T) {
@@ -439,12 +439,12 @@ func TestSolverDependenciesPreservesIndependentConstraints(t *testing.T) {
 		slices.Reverse(reversed)
 		want := slices.Clone(expected)
 		slices.Reverse(want)
-		got := handler.solverDependencies(reversed, map[string]struct{}{"acme/app": {}})
+		got := handler.solverDependencies(reversed, map[string]struct{}{"acme/app": {}}, nil)
 		require.Equal(t, want, ids(got))
 	})
 	t.Run("ownership_cycle", func(t *testing.T) {
 		cyclic := append(slices.Clone(deps), declaration("cycle", "acme/helper", "acme/app"))
-		got := handler.solverDependencies(cyclic, map[string]struct{}{"acme/app": {}})
+		got := handler.solverDependencies(cyclic, map[string]struct{}{"acme/app": {}}, nil)
 		require.Equal(t, expected, ids(got), "closure traversal terminates without discarding independent roots")
 	})
 }

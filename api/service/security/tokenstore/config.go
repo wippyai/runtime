@@ -25,6 +25,8 @@ const (
 
 // Config defines configuration for a token store
 type Config struct {
+	// SubjectLookup resolves the stored actor through the host's current authority.
+	SubjectLookup     registry.ID   `json:"subject_lookup,omitzero"`
 	Store             registry.ID   `json:"store"`
 	TokenKey          string        `json:"token_key,omitempty"`
 	TokenLength       int           `json:"token_length"`
@@ -57,6 +59,7 @@ func (c *Config) InitDefaults() {
 
 // configJSON is used for JSON marshaling/unmarshaling with string duration
 type configJSON struct {
+	SubjectLookup     registry.ID `json:"subject_lookup,omitzero"`
 	Store             registry.ID `json:"store"`
 	TokenKey          string      `json:"token_key,omitempty"`
 	DefaultExpiration string      `json:"default_expiration,omitempty"`
@@ -70,6 +73,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	c.SubjectLookup = raw.SubjectLookup
 	c.Store = raw.Store
 	c.TokenLength = raw.TokenLength
 	c.TokenKey = raw.TokenKey
@@ -88,9 +92,10 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 // MarshalJSON implements json.Marshaler to output duration as string
 func (c Config) MarshalJSON() ([]byte, error) {
 	raw := configJSON{
-		Store:       c.Store,
-		TokenLength: c.TokenLength,
-		TokenKey:    c.TokenKey,
+		SubjectLookup: c.SubjectLookup,
+		Store:         c.Store,
+		TokenLength:   c.TokenLength,
+		TokenKey:      c.TokenKey,
 	}
 	if c.DefaultExpiration != 0 {
 		raw.DefaultExpiration = c.DefaultExpiration.String()

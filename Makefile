@@ -72,9 +72,10 @@ test-integration:
 test-network:
 	go test -v -race -timeout 300s ./service/net/...
 
+LINT_PACKAGES ?= ./...
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run --timeout=10m --build-tags=race,sqlite_preupdate_hook,goexperiment.jsonv2 ./...
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run --timeout=10m --build-tags=race,sqlite_preupdate_hook,goexperiment.jsonv2 $(LINT_PACKAGES)
 
 # Mutation testing with gremlins. Coverage is scoped to the directory gremlins
 # runs from, so target a package subtree via MUTATE_DIR. workers=1 keeps per-

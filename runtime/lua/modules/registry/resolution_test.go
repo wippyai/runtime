@@ -4,6 +4,7 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -161,6 +162,21 @@ func TestLockDigestPinsRootAndExactModules(t *testing.T) {
 	noLock := first.Canonical()
 	noLock.Deployment = nil
 	require.Equal(t, lua.LNil, resolutionToLuaTable(l, noLock).RawGetString("lock"))
+}
+
+func TestEffectiveLinkBindingsStayInternal(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	resolution := testResolution("2.0.0")
+	resolution.Roots = []regapi.DependencyRoot{{ID: "app:root", Component: "org/app", Version: "2.0.0"}}
+	resolution.Bindings = []regapi.DependencyBinding{{ID: "app:root", Parameters: json.RawMessage(`[{"name":"private","value":"configured"}]`)}}
+	resolution = resolution.Canonical()
+	require.True(t, resolution.Valid())
+	table := resolutionToLuaTable(l, resolution)
+	require.Equal(t, lua.LNil, table.RawGetString("bindings"))
+	require.Equal(t, lua.LString(resolution.Digest), table.RawGetString("digest"))
+	root := table.RawGetString("roots").(*lua.LTable).RawGetInt(1).(*lua.LTable)
+	require.Equal(t, lua.LNil, root.RawGetString("parameters"))
 }
 
 type resolutionReadFailure struct{ regapi.ResolutionHistory }

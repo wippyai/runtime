@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	processapi "github.com/wippyai/runtime/api/process"
@@ -24,24 +26,28 @@ import (
 // Service represents a running process service instance managed by supervisor.
 // It monitors a child process via topology and reports status changes.
 type Service struct {
-	pidGen        processapi.PIDGenerator
-	statusCh      chan any
-	detachFn      context.CancelFunc
-	gate          *bootpkg.Gate
-	completion    *bootpkg.Gate
-	supervisorPID pid.PID
-	childPID      pid.PID
-	id            registry.ID
-	config        supervisorapi.ServiceConfig
-	completionMu  sync.RWMutex
+	pidGen            processapi.PIDGenerator
+	statusCh          chan any
+	doneCh            chan struct{}
+	detachFn          context.CancelFunc
+	gate              *bootpkg.Gate
+	completion        *bootpkg.Gate
+	restartCompletion *bootpkg.Gate
+	restartRequested  *atomic.Bool
+	supervisorPID     pid.PID
+	childPID          pid.PID
+	id                registry.ID
+	config            supervisorapi.ServiceConfig
+	completionMu      sync.RWMutex
 }
 
 // NewService creates a new process service instance.
 func NewService(id registry.ID, config supervisorapi.ServiceConfig, pidGen processapi.PIDGenerator) *Service {
 	return &Service{
-		id:     id,
-		config: config,
-		pidGen: pidGen,
+		id:               id,
+		config:           config,
+		pidGen:           pidGen,
+		restartRequested: &atomic.Bool{},
 	}
 }
 
@@ -83,11 +89,21 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, ErrNoProcessManager
 	}
 
+	svc.completionMu.Lock()
+	completion := svc.restartCompletion
+	svc.restartCompletion = nil
+	if completion == nil && (svc.config.Lifecycle.Startup == supervisor.StartupComplete || svc.gate != nil) {
+		completion = bootpkg.NewReadiness().RegisterGate(svc.id.String())
+	}
+	svc.completion = completion
+	svc.completionMu.Unlock()
+
 	// Generate supervisor PID for monitoring (using control host)
 	svc.supervisorPID = svc.pidGen.Generate(topologyapi.ControlHost)
 
 	// Register supervisor in topology FIRST (before starting child)
 	if err := topo.Register(svc.supervisorPID); err != nil {
+		completion.Fail(err)
 		return nil, newRegisterPIDError(err)
 	}
 
@@ -96,6 +112,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	detach, err := node.Attach(svc.supervisorPID, monitorCh)
 	if err != nil {
 		topo.Remove(svc.supervisorPID)
+		completion.Fail(err)
 		return nil, newAttachRelayError(err)
 	}
 	svc.detachFn = detach
@@ -111,6 +128,11 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		payloads = append(payloads, payload.New(p))
 	}
 
+	svc.statusCh = make(chan any, 1)
+	svc.doneCh = make(chan struct{})
+	restartRequested := &atomic.Bool{}
+	svc.restartRequested = restartRequested
+
 	// Start the child process
 	// lifecycle.OnStart will atomically:
 	// - Register child PID in topology
@@ -120,10 +142,14 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		Source:  svc.config.Process,
 		Input:   payloads,
 		Options: opts,
+		Context: []ctxapi.Pair{{Key: processapi.OutdatedSupervisorKey, Value: svc.supervisorPID}},
 	})
 	if err != nil {
+		close(svc.statusCh)
+		close(svc.doneCh)
 		detach()
 		topo.Remove(svc.supervisorPID)
+		completion.Fail(err)
 		if svc.gate != nil {
 			svc.gate.Fail(err)
 		}
@@ -131,18 +157,6 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	svc.childPID = childPID
-	svc.statusCh = make(chan any, 1)
-
-	// Dependency barriers apply to this run; the application readiness gate
-	// keeps its original, one-shot result across replacements and restarts.
-	var completion *bootpkg.Gate
-	if svc.config.Lifecycle.Startup == supervisor.StartupComplete || svc.gate != nil {
-		completion = bootpkg.NewReadiness().RegisterGate(svc.id.String())
-	}
-	svc.completionMu.Lock()
-	svc.completion = completion
-	svc.completionMu.Unlock()
-
 	// Start monitor goroutine
 	go svc.monitorLoop(ctx, monitorCh, completion)
 
@@ -152,7 +166,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 // Stop terminates the supervised process gracefully.
 func (svc *Service) Stop(ctx context.Context) error {
 	// Not started or already stopped
-	if svc.statusCh == nil {
+	if svc.doneCh == nil {
 		return nil
 	}
 
@@ -161,18 +175,20 @@ func (svc *Service) Stop(ctx context.Context) error {
 	// cancel; sending a cancel package can produce a misleading "process not
 	// found" error even though the service is already stopped.
 	select {
-	case <-svc.statusCh:
+	case <-svc.doneCh:
 		return nil
 	default:
 	}
 
-	if svc.gate != nil {
+	if svc.gate != nil && !svc.restartRequested.Load() {
 		svc.gate.Fail(fmt.Errorf("service stopped before completion"))
 	}
 	svc.completionMu.RLock()
 	completion := svc.completion
 	svc.completionMu.RUnlock()
-	completion.Fail(fmt.Errorf("service stopped before completion"))
+	if !svc.restartRequested.Load() {
+		completion.Fail(fmt.Errorf("service stopped before completion"))
+	}
 
 	node := relay.GetNode(ctx)
 	if node == nil {
@@ -181,12 +197,17 @@ func (svc *Service) Stop(ctx context.Context) error {
 
 	cancelPkg := topologyapi.CancelPackage(svc.supervisorPID, svc.childPID, "service stopping")
 	if err := node.Send(cancelPkg); err != nil {
+		select {
+		case <-svc.doneCh:
+			return nil
+		default:
+		}
 		return newSendCancelError(err)
 	}
 
-	// Wait for status channel to close (indicating process exit)
+	// Wait for completion without consuming the controller's terminal status.
 	select {
-	case <-svc.statusCh:
+	case <-svc.doneCh:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -195,21 +216,35 @@ func (svc *Service) Stop(ctx context.Context) error {
 
 // monitorLoop listens for topology exit events and reports them via status channel.
 func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, completion *bootpkg.Gate) {
-	defer close(svc.statusCh)
-	defer func() {
-		if svc.detachFn != nil {
-			svc.detachFn()
-		}
-	}()
+	statusCh, doneCh, detach, restartRequested := svc.statusCh, svc.doneCh, svc.detachFn, svc.restartRequested
+	childPID, ownerPID := svc.childPID, svc.supervisorPID
+	node, topo := relay.GetNode(ctx), topologyapi.GetTopology(ctx)
+	// Completion broadcasts only after the terminal status and detach cleanup.
+	defer close(doneCh)
+	defer close(statusCh)
+	if detach != nil {
+		defer detach()
+	}
+	if topo != nil {
+		defer topo.Remove(ownerPID)
+	}
+	ctxDone := ctx.Done()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctxDone:
+			// Cancel admission is not an exit acknowledgement. Keep observing
+			// the child until its terminal event, even after startup times out.
+			ctxDone = nil
 			completion.Fail(ctx.Err())
 			if svc.gate != nil {
 				svc.gate.Fail(ctx.Err())
 			}
-			return
+			if node != nil {
+				// Best effort only: cancellation admission does not prove exit.
+				// Explicit Stop reports admission errors and waits on doneCh.
+				_ = node.Send(topologyapi.CancelPackage(ownerPID, childPID, "service context canceled"))
+			}
 
 		case pkg, ok := <-ch:
 			if !ok {
@@ -218,7 +253,7 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 					svc.gate.Fail(fmt.Errorf("relay monitor channel closed"))
 				}
 				select {
-				case svc.statusCh <- supervisor.ErrExit:
+				case statusCh <- supervisor.ErrExit:
 				default:
 				}
 				return
@@ -234,13 +269,35 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 						continue
 					}
 
+					if event.Kind == topologyapi.OutdatedRejected {
+						if !event.From.Equal(childPID) {
+							continue
+						}
+						if restartRequested.CompareAndSwap(false, true) {
+							svc.completionMu.Lock()
+							svc.restartCompletion = completion
+							svc.completionMu.Unlock()
+							statusCh <- supervisor.Restart{Graceful: true}
+						}
+						continue
+					}
+
 					if event.Kind == topologyapi.Exit && event.Result != nil && event.Result.Error == nil {
-						completion.Ready()
-						if svc.gate != nil {
+						if event.Result.Outdated && !restartRequested.Load() {
+							svc.completionMu.Lock()
+							svc.restartCompletion = completion
+							svc.completionMu.Unlock()
+							statusCh <- supervisor.Restart{}
+							return
+						}
+						if !restartRequested.Load() {
+							completion.Ready()
+						}
+						if svc.gate != nil && !restartRequested.Load() {
 							svc.gate.Ready()
 						}
 						select {
-						case svc.statusCh <- supervisor.ErrExit:
+						case statusCh <- supervisor.ErrExit:
 						default:
 						}
 					} else {
@@ -256,12 +313,12 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 						}
 						if event.Result != nil && event.Result.Error != nil {
 							select {
-							case svc.statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
+							case statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
 							default:
 							}
 						} else {
 							select {
-							case svc.statusCh <- supervisor.ErrExit:
+							case statusCh <- supervisor.ErrExit:
 							default:
 							}
 						}

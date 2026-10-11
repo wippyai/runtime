@@ -401,6 +401,9 @@ func (s *Scheduler) completeNoPool(proc *Processor, result *process.StepOutput, 
 
 func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput, err error, allowPool bool) {
 	res := &runtime.Result{Error: err}
+	if err == nil && result != nil {
+		res.Outdated = result.IsOutdated()
+	}
 	if result != nil && result.Result() != nil {
 		res.Value = result.Result()
 	}

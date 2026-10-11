@@ -66,6 +66,10 @@ func (p *Propagator) Inject(ctx context.Context, writer workflow.HeaderWriter) e
 	if p.dc == nil {
 		return fmt.Errorf("data converter not available")
 	}
+	secPayload, err := ExtractSecurityPayload(ctx)
+	if err != nil {
+		return fmt.Errorf("extract security context: %w", err)
+	}
 	var data map[string]any
 
 	// First, try to get values from simple context key (for tests/simple clients)
@@ -97,7 +101,6 @@ func (p *Propagator) Inject(ctx context.Context, writer workflow.HeaderWriter) e
 		writer.Set(HeaderKey, payload)
 	}
 
-	secPayload := ExtractSecurityPayload(ctx)
 	if secPayload != nil {
 		header, err := AddSecurityToHeader(p.dc, nil, secPayload, p.securityKeys...)
 		if err != nil {

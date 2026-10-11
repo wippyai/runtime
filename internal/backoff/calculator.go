@@ -3,6 +3,7 @@
 package backoff
 
 import (
+	"math"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ type Calculator struct {
 // MaxAttempts=0 means infinite retries.
 func NewCalculator(policy supervisor.RetryPolicy) *Calculator {
 	// Ensure BackoffFactor is not zero
-	if policy.BackoffFactor <= 0 {
+	if policy.BackoffFactor <= 0 || math.IsNaN(policy.BackoffFactor) {
 		policy.BackoffFactor = 1.0 // No backoff if factor is invalid
 	}
 
@@ -46,11 +47,11 @@ func (b *Calculator) NextInterval() time.Duration {
 	b.attempt++
 	if b.attempt > 1 {
 		// Apply exponential backoff only if BackoffFactor is valid
-		b.baseBackoff = time.Duration(float64(b.baseBackoff) * b.policy.BackoffFactor)
-		// Apply MaxDelay limit only if it's set
-		if b.policy.MaxDelay > 0 && b.baseBackoff > b.policy.MaxDelay {
-			b.baseBackoff = b.policy.MaxDelay
+		limit := time.Duration(math.MaxInt64)
+		if b.policy.MaxDelay > 0 {
+			limit = b.policy.MaxDelay
 		}
+		b.baseBackoff = boundedDuration(float64(b.baseBackoff)*b.policy.BackoffFactor, limit)
 	}
 
 	return b.calculateIntervalWithJitter()
@@ -77,18 +78,23 @@ func (b *Calculator) calculateIntervalWithJitter() time.Duration {
 	}
 
 	// If no jitter is configured, return base backoff
-	if b.policy.Jitter <= 0 {
+	if b.policy.Jitter <= 0 || math.IsNaN(b.policy.Jitter) || math.IsInf(b.policy.Jitter, 0) {
 		return b.baseBackoff
 	}
 
 	// Calculate jitter as a random value between -jitter and +jitter
-	jitterRange := float64(b.baseBackoff) * b.policy.Jitter
-	jitter := (rand.Float64() * 2 * jitterRange) - jitterRange //nolint:gosec // ok for now
+	factor := 1 + (rand.Float64()*2-1)*b.policy.Jitter //nolint:gosec // retry jitter is not security-sensitive
+	return boundedDuration(float64(b.baseBackoff)*factor, time.Duration(math.MaxInt64))
+}
 
-	interval := b.baseBackoff + time.Duration(jitter)
-	if interval < 0 {
-		interval = 0
+// Clamp before conversion: converting an overflowing float to Duration can
+// produce a negative value and accidentally turn a long backoff into no wait.
+func boundedDuration(value float64, limit time.Duration) time.Duration {
+	if math.IsNaN(value) || value <= 0 {
+		return 0
 	}
-
-	return interval
+	if value >= float64(limit) {
+		return limit
+	}
+	return time.Duration(value)
 }

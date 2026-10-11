@@ -86,7 +86,10 @@ func (s *internalState) getSnapshot() internalState {
 func (s *internalState) publicState() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.publicStateLocked()
+}
 
+func (s *internalState) publicStateLocked() State {
 	return State{
 		Status:     s.status,
 		Details:    s.details,
@@ -97,28 +100,34 @@ func (s *internalState) publicState() State {
 	}
 }
 
-// updateState updates the service state and returns current details
-func (s *internalState) updateState(status supervisor.Status, details any) (supervisor.Status, any) {
+// updateState atomically applies a transition and captures its complete state.
+func (s *internalState) updateState(status supervisor.Status, details any) State {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	prevStatus := s.status
 	s.status = status
 	if status == supervisor.StatusRunning && prevStatus != supervisor.StatusRunning {
 		s.startedAt = time.Now()
 	}
-	s.mu.Unlock()
-
-	return s.updateDetails(details)
+	s.details = details
+	s.lastUpdate = time.Now()
+	return s.publicStateLocked()
 }
 
 // updateDetails updates only the details and returns current status
 func (s *internalState) updateDetails(details any) (supervisor.Status, any) {
+	state := s.updateDetailsState(details)
+	return state.Status, state.Details
+}
+
+func (s *internalState) updateDetailsState(details any) State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.details = details
 	s.lastUpdate = time.Now()
 
-	return s.status, details
+	return s.publicStateLocked()
 }
 
 // incRetryCount increases the retry count and returns the new value

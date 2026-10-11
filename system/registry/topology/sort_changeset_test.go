@@ -285,7 +285,7 @@ func applyWithIncomingDependencyCheck(builder *StateBuilder, fromState registry.
 
 	for _, op := range sorted {
 		if op.Kind == registry.EntryDelete {
-			universe := dependencyUniverse(StateMapToSlice(state), builder.resolver)
+			universe := ResolveDependencies(state, builder.resolver)
 			for _, entry := range StateMapToSlice(state) {
 				if entry.ID.Equal(op.Entry.ID) {
 					continue

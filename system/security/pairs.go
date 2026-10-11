@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 )
 
@@ -45,9 +46,36 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 		return nil, fmt.Errorf("security registry not available")
 	}
 
-	policies := make([]security.Policy, 0, len(config.PolicyGroups)+len(config.Policies))
+	declaredScope, err := ResolveScope(reg, config.PolicyGroups, config.Policies)
+	if err != nil {
+		return nil, err
+	}
+	policies := declaredScope.Policies()
+	if len(policies) == 0 {
+		return nil, fmt.Errorf("security configuration resolved no policies")
+	}
+
+	scope := existingScope
+	if scope == nil && len(policies) > 0 {
+		scope = declaredScope
+	} else {
+		for _, policy := range policies {
+			scope = scope.With(policy)
+		}
+	}
+	if scope != nil {
+		pairs = append(pairs, security.ScopePair(scope))
+	}
+
+	return pairs, nil
+}
+
+// ResolveScope resolves a declared policy set without inheriting ambient authority.
+// An empty declaration returns an empty scope; unresolved entries fail atomically.
+func ResolveScope(reg security.Registry, groups, policyIDs []registry.ID) (security.Scope, error) {
+	policies := make([]security.Policy, 0, len(groups)+len(policyIDs))
 	var resolutionErrors []error
-	for _, groupID := range config.PolicyGroups {
+	for _, groupID := range groups {
 		groupScope, err := reg.GetPolicyGroup(groupID)
 		if err != nil {
 			resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy group %s: %w", groupID.String(), err))
@@ -70,7 +98,7 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 			policies = append(policies, policy)
 		}
 	}
-	for _, policyID := range config.Policies {
+	for _, policyID := range policyIDs {
 		policy, err := reg.GetPolicy(policyID)
 		if err != nil {
 			resolutionErrors = append(resolutionErrors, fmt.Errorf("resolve security policy %s: %w", policyID.String(), err))
@@ -85,21 +113,5 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 	if len(resolutionErrors) > 0 {
 		return nil, errors.Join(resolutionErrors...)
 	}
-	if len(policies) == 0 {
-		return nil, fmt.Errorf("security configuration resolved no policies")
-	}
-
-	scope := existingScope
-	if scope == nil && len(policies) > 0 {
-		scope = NewScope(policies)
-	} else {
-		for _, policy := range policies {
-			scope = scope.With(policy)
-		}
-	}
-	if scope != nil {
-		pairs = append(pairs, security.ScopePair(scope))
-	}
-
-	return pairs, nil
+	return NewScope(policies), nil
 }

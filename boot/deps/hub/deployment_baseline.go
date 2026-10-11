@@ -16,14 +16,26 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 )
 
-// deploymentBaselineDigest binds a durable dependency resolution to the
-// deployment graph it was composed over. Registry history is an overlay on the
-// current deployment; it must never make an old deployment graph authoritative
-// after the lock or source-owned roots change.
+const deploymentBaselineModel = "deployment-inputs-v2"
+
+// deploymentBaselineDigest names genuine deployment inputs, never the
+// materialized graph or authored history applied on top of those inputs.
 func (h *DependencyHandler) deploymentBaselineDigest(
 	ctx context.Context,
 	baseline regapi.State,
 	transcoder payload.Transcoder,
+) (string, error) {
+	if source, ok := regapi.DependencyBaselineFromContext(ctx); ok {
+		baseline = source
+	}
+	return h.hashDeploymentBaseline(ctx, baseline, transcoder, deploymentBaselineModel)
+}
+
+func (h *DependencyHandler) hashDeploymentBaseline(
+	ctx context.Context,
+	baseline regapi.State,
+	transcoder payload.Transcoder,
+	model string,
 ) (string, error) {
 	type lockedModule struct {
 		Name        string `json:"name"`
@@ -55,8 +67,12 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 				continue
 			}
 			_, replaced := h.replacements[mod.Name]
+			digest := mod.Hash
+			if model == deploymentBaselineModel {
+				digest = strings.TrimPrefix(strings.ToLower(digest), "sha256:")
+			}
 			modules = append(modules, lockedModule{
-				Name: mod.Name, Version: mod.Version, Digest: mod.Hash,
+				Name: mod.Name, Version: mod.Version, Digest: digest,
 				Root: mod.Root, Replacement: replaced,
 			})
 		}
@@ -95,7 +111,7 @@ func (h *DependencyHandler) deploymentBaselineDigest(
 		Model   string           `json:"model"`
 		Modules []lockedModule   `json:"modules"`
 		Roots   []deploymentRoot `json:"roots"`
-	}{Model: "deployment-overlay-v1", Modules: modules, Roots: roots})
+	}{Model: model, Modules: modules, Roots: roots})
 	if err != nil {
 		return "", NewArtifactIOError("encode deployment dependency baseline", "", err)
 	}
@@ -132,6 +148,13 @@ func (h *DependencyHandler) resolutionRefreshReason(
 ) (string, error) {
 	if resolution.BaselineDigest != "" {
 		if resolution.BaselineDigest != baselineDigest {
+			matches, err := h.legacyBaselineMatches(ctx, baseline, resolution, transcoder)
+			if err != nil {
+				return "", err
+			}
+			if matches {
+				return "", nil
+			}
 			return "deployment baseline changed", nil
 		}
 		// With an unchanged deployment, a root-set mismatch can only be

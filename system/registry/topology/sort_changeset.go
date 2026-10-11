@@ -109,7 +109,7 @@ func (b *StateBuilder) SortChangeSetWithIndex(fromState registry.State, changeSe
 
 	// Target-side dependencies: create/update dependencies before their
 	// dependents, but only when both sides are part of this changeset.
-	createUpdateUniverse := dependencyUniverse(createUpdateEntries, b.resolver)
+	createUpdateUniverse := dependencyUniverse(createUpdateEntries, b.resolver, fromState, changeSet, depIdx)
 	for i, operation := range changeSet {
 		if operation.Kind == registry.EntryDelete {
 			continue
@@ -268,12 +268,25 @@ func clearIDSet(set map[registry.ID]struct{}) {
 	}
 }
 
-func dependencyUniverse(entries []registry.Entry, resolver registry.DependencyResolver) map[registry.ID][]registry.ID {
+func dependencyUniverse(entries []registry.Entry, resolver registry.DependencyResolver, from registry.State, changes registry.ChangeSet, index *DepIndex) map[registry.ID][]registry.ID {
+	if len(entries) == 0 {
+		return nil
+	}
 	state := make(registry.StateMap, len(entries))
 	for _, entry := range entries {
 		state[entry.ID] = entry
 	}
-	return ResolveDependencies(state, resolver)
+	keys := dependencyKeys(state, resolver)
+	variables := environmentVariablesForChanges(from, changes, index, keys)
+	result := make(map[registry.ID][]registry.ID, len(state))
+	_ = visitDependencyKeys(state, keys, variables, func(source, target registry.ID) error {
+		result[source] = append(result[source], target)
+		return nil
+	})
+	for id := range result {
+		sort.Slice(result[id], func(i, j int) bool { return result[id][i].String() < result[id][j].String() })
+	}
+	return result
 }
 
 func stableTopologicalOrder(count int, constraints map[int]map[int]struct{}) ([]int, bool) {

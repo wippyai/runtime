@@ -23,6 +23,8 @@ var (
 
 	ErrPolicyNotFound = apierror.New(NotFound, "policy not found").WithRetryable(apierror.False)
 
+	ErrPolicyNotReferenceable = apierror.New(Invalid, "policy constraints cannot be represented by a policy ID").WithRetryable(apierror.False)
+
 	ErrGroupNotFound = apierror.New(NotFound, "policy group not found").WithRetryable(apierror.False)
 
 	ErrTokenInvalid = apierror.New(Invalid, "invalid token format").WithRetryable(apierror.False)

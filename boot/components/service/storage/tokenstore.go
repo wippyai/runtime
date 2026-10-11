@@ -61,6 +61,7 @@ func TokenStore() boot.Component {
 
 			// Register security dependency patterns
 			securityPatterns := []regapi.DependencyPattern{
+				{Path: "data.subject_lookup", Description: "Token subject lookup function"},
 				{Path: "data.token_store", Description: "Reference to token storage"},
 				{Path: "data.lifecycle.security.policies", Description: "Security policies", AllowWildcard: true},
 				{Path: "data.lifecycle.security.groups", Description: "Security groups", AllowWildcard: true},

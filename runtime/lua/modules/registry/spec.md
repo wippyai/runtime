@@ -11,6 +11,33 @@ history roots remain independent constraints. The committed resolution records
 the materialized declarations and their deployment baseline; cached history
 supports undo, redo, and offline restart through the same registry APIs.
 
+Explicit dependency operations in the same batch as a package replacement
+remain solver constraints. Their supplied requirement values override values
+from the selected artifact, regardless of batch order. Short and qualified
+names are matched by the requirements they address. Additional values from
+the selected artifact remain available; clearing authored parameters does not
+inherit their previous snapshot values. Authored declarations retain their
+original names and values.
+
+The runtime checkpoints effective link parameters internally so offline
+restart and undo/redo reproduce those decisions. An unchanged declaration
+retains its checkpoint; replacing its package owner releases the old decision.
+A genuine deployment change recalculates recorded decisions using the newly
+selected artifact defaults. Older snapshots without this metadata retain
+their historical replay precedence and content digests. There is no new Lua
+setting or database migration, but older binaries cannot validate newly
+annotated snapshots; downgrading requires history readable by that binary.
+
+The deployment baseline identifies the source declarations and locked/embedded
+artifacts before registry history is applied. Hub updates, including updates to
+source-owned roots, do not change that identity. With unchanged deployment
+inputs, cold boot restores the saved exact versions and artifact digests from
+the local cache. Genuine deployment changes re-resolve with history reapplied.
+Recognized older runtime digest bindings are verified against the original
+deployment inputs and checkpointed automatically after a successful restore.
+An unverified binding takes the normal deployment-refresh path; recovery never
+requires exporting history into source files.
+
 ## Loading
 
 ```lua

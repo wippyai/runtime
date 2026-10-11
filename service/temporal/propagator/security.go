@@ -43,13 +43,14 @@ type ActorPayload struct {
 }
 
 // ExtractSecurityPayload extracts security context from Go context for serialization.
-// Returns nil if no security context is present.
-func ExtractSecurityPayload(ctx context.Context) *SecurityPayload {
+// Returns nil if no security context is present. ID-only propagation must reject
+// policies whose additional constraints cannot be reconstructed from their IDs.
+func ExtractSecurityPayload(ctx context.Context) (*SecurityPayload, error) {
 	actor, hasActor := secapi.GetActor(ctx)
 	scope, hasScope := secapi.GetScope(ctx)
 
 	if !hasActor && !hasScope {
-		return nil
+		return nil, nil
 	}
 
 	payload := &SecurityPayload{Audience: GetSecurityAudience(ctx)}
@@ -63,17 +64,19 @@ func ExtractSecurityPayload(ctx context.Context) *SecurityPayload {
 
 	if hasScope {
 		payload.Scope = true
-		policies := scope.Policies()
+		policies, err := secapi.PolicyReferenceIDs(scope)
+		if err != nil {
+			return nil, err
+		}
 		if len(policies) > 0 {
-			payload.Policies = make([]string, 0, len(policies))
-			for _, p := range policies {
-				id := p.ID()
-				payload.Policies = append(payload.Policies, id.String())
+			payload.Policies = make([]string, len(policies))
+			for i, id := range policies {
+				payload.Policies[i] = id.String()
 			}
 		}
 	}
 
-	return payload
+	return payload, nil
 }
 
 // ApplySecurityPayload installs a verified execution claim into a frame.

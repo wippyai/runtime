@@ -186,3 +186,16 @@ func TestReadiness_NoGatingServicesUnchanged(t *testing.T) {
 	err := r.Wait(context.Background())
 	require.NoError(t, err)
 }
+
+func TestReadinessFailureDoesNotWaitForBlockedDependents(t *testing.T) {
+	readiness := NewReadiness()
+	guard := readiness.RegisterGate("state-guard")
+	downstream := readiness.RegisterGate("requires-state-guard")
+	defer downstream.Fail(errors.New("dependency failed"))
+	refused := errors.New("newer state writer")
+	guard.Fail(refused)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, readiness.Wait(ctx), refused)
+	require.Equal(t, int64(1), readiness.Pending())
+}

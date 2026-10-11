@@ -23,6 +23,8 @@ const (
 	ctrlStop
 	ctrlFailed
 	ctrlExit
+	ctrlRestart
+	ctrlCleanupFailed
 )
 
 // controllable defines the interface for service lifecycle control operations.
@@ -32,28 +34,34 @@ type controllable interface {
 }
 
 type ctrlOp struct {
-	ctx     context.Context
-	result  chan error
-	kind    ctrlKind
-	attempt int32
+	cleanup  *startupAttempt
+	ctx      context.Context
+	retry    context.Context
+	result   chan error
+	kind     ctrlKind
+	attempt  int32
+	graceful bool
 }
 
 // Controller manages the lifecycle of a service.
 type Controller struct {
-	runStart         time.Time
 	service          supervisor.Service
 	root             context.Context
 	ctx              context.Context
-	securityErr      error
+	setupErr         error
+	stopFailure      error // lifecycle goroutine only
 	stateChanged     chan struct{}
-	onStateChange    func(supervisor.Status, any)
+	onStateChange    func(State)
 	cancel           context.CancelFunc
 	ops              chan ctrlOp
 	startCancel      context.CancelFunc
 	completionCancel context.CancelFunc
 	state            *internalState
+	startAttempt     *startupAttempt
+	runStart         time.Time
 	config           supervisor.LifecycleConfig
 	startMu          sync.Mutex
+	startWG          sync.WaitGroup
 	startStopped     bool
 }
 
@@ -65,6 +73,21 @@ func NewController(
 	config supervisor.LifecycleConfig,
 	onStateChange func(status supervisor.Status, details any),
 ) *Controller {
+	var handler func(State)
+	if onStateChange != nil {
+		handler = func(state State) { onStateChange(state.Status, state.Details) }
+	}
+	return newController(ctx, service, config, handler)
+}
+
+// newController gives the supervisor complete state snapshots while preserving
+// NewController's status/details callback for existing callers.
+func newController(
+	ctx context.Context,
+	service supervisor.Service,
+	config supervisor.LifecycleConfig,
+	onStateChange func(State),
+) *Controller {
 	ctrl := &Controller{
 		service:       service,
 		config:        config,
@@ -74,15 +97,16 @@ func NewController(
 		root:          ctx,
 		ops:           make(chan ctrlOp, 10),
 	}
+	ctrl.setupErr = config.RetryPolicy.Validate()
 
 	// Create isolated FrameContext for this service lifecycle.
 	ctx, fc := ctxapi.ForkFrameContext(ctx)
 
-	if config.Security != nil {
+	if config.Security != nil && ctrl.setupErr == nil {
 		var securityErr error
 		ctx, securityErr = securitysys.WithSecurityConfigE(ctx, config.Security)
 		if securityErr != nil {
-			ctrl.securityErr = fmt.Errorf("resolve service security: %w", securityErr)
+			ctrl.setupErr = fmt.Errorf("resolve service security: %w", securityErr)
 		}
 	}
 
@@ -92,7 +116,12 @@ func NewController(
 	ctrl.ctx, ctrl.cancel = context.WithCancel(ctx)
 
 	go func() {
-		defer ctxapi.ReleaseFrameContext(fc)
+		defer func() {
+			// A canceled startup may still own external resources and context
+			// values until its eventual result has been cleaned up.
+			ctrl.startWG.Wait()
+			ctxapi.ReleaseFrameContext(fc)
+		}()
 		ctrl.supervise()
 	}()
 	return ctrl
@@ -120,9 +149,9 @@ func (c *Controller) startContext(ctx context.Context) error {
 	}
 	c.state.setDesiredStatus(supervisor.StatusRunning)
 	c.startMu.Unlock()
-	if c.securityErr != nil {
-		c.updateState(supervisor.StatusExited, c.securityErr)
-		return c.securityErr
+	if c.setupErr != nil {
+		c.updateState(supervisor.StatusExited, c.setupErr)
+		return c.setupErr
 	}
 	if c.config.Startup == supervisor.StartupComplete {
 		waitCtx, cancel := context.WithCancel(ctx)
@@ -157,7 +186,7 @@ func (c *Controller) startContext(ctx context.Context) error {
 
 // Stop gracefully stops the service and transitions it to the stopped state.
 func (c *Controller) Stop() error {
-	if c.securityErr != nil {
+	if c.setupErr != nil {
 		c.state.setDesiredStatus(supervisor.StatusStopped)
 		c.cancel()
 		return nil
@@ -170,12 +199,18 @@ func (c *Controller) StopContext(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if c.securityErr != nil {
+	if c.setupErr != nil {
 		c.state.setDesiredStatus(supervisor.StatusStopped)
 		c.cancel()
 		return nil
 	}
 	c.state.setDesiredStatus(supervisor.StatusStopped)
+	c.startMu.Lock()
+	completionCancel := c.completionCancel
+	c.startMu.Unlock()
+	if completionCancel != nil {
+		completionCancel()
+	}
 	return c.runCommand(ctrlOp{kind: ctrlStop, ctx: ctx})
 }
 
@@ -222,6 +257,9 @@ func (c *Controller) clearStartCancel() {
 
 func (c *Controller) startMayCompleteInBackground() bool {
 	state := c.State()
+	if err, ok := state.Details.(error); ok && isTerminalError(err) {
+		return false
+	}
 	return state.Desired == supervisor.StatusRunning &&
 		state.Status == supervisor.StatusFailed &&
 		(c.config.RetryPolicy.MaxAttempts == 0 || int(state.RetryCount) < c.config.RetryPolicy.MaxAttempts)
@@ -262,6 +300,28 @@ func (c *Controller) supervise() {
 	var exitCh chan any
 	var ctx context.Context
 	var cancel context.CancelFunc
+	var retryCancel context.CancelFunc
+	retryBackoff := backoff.NewCalculator(c.config.RetryPolicy)
+	restarts := restartWindow{policy: c.config.RetryPolicy.Intensity}
+	cancelRetry := func() {
+		if retryCancel != nil {
+			retryCancel()
+			retryCancel = nil
+		}
+	}
+	defer cancelRetry()
+	scheduleRetry := func(attempt int32) {
+		cancelRetry()
+		var retryCtx context.Context
+		retryCtx, retryCancel = context.WithCancel(c.ctx)
+		delay := retryBackoff.NextInterval()
+		if attempt == 0 {
+			// A planned code restart waits the initial interval but does not
+			// consume the failure backoff sequence.
+			retryBackoff.Reset()
+		}
+		go c.tryRetry(retryCtx, attempt, delay, c.startAttempt)
+	}
 
 	respondStart := func(err error) {
 		if startCh != nil {
@@ -299,13 +359,25 @@ func (c *Controller) supervise() {
 		case op := <-c.ops:
 			var err error
 			switch op.kind {
+			case ctrlCleanupFailed:
+				if op.cleanup == c.startAttempt {
+					cancelRetry()
+					err = NewStartCleanupError(op.cleanup.cleanupErr)
+					c.updateState(supervisor.StatusFailed, err)
+					respondAndCancel(err)
+				}
 			case ctrlStop:
+				cancelRetry()
 				if ctx == nil {
 					break
 				}
 				stopCtx, cancelStop := boundControllerStopContext(ctx, op.ctx)
 				err = c.tryStop(stopCtx)
 				cancelStop()
+				if err == nil {
+					c.startAttempt = nil
+				}
+				c.stopFailure = err
 				if cancel != nil {
 					cancel()
 					cancel = nil
@@ -319,30 +391,47 @@ func (c *Controller) supervise() {
 				}
 				respondAndCancel(context.Canceled)
 
-			case ctrlExit:
+			case ctrlExit, ctrlRestart:
+				cancelRetry()
+				if op.kind == ctrlRestart && op.graceful && ctx != nil {
+					err = c.tryStop(context.WithoutCancel(ctx))
+					c.stopFailure = err
+					if err != nil {
+						c.updateState(supervisor.StatusFailed, err)
+						respondAndCancel(err)
+						break
+					}
+				}
 				c.updateState(supervisor.StatusExited, nil)
 				respondAndCancel(context.Canceled)
-				if cancel != nil {
-					cancel()
-					cancel = nil
+				if op.kind == ctrlRestart && c.state.getDesiredStatus() == supervisor.StatusRunning {
+					c.state.resetRetryCount()
+					retryBackoff.Reset()
+					c.runStart = time.Time{}
+					scheduleRetry(0)
 				}
 
 			case ctrlFailed:
 				attempt := c.state.incRetryCount()
-				c.updateState(supervisor.StatusFailed, c.state.details)
+				c.updateState(supervisor.StatusFailed, c.State().Details)
 				if c.state.getDesiredStatus() == supervisor.StatusRunning {
 					if !c.runStart.IsZero() && time.Since(c.runStart) >= c.config.StableThreshold {
 						c.state.resetRetryCount()
+						retryBackoff.Reset()
 						attempt = 1
 					}
 					c.runStart = time.Time{}
 					if c.config.RetryPolicy.MaxAttempts == 0 || int(attempt) < c.config.RetryPolicy.MaxAttempts {
-						go c.tryRetry(attempt)
+						scheduleRetry(attempt)
 					}
 				}
 				continue
 
 			case ctrlStart:
+				if op.retry != nil && op.retry.Err() != nil {
+					break
+				}
+				cancelRetry()
 				if op.ctx != nil {
 					if startErr := op.ctx.Err(); startErr != nil {
 						c.state.setDesiredStatus(supervisor.StatusStopped)
@@ -355,6 +444,38 @@ func (c *Controller) supervise() {
 					break
 				}
 				if c.state.getCurrentStatus() == supervisor.StatusRunning {
+					break
+				}
+				if c.stopFailure != nil {
+					err = NewStartCleanupError(c.stopFailure)
+					c.updateState(supervisor.StatusFailed, err)
+					respondAndCancel(err)
+					break
+				}
+				if pending := c.startAttempt; pending != nil && !pending.admitted {
+					select {
+					case <-pending.done:
+						if pending.cleanupErr != nil {
+							err = NewStartCleanupError(pending.cleanupErr)
+							c.updateState(supervisor.StatusFailed, err)
+							respondAndCancel(err)
+							break
+						}
+					default:
+						go c.queueAfterStartup(op, pending)
+						continue
+					}
+					if err != nil {
+						break
+					}
+				}
+				if op.retry == nil {
+					retryBackoff.Reset()
+				}
+				if op.retry != nil && op.attempt > 0 && !restarts.admit(time.Now()) {
+					err = NewRestartIntensityError(*c.config.RetryPolicy.Intensity)
+					c.updateState(supervisor.StatusExited, err)
+					respondAndCancel(err)
 					break
 				}
 				ctx, cancel = context.WithCancel(c.ctx)
@@ -406,7 +527,7 @@ func (c *Controller) supervise() {
 						respondStart(err)
 						break
 					}
-					go c.tryRetry(attempt)
+					scheduleRetry(attempt)
 					break
 				}
 				exitCh = make(chan any, 1)
@@ -440,6 +561,13 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 				}
 				return
 			}
+			if restart, ok := details.(supervisor.Restart); ok {
+				select {
+				case c.ops <- ctrlOp{kind: ctrlRestart, graceful: restart.Graceful}:
+				case <-ctx.Done():
+				}
+				return
+			}
 			if err, isErr := details.(error); isErr && isTerminalError(err) {
 				select {
 				case c.ops <- ctrlOp{kind: ctrlExit}:
@@ -447,9 +575,9 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 				}
 				return
 			}
-			status, updatedDetails := c.state.updateDetails(details)
+			state := c.state.updateDetailsState(details)
 			if c.onStateChange != nil {
-				c.onStateChange(status, updatedDetails)
+				c.onStateChange(state)
 			}
 		}
 	}
@@ -460,21 +588,14 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		supervisor.StatusStarting,
 		fmt.Sprintf("attempt %d", c.state.getRetryCount()+1),
 	)
-	resultCh := make(chan struct {
-		ch  <-chan any
-		err error
-	}, 1)
-
-	go func() {
-		ch, err := c.service.Start(ctx)
-		resultCh <- struct {
-			ch  <-chan any
-			err error
-		}{ch, err}
-	}()
+	attempt := c.beginStartup(ctx)
+	defer func() { attempt.decision <- attempt.admitted }()
 
 	select {
-	case result := <-resultCh:
+	case result := <-attempt.result:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if result.err != nil {
 			if isTerminalError(result.err) {
 				return nil, result.err
@@ -482,6 +603,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 			c.updateState(supervisor.StatusFailed, result.err)
 			return nil, result.err
 		}
+		attempt.admitted = true
 		c.runStart = time.Now()
 		c.updateState(supervisor.StatusRunning, nil)
 		return result.ch, nil
@@ -544,8 +666,23 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	resultCh := make(chan error, 1)
 	stopCtx, cancel := context.WithTimeout(ctx, c.config.StopTimeout)
 	defer cancel()
+	pending := c.startAttempt
 	go func() {
-		err := c.service.Stop(stopCtx)
+		var err error
+		if pending != nil && !pending.admitted {
+			select {
+			case <-pending.done:
+				if pending.lateSuccess && pending.cleanupErr == nil {
+					err = pending.cleanupErr
+				} else {
+					err = c.service.Stop(stopCtx)
+				}
+			case <-stopCtx.Done():
+				err = stopCtx.Err()
+			}
+		} else {
+			err = c.service.Stop(stopCtx)
+		}
 		select {
 		case resultCh <- err:
 		case <-stopCtx.Done():
@@ -558,7 +695,11 @@ func (c *Controller) tryStop(ctx context.Context) error {
 			c.updateState(supervisor.StatusFailed, boundErr)
 			return boundErr
 		}
-		c.updateState(supervisor.StatusStopped, err)
+		if err != nil {
+			c.updateState(supervisor.StatusFailed, err)
+			return err
+		}
+		c.updateState(supervisor.StatusStopped, nil)
 		return err
 	case <-stopCtx.Done():
 		cause := context.Cause(ctx)
@@ -576,27 +717,32 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	}
 }
 
-func (c *Controller) tryRetry(attempt int32) {
+func (c *Controller) tryRetry(ctx context.Context, attempt int32, delay time.Duration, pending *startupAttempt) {
 	if int(attempt) >= c.config.RetryPolicy.MaxAttempts && c.config.RetryPolicy.MaxAttempts != 0 {
 		return
 	}
 	if c.state.getDesiredStatus() != supervisor.StatusRunning {
 		return
 	}
-	bf := backoff.NewCalculator(c.config.RetryPolicy)
-	delay := bf.NextInterval()
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
+		if pending != nil {
+			select {
+			case <-pending.done:
+			case <-ctx.Done():
+				return
+			}
+		}
 		if c.state.getDesiredStatus() != supervisor.StatusRunning {
 			return
 		}
 		select {
-		case c.ops <- ctrlOp{kind: ctrlStart, attempt: attempt}:
-		case <-c.ctx.Done():
+		case c.ops <- ctrlOp{kind: ctrlStart, attempt: attempt, retry: ctx}:
+		case <-ctx.Done():
 		}
-	case <-c.ctx.Done():
+	case <-ctx.Done():
 	}
 }
 
@@ -614,9 +760,9 @@ func (c *Controller) Service() supervisor.Service {
 }
 
 func (c *Controller) updateState(status supervisor.Status, details any) {
-	c.state.updateState(status, details)
+	state := c.state.updateState(status, details)
 	if c.onStateChange != nil {
-		c.onStateChange(status, details)
+		c.onStateChange(state)
 	}
 	select {
 	case c.stateChanged <- struct{}{}:

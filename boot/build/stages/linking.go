@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	requirementsaddr "github.com/wippyai/runtime/boot/internal/requirements"
 	"github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
@@ -138,7 +139,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		}
 	}
 
-	moduleNamespaces, err := declaredModuleNamespaces(*entries)
+	moduleNamespaces, err := requirementsaddr.ModuleNamespaces(*entries)
 	if err != nil {
 		return err
 	}
@@ -252,13 +253,6 @@ type decodedDependency struct {
 	transitive bool
 }
 
-// owns reports whether a dependency addresses a requirement. A module owns its
-// declared ns.definition namespace and its children. Package names never
-// participate in registry namespace ownership.
-func (d decodedDependency) owns(req decodedRequirement) bool {
-	return req.entry.ID.NS == d.ownedNamespace || strings.HasPrefix(req.entry.ID.NS, d.ownedNamespace+".")
-}
-
 // binding records one dependency parameter resolved to a single concrete
 // requirement id. It exists only in memory; fully-qualified ids are never
 // written back into ns.dependency entries. transitive carries the provenance of
@@ -287,10 +281,10 @@ func normalizeBindings(
 
 	for _, depID := range sortedKeys(dependencies) {
 		dep := dependencies[depID]
-		owned := ownedAddressIndex(dep, reqIDs, requirements)
+		owned := requirementsaddr.AddressIndex(dep.ownedNamespace, reqIDs)
 
 		for _, param := range dep.definition.Parameters {
-			for _, reqID := range resolveParameter(param.Name, requirements, owned) {
+			for _, reqID := range requirementsaddr.Resolve(param.Name, requirements, owned) {
 				bindings[reqID] = append(bindings[reqID], binding{
 					value:         param.Value,
 					dependencyID:  depID,
@@ -313,65 +307,6 @@ func normalizeBindings(
 	}
 
 	return bindings, nil
-}
-
-// ownedAddressIndex maps each address key a dependency accepts to the concrete
-// requirement ids it fans out to. Every owned requirement registers under both
-// its bare name and its canonical registry id. Two or more owned
-// requirements sharing one bare name is the fan-out set: a bare parameter of
-// that name feeds its value to all of them. A given requirement id appears at
-// most once per key.
-func ownedAddressIndex(
-	dep decodedDependency,
-	reqIDs []string,
-	requirements map[string]decodedRequirement,
-) map[string][]string {
-	owned := make(map[string][]string)
-	for _, reqID := range reqIDs {
-		req := requirements[reqID]
-		if !dep.owns(req) {
-			continue
-		}
-		keys := []string{
-			req.entry.ID.Name,
-			reqID,
-		}
-		for _, key := range keys {
-			if !containsID(owned[key], reqID) {
-				owned[key] = append(owned[key], reqID)
-			}
-		}
-	}
-	return owned
-}
-
-// resolveParameter maps a single parameter name to the set of concrete
-// requirement ids it addresses. A canonical ns:name is already a complete
-// registry address and selects that exact requirement. A bare name uses the
-// dependency component's declared namespace index. Package identities are
-// never converted into registry namespaces. A name that addresses nothing
-// returns an empty set.
-func resolveParameter(
-	name string,
-	requirements map[string]decodedRequirement,
-	owned map[string][]string,
-) []string {
-	if strings.Contains(name, ":") {
-		if _, exists := requirements[name]; exists {
-			return []string{name}
-		}
-		return nil
-	}
-	return owned[name]
-}
-
-func containsID(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *linkStage) processRequirement(
@@ -536,46 +471,4 @@ func loadedModule(entries []registry.Entry, module string) bool {
 		}
 	}
 	return false
-}
-
-// declaredModuleNamespaces returns the canonical registry namespace exported
-// by each loaded module. Publishing requires exactly one ns.definition per
-// module, and the loader records the containing module on that entry. This is
-// the authoritative bridge between a Hub component name (org/module) and its
-// registry namespace; neither spelling nor pluralization is inferred.
-func declaredModuleNamespaces(entries []registry.Entry) (map[string]string, error) {
-	namespaces := make(map[string]string)
-	owners := make(map[string]string)
-	for _, entry := range entries {
-		if entry.Kind != registry.NamespaceDefinition {
-			continue
-		}
-		module := entry.Registry.Owner
-		if module == "" {
-			continue
-		}
-		namespace := strings.TrimSpace(entry.ID.NS)
-		if namespace == "" {
-			continue
-		}
-		if existing := namespaces[module]; existing != "" && existing != namespace {
-			return nil, fmt.Errorf(
-				"module %s declares multiple namespaces: %s and %s",
-				module,
-				existing,
-				namespace,
-			)
-		}
-		if owner := owners[namespace]; owner != "" && owner != module {
-			return nil, fmt.Errorf(
-				"namespace %s is declared by multiple modules: %s and %s",
-				namespace,
-				owner,
-				module,
-			)
-		}
-		namespaces[module] = namespace
-		owners[namespace] = module
-	}
-	return namespaces, nil
 }

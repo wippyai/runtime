@@ -43,5 +43,9 @@ type (
 
 		// Error contains any error that occurred during task execution
 		Error error `json:"error"`
+
+		// Outdated marks successful process completion after a delivered code-change
+		// signal. It is absent for ordinary task results and native upgrades.
+		Outdated bool `json:"outdated,omitempty"`
 	}
 )

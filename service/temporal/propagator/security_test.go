@@ -81,7 +81,8 @@ func TestSecurityPayloadSerialization(t *testing.T) {
 func TestExtractSecurityPayload(t *testing.T) {
 	t.Run("no security context returns nil", func(t *testing.T) {
 		ctx := context.Background()
-		payload := ExtractSecurityPayload(ctx)
+		payload, err := ExtractSecurityPayload(ctx)
+		require.NoError(t, err)
 		assert.Nil(t, payload)
 	})
 
@@ -95,7 +96,8 @@ func TestExtractSecurityPayload(t *testing.T) {
 		err := secapi.SetActor(ctx, actor)
 		require.NoError(t, err)
 
-		payload := ExtractSecurityPayload(ctx)
+		payload, err := ExtractSecurityPayload(ctx)
+		require.NoError(t, err)
 		require.NotNil(t, payload)
 		require.NotNil(t, payload.Actor)
 		assert.Equal(t, "user-456", payload.Actor.ID)
@@ -189,7 +191,8 @@ func TestExtractSecurityPayloadWithScope(t *testing.T) {
 	require.NoError(t, err)
 
 	// Extract
-	payload := ExtractSecurityPayload(ctx)
+	payload, err := ExtractSecurityPayload(ctx)
+	require.NoError(t, err)
 	require.NotNil(t, payload)
 	assert.True(t, payload.Scope)
 	assert.Len(t, payload.Policies, 2)
