@@ -22,8 +22,8 @@ import (
 
 type heldResourceOutcomeBus struct {
 	event.Bus
-	hold atomic.Bool
 	held chan event.Event
+	hold atomic.Bool
 }
 
 func (b *heldResourceOutcomeBus) Send(ctx context.Context, e event.Event) {
