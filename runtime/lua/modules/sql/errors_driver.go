@@ -39,9 +39,9 @@ func wrapSQLError(l *lua.LState, cause error, operation string) *lua.Error {
 		return classifySQLError(wrapped, lua.Canceled, false)
 	case errors.Is(cause, context.DeadlineExceeded):
 		return classifySQLError(wrapped, lua.Timeout, false)
-	case errors.Is(cause, driver.ErrBadConn), errors.Is(cause, io.EOF):
+	case errors.Is(cause, driver.ErrBadConn):
 		return classifySQLError(wrapped, lua.Unavailable, true)
-	case errors.Is(cause, io.ErrUnexpectedEOF):
+	case errors.Is(cause, io.EOF), errors.Is(cause, io.ErrUnexpectedEOF):
 		return classifySQLError(wrapped, lua.Unavailable, false)
 	}
 	var transport *net.OpError
@@ -68,6 +68,8 @@ func classifySQLError(wrapped *lua.Error, kind lua.Kind, retryable bool) *lua.Er
 
 func postgresErrorKind(code string) (lua.Kind, bool) {
 	switch code {
+	case "08001", "08003":
+		return lua.Unavailable, true
 	case "23505", "23P01", "55006":
 		return lua.Conflict, false
 	case "40001", "40P01", "55P03":
@@ -83,7 +85,10 @@ func postgresErrorKind(code string) (lua.Kind, bool) {
 	}
 	if len(code) == 5 {
 		switch code[:2] {
-		case "08", "53":
+		case "08":
+			// Connection loss does not establish whether a write commits.
+			return lua.Unavailable, false
+		case "53":
 			return lua.Unavailable, true
 		case "0A", "22", "23", "42":
 			return lua.Invalid, false

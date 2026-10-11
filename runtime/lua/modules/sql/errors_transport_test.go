@@ -22,7 +22,7 @@ func TestSQLTransportErrorClassification(t *testing.T) {
 		retryable lua.Ternary
 	}{
 		{"bad connection", driver.ErrBadConn, lua.Unavailable, lua.TernaryTrue},
-		{"connection closed", io.EOF, lua.Unavailable, lua.TernaryTrue},
+		{"connection closed", io.EOF, lua.Unavailable, lua.TernaryFalse},
 		{"incomplete response", io.ErrUnexpectedEOF, lua.Unavailable, lua.TernaryFalse},
 		{"network", &net.OpError{Op: "read", Net: "tcp", Err: errors.New("opaque transport failure")}, lua.Unavailable, lua.TernaryFalse},
 		{"timeout", &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded}, lua.Timeout, lua.TernaryFalse},
