@@ -167,12 +167,14 @@ func TestLoadLockRootRuntimeDefaultsWithoutRootReadsNoDefaults(t *testing.T) {
 
 func TestRuntimeConfigFromPackMetadataRejectsMachineLocalSections(t *testing.T) {
 	for name, metadata := range map[string]wapp.Metadata{
-		"dotted workspace":         {"runtime.workspace.replacements.acme/app": "../app"},
-		"nested workspace":         {"runtime": map[string]any{"workspace": map[string]any{"replacements": map[string]any{"acme/app": "../app"}}}},
-		"dotted profile workspace": {"runtime.profiles.dev.workspace.replacements.acme/app": "../app"},
-		"nested profile workspace": {"runtime": map[string]any{"profiles": map[string]any{"dev": map[string]any{"workspace": map[string]any{"replacements": map[string]any{"acme/app": "../app"}}}}}},
-		"boot":                     {"runtime.boot.config_dir": "/build"},
-		"extensions":               {"runtime.extensions.paths": []any{"/build/ext"}},
+		"dotted workspace":            {"runtime.workspace.replacements.acme/app": "../app"},
+		"workspace unpack":            {"runtime.workspace.unpack_modules": true},
+		"workspace host dependencies": {"runtime.workspace.include_host_dependencies": true},
+		"nested workspace":            {"runtime": map[string]any{"workspace": map[string]any{"replacements": map[string]any{"acme/app": "../app"}}}},
+		"dotted profile workspace":    {"runtime.profiles.dev.workspace.replacements.acme/app": "../app"},
+		"nested profile workspace":    {"runtime": map[string]any{"profiles": map[string]any{"dev": map[string]any{"workspace": map[string]any{"replacements": map[string]any{"acme/app": "../app"}}}}}},
+		"boot":                        {"runtime.boot.config_dir": "/build"},
+		"extensions":                  {"runtime.extensions.paths": []any{"/build/ext"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := runtimeConfigFromPackMetadata(metadata, zap.NewNop())

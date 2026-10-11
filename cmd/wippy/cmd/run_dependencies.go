@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -46,10 +47,15 @@ func prepareRunDependencies(
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
-	// A published deployment is rooted by the lock itself. Its exact graph is
-	// materialized later by LoadFromLockFile and is never inferred from the
-	// caller's working directory.
-	if len(lockObj.GetRootModules()) != 0 {
+	includeHost, err := includeHostDependencies(cfg)
+	if err != nil {
+		return NewLoadEntriesFromSourceError(err)
+	}
+	// Published deployments remain lock-authoritative by default. Opting into
+	// host dependencies completes the same graph before services start, while
+	// retaining the exact selected application version.
+	rooted := len(lockObj.GetRootModules()) != 0
+	if rooted && !includeHost {
 		return nil
 	}
 	ldr := boot.GetLoader(ctx)
@@ -65,15 +71,18 @@ func prepareRunDependencies(
 	}
 
 	dirs := lockObj.GetDirectories()
-	loaded, err := loadDependencyScanEntries(ctx, ldr, dirs.Src, lockObj, logger)
-	if err != nil {
-		return NewLoadEntriesFromSourceError(err)
-	}
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
 		return ErrTranscoderNotFound
 	}
-	roots := extractRootDependencies(loaded, transcoder)
+	sourceDir := dirs.Src
+	if rooted && sourceDir != "" {
+		sourceDir = lock.ResolveLockPath(filepath.Dir(lockPath), sourceDir)
+	}
+	roots, err := loadWorkspaceRoots(ctx, ldr, sourceDir, lockObj, transcoder, logger, cfg)
+	if err != nil {
+		return NewLoadEntriesFromSourceError(err)
+	}
 	sourceSatisfied := lockSatisfiesSource(lockObj, roots)
 	warnMissingRequiredWorkspaceReplacements(logger, lockObj, roots)
 
@@ -82,7 +91,7 @@ func prepareRunDependencies(
 		return NewCreateHubClientError(err)
 	}
 	var resolved *hub.ResolveDependenciesResult
-	if sourceSatisfied {
+	if sourceSatisfied || rooted {
 		// Verify the complete source graph from local/installed evidence before
 		// trusting the lock. This catches both replacement dependency drift and
 		// stale rows that a previous restart temporarily promoted from a
@@ -118,14 +127,17 @@ func prepareRunDependencies(
 			Hash:    module.Digest,
 		})
 	}
-	// Retain selected replacement rows from legacy resolutions that did not
-	// return them while repairing unrelated dependencies.
-	for _, module := range lockObj.GetModules() {
-		if _, ok := selected[module.Name]; ok {
-			continue
-		}
-		if _, replaced := lockObj.GetReplacement(module.Name); replaced {
-			modules = append(modules, module)
+	// Preserve the existing source-checkout compatibility path. An opted-in
+	// published workspace has an exact graph: removed host dependencies must
+	// not remain selected solely because a replacement is still configured.
+	if !rooted {
+		for _, module := range lockObj.GetModules() {
+			if _, ok := selected[module.Name]; ok {
+				continue
+			}
+			if _, replaced := lockObj.GetReplacement(module.Name); replaced {
+				modules = append(modules, module)
+			}
 		}
 	}
 	lockObj.ReplaceModules(modules)

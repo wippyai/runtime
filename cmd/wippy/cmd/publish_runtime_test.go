@@ -15,9 +15,11 @@ func TestAddPublishedRuntimeMetadataRejectsManifestMachineLocalSections(t *testi
 		"nested workspace": {"runtime": map[string]any{"workspace": map[string]any{
 			"replacements": map[string]any{"acme/app": "../app"},
 		}}},
-		"dotted workspace":  {"runtime.workspace.replacements.acme/app": "../app"},
-		"nested boot":       {"runtime": map[string]any{"boot": map[string]any{"config_dir": "/build"}}},
-		"dotted extensions": {"runtime.extensions.paths": []any{"/build/ext"}},
+		"dotted workspace":            {"runtime.workspace.replacements.acme/app": "../app"},
+		"workspace unpack":            {"runtime.workspace.unpack_modules": true},
+		"workspace host dependencies": {"runtime.workspace.include_host_dependencies": true},
+		"nested boot":                 {"runtime": map[string]any{"boot": map[string]any{"config_dir": "/build"}}},
+		"dotted extensions":           {"runtime.extensions.paths": []any{"/build/ext"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := addPublishedRuntimeMetadata(metadata, t.TempDir(), config.PublishConfig{})

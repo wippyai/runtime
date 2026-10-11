@@ -95,3 +95,68 @@ func TestWithWorkspaceConfigRejectsNonBoolUnpackModules(t *testing.T) {
 	_, err := New(filepath.Join(t.TempDir(), DefaultFilename), WithWorkspaceConfig(cfg))
 	require.ErrorContains(t, err, "options.unpack_modules must be a boolean")
 }
+
+func TestWorkspaceUnpackModulesCanonicalPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		canonical    any
+		previous     any
+		name         string
+		canonicalSet bool
+		previousSet  bool
+		want         bool
+		override     bool
+		invalid      bool
+	}{
+		{name: "unset"},
+		{name: "canonical-true", canonical: true, canonicalSet: true, want: true, override: true},
+		{name: "canonical-false", canonical: false, canonicalSet: true, override: true},
+		{name: "canonical-wins", canonical: false, canonicalSet: true, previous: true, previousSet: true, override: true},
+		{name: "canonical-reset", canonicalSet: true, previous: true, previousSet: true},
+		{name: "previous-true", previous: true, previousSet: true, want: true, override: true},
+		{name: "previous-false", previous: false, previousSet: true, override: true},
+		{name: "previous-reset", previousSet: true},
+		{name: "canonical-invalid", canonical: "true", canonicalSet: true, previous: true, previousSet: true, invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workspace := map[string]any{}
+			previous := map[string]any{}
+			if tc.canonicalSet {
+				workspace["unpack_modules"] = tc.canonical
+			}
+			if tc.previousSet {
+				previous["unpack_modules"] = tc.previous
+			}
+			cfg := boot.NewConfig(boot.WithSection("workspace", workspace), boot.WithSection("options", previous))
+			got, err := WorkspaceUnpackModules(cfg)
+			if tc.invalid {
+				require.ErrorContains(t, err, "workspace.unpack_modules must be a boolean")
+				return
+			}
+			require.NoError(t, err)
+			if !tc.override {
+				require.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			require.Equal(t, tc.want, *got)
+		})
+	}
+}
+
+func TestWithWorkspaceConfigCanonicalUnpackDoesNotPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultFilename)
+	locked, err := New(path)
+	require.NoError(t, err)
+	require.NoError(t, locked.Write())
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	cfg := boot.NewConfig(boot.WithSection("workspace", map[string]any{"unpack_modules": true}))
+	locked, err = New(path, WithWorkspaceConfig(cfg))
+	require.NoError(t, err)
+	require.True(t, locked.ShouldUnpackModules())
+	require.False(t, locked.GetOptions().UnpackModules)
+	require.NoError(t, locked.Write())
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
