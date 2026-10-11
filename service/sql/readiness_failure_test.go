@@ -12,9 +12,10 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
-func TestSQLResourceWaitCancellationKeepsDeleteRetryable(t *testing.T) {
+func TestSQLResourceWaitCancellationAfterDispatchStillReportsRejection(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		bus := &readinessBus{subs: make(map[string]chan<- event.Event), requests: make(chan event.Event, 1)}
 		manager, err := NewManagerWithFactory(&TestTranscoder{}, bus, nil, nil, NewTestPoolFactory())
@@ -27,10 +28,60 @@ func TestSQLResourceWaitCancellationKeepsDeleteRetryable(t *testing.T) {
 		result := make(chan error, 1)
 		go func() { result <- manager.Delete(ctx, registry.Entry{ID: id}) }()
 		synctest.Wait()
-		<-bus.requests
+		request := <-bus.requests
 		cancel()
-		require.ErrorIs(t, <-result, context.Canceled)
+		synctest.Wait()
+		select {
+		case err := <-result:
+			t.Fatalf("abandoned an in-flight resource operation: %v", err)
+		default:
+		}
+		bus.reply(event.Event{System: resource.System, Kind: resource.Reject, Path: request.Path, Data: "routing unchanged"})
+		require.ErrorContains(t, <-result, "routing unchanged")
 		require.Same(t, pool, manager.services[id])
+		require.Empty(t, bus.subs)
+	})
+}
+
+type cancelOnSubscribeBus struct {
+	*readinessBus
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnSubscribeBus) SubscribeP(ctx context.Context, system, pattern string, ch chan<- event.Event) (string, error) {
+	id, err := b.readinessBus.SubscribeP(ctx, system, pattern, ch)
+	b.cancel()
+	return id, err
+}
+
+func TestSQLResourceCancellationBeforeDispatchSendsNothing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := &cancelOnSubscribeBus{readinessBus: &readinessBus{subs: make(map[string]chan<- event.Event), requests: make(chan event.Event, 1)}, cancel: cancel}
+	m := &Manager{bus: bus}
+	require.ErrorIs(t, m.awaitResource(ctx, event.Event{System: resource.System, Kind: resource.Delete}), context.Canceled)
+	require.Empty(t, bus.requests)
+	require.Empty(t, bus.subs)
+}
+
+type shutdownReadinessBus struct {
+	*readinessBus
+	done chan struct{}
+}
+
+func (b *shutdownReadinessBus) Done() <-chan struct{} { return b.done }
+
+func TestSQLResourceHandoffEndsOnBusShutdown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		bus := &shutdownReadinessBus{readinessBus: &readinessBus{subs: make(map[string]chan<- event.Event), requests: make(chan event.Event, 1)}, done: make(chan struct{})}
+		m := &Manager{bus: bus}
+		done := make(chan error, 1)
+		go func() {
+			done <- m.awaitResource(context.Background(), event.Event{System: resource.System, Kind: resource.Delete})
+		}()
+		<-bus.requests
+		close(bus.done)
+		require.ErrorIs(t, <-done, eventbus.ErrBusClosed)
 		require.Empty(t, bus.subs)
 	})
 }

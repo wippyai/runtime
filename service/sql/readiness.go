@@ -15,6 +15,9 @@ import (
 // awaitResource subscribes before publishing, and accepts only the outcome of
 // this operation. The resource registry acknowledges after updating routing;
 // a delete does not wait for existing borrowers to release their handles.
+// Cancellation is honored before dispatch. Once published, the routing change
+// may already be applied, so finish the ownership handoff instead of abandoning
+// its acknowledgement and leaving routing and manager state inconsistent.
 func (m *Manager) awaitResource(ctx context.Context, request event.Event) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -30,7 +33,8 @@ func (m *Manager) awaitResource(ctx context.Context, request event.Event) error 
 		request.Path = opID
 	}
 	replies := make(chan event.Event, 1)
-	sub, err := eventbus.NewSubscriber(ctx, m.bus, resource.System, "resource.(accept|reject)", func(reply event.Event) {
+	operationCtx := context.WithoutCancel(ctx)
+	sub, err := eventbus.NewSubscriber(operationCtx, m.bus, resource.System, "resource.(accept|reject)", func(reply event.Event) {
 		if reply.Path == opID {
 			select {
 			case replies <- reply:
@@ -42,11 +46,18 @@ func (m *Manager) awaitResource(ctx context.Context, request event.Event) error 
 		return fmt.Errorf("subscribe SQL resource outcome: %w", err)
 	}
 	defer sub.Close()
-	m.bus.Send(ctx, request)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var busDone <-chan struct{}
+	if bus, ok := m.bus.(interface{ Done() <-chan struct{} }); ok {
+		busDone = bus.Done()
+	}
+	m.bus.Send(operationCtx, request)
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-busDone:
+			return fmt.Errorf("SQL resource coordination stopped: %w", eventbus.ErrBusClosed)
 		case reply := <-replies:
 			if reply.Path != opID {
 				continue

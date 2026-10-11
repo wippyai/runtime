@@ -166,7 +166,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 		return err
 	}
 	m.services[entry.ID] = pool
-	m.bus.Send(ctx, event.Event{
+	m.bus.Send(context.WithoutCancel(ctx), event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
@@ -205,7 +205,7 @@ func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) e
 		return err
 	}
 	// Delete from supervisor
-	m.bus.Send(ctx, event.Event{
+	m.bus.Send(context.WithoutCancel(ctx), event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
