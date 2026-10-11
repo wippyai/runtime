@@ -21,12 +21,23 @@ import (
 type failingAsyncNode struct {
 	err error
 	mockRelayNode
-	sends int
+	failedPackage *relay.Package
+	failedMessage *relay.Message
+	sends         int
 }
 
-func (n *failingAsyncNode) Send(*relay.Package) error {
+func (n *failingAsyncNode) Send(pkg *relay.Package) error {
 	n.sends++
+	n.failedPackage = pkg
+	n.failedMessage = pkg.Messages[0]
 	return n.err
+}
+
+type discardingAsyncNode struct{ mockRelayNode }
+
+func (*discardingAsyncNode) Send(pkg *relay.Package) error {
+	relay.ReleasePackage(pkg)
+	return nil
 }
 
 func TestAsyncCompletionReleasesTrackingOnDeliveryFailure(t *testing.T) {
@@ -48,6 +59,10 @@ func TestAsyncCompletionReleasesTrackingOnDeliveryFailure(t *testing.T) {
 		synctest.Wait()
 		require.True(t, closed)
 		require.Equal(t, 1, node.sends)
+		require.Empty(t, node.failedPackage.Messages, "failed delivery must release the caller-owned package")
+		require.Zero(t, node.failedPackage.Target)
+		require.Empty(t, node.failedMessage.Topic)
+		require.Nil(t, node.failedMessage.Payloads, "rejected delivery must not retain its result payload")
 		d.asyncCalls.Range(func(key, value any) bool {
 			t.Errorf("completed call retained after send failure: %v (%T)", key, value)
 			return true
@@ -61,7 +76,7 @@ func TestAsyncCompletionReleasesTrackingOnDeliveryFailure(t *testing.T) {
 func TestAsyncCompletionDoesNotAccumulateCalls(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		// Drop delivered packages rather than retaining the fixture's results.
-		d := NewDispatcher(&mockRelayNode{}, nil)
+		d := NewDispatcher(&discardingAsyncNode{}, nil)
 		reg := &mockRegistry{callFn: func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -109,7 +124,7 @@ func BenchmarkNativeAsyncCompletion(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		_ = d.handleAsyncStart(frame, start, 0, receiver)
-		<-node.packages
+		relay.ReleasePackage(<-node.packages)
 	}
 	b.StopTimer()
 	ctxapi.ReleaseFrameContext(fc)

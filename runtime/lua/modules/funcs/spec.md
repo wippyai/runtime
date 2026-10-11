@@ -75,7 +75,8 @@ Starts an async function call, returns immediately.
 **Native process completion:** The future publishes the actual outcome only after
 the function and its execution frame, including retained nested calls, finish
 teardown. `cancel()` requests cancellation without waiting; receive on the same
-future to wait for completion.
+future to wait for completion. Independently spawned actors are not joined by
+the spawning function's future.
 
 **Workflow cancellation:** Temporal futures retain their existing behavior:
 `cancel()` closes the future topic immediately and `result()` reports cancellation.

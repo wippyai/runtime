@@ -118,8 +118,9 @@ for `is_canceled()`.
 completes only after the function returns and its execution frame, including
 retained nested calls, finishes cleanup. Receive on `response()` to wait for
 teardown, then read `result()` for the actual outcome, which may be cancellation,
-another error, or success. Until
-completion, `result()` returns `nil, nil`, including after a cancellation request.
+another error, or success. Independently spawned actors have their own lifetime
+and are not joined by the spawning function's future. Until completion,
+`result()` returns `nil, nil`, including after a cancellation request.
 
 **Workflows:** Temporal cancellation retains its existing contract: it closes the
 future topic immediately and `result()` reports cancellation. The configured

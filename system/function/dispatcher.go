@@ -34,6 +34,10 @@ type asyncCallKey struct {
 	topic  string
 }
 
+func makeAsyncCallKey(target pid.PID, topic string) asyncCallKey {
+	return asyncCallKey{target: target.String(), topic: topic}
+}
+
 // NewDispatcher creates a new function dispatcher with relay node for message routing.
 func NewDispatcher(node relay.Node, logger *zap.Logger) *Dispatcher {
 	if logger == nil {
@@ -117,19 +121,16 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 		return nil
 	}
 
-	topic := startCmd.Topic
-	node := d.node
 	task := startCmd.Task
-	logger := d.logger
 
-	key := asyncCallKey{target: framePID.String(), topic: topic}
+	key := makeAsyncCallKey(framePID, startCmd.Topic)
 	call := &asyncCall{}
 	callCtx, fc := ctxapi.ForkFrameContextWithCompletion(ctx, func() {
 		defer d.asyncCalls.CompareAndDelete(key, call)
-		if err := sendAsyncResult(node, framePID, topic, call.outcome); err != nil {
-			logger.Warn("failed to send async result",
-				zap.String("topic", topic),
-				zap.String("target", framePID.String()),
+		if err := sendAsyncResult(d.node, framePID, key.topic, call.outcome); err != nil {
+			d.logger.Warn("failed to send async result",
+				zap.String("topic", key.topic),
+				zap.String("target", key.target),
 				zap.Error(err))
 		}
 	})
@@ -178,8 +179,7 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 		return nil
 	}
 
-	topic := cancelCmd.Topic
-	key := asyncCallKey{target: framePID.String(), topic: topic}
+	key := makeAsyncCallKey(framePID, cancelCmd.Topic)
 	if value, ok := d.asyncCalls.Load(key); ok {
 		call := value.(*asyncCall)
 		call.cancel()
@@ -194,5 +194,10 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 
 func sendAsyncResult(node relay.Node, target pid.PID, topic string, result payload.Payload) error {
 	pkg := relay.NewPackage(pid.PID{}, target, topic, result, payload.NewTerminal())
-	return node.Send(pkg)
+	if err := node.Send(pkg); err != nil {
+		// Failed admission leaves ownership with the sender.
+		relay.ReleasePackage(pkg)
+		return err
+	}
+	return nil
 }
