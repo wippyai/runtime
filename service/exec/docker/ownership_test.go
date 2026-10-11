@@ -2,6 +2,7 @@
 package docker
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -60,8 +61,9 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 			default:
 				t.Fatalf("unexpected Docker process %T", proc)
 			}
-			process.startTimeout = 250 * time.Millisecond
-			err = process.Start()
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			defer cancel()
+			err = process.StartContext(ctx)
 			require.Error(t, err)
 			if deadline {
 				require.ErrorContains(t, err, "context deadline exceeded")

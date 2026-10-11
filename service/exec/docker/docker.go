@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	dockerStartTimeout   = 30 * time.Second
 	dockerControlTimeout = 5 * time.Second
 )
 
@@ -174,7 +173,6 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		pidsLimit:       e.pidsLimit,
 		tmpfs:           e.tmpfs,
 		pty:             ptyOptions,
-		startTimeout:    dockerStartTimeout,
 		controlTimeout:  dockerControlTimeout,
 	}
 	process.waitCtx, process.cancelWait = context.WithCancel(context.Background())
@@ -220,7 +218,6 @@ type Process struct {
 	memoryLimit     int64
 	pidsLimit       int64
 	cpuQuota        int64
-	startTimeout    time.Duration
 	controlTimeout  time.Duration
 	mu              sync.RWMutex
 	stopped         bool
@@ -230,8 +227,15 @@ type Process struct {
 	autoRemove      bool
 }
 
-// Start creates and starts the container
+// Start creates and starts the container without an implicit deadline.
+// Lifecycle owners should use StartContext to cancel abandoned startup.
 func (p *Process) Start() error {
+	return p.StartContext(context.Background())
+}
+
+// StartContext reports success only once create, attach and start have completed.
+// Failures preserve the daemon or context error and clean up a created container.
+func (p *Process) StartContext(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -239,8 +243,9 @@ func (p *Process) Start() error {
 		return ErrContainerAlreadyStart
 	}
 
-	ctx, cancel := p.startContext()
-	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	binds, err := buildBinds(p.volumes)
 	if err != nil {
@@ -317,7 +322,7 @@ func (p *Process) Start() error {
 		p.containerID = ""
 	}()
 
-	attachResp, err := p.cli.ContainerAttach(ctx, p.containerID, client.ContainerAttachOptions{
+	attachResp, err := p.attachForStartup(ctx, client.ContainerAttachOptions{
 		Stream: true,
 		Stdin:  true,
 		Stdout: true,
@@ -538,14 +543,6 @@ func (p *Process) CancelWait() {
 	if p.cancelWait != nil {
 		p.cancelWait()
 	}
-}
-
-func (p *Process) startContext() (context.Context, context.CancelFunc) {
-	timeout := p.startTimeout
-	if timeout <= 0 {
-		timeout = dockerStartTimeout
-	}
-	return context.WithTimeout(context.Background(), timeout)
 }
 
 func (p *Process) controlContext() (context.Context, context.CancelFunc) {
