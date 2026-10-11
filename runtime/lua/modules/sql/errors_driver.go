@@ -10,6 +10,7 @@ import (
 	"net"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/lib/pq"
 	lua "github.com/wippyai/go-lua"
 )
 
@@ -18,20 +19,23 @@ func wrapSQLError(l *lua.LState, cause error, operation string) *lua.Error {
 	if wrapped == nil {
 		return nil
 	}
-	var native *pgconn.PgError
+	var native interface {
+		error
+		SQLState() string
+	}
 	if errors.As(cause, &native) {
 		details := wrapped.Details()
 		if details == nil {
 			details = make(map[string]any)
 		}
-		details["sqlstate"] = native.Code
-		for key, value := range map[string]string{"schema": native.SchemaName, "table": native.TableName, "column": native.ColumnName, "constraint": native.ConstraintName, "data_type": native.DataTypeName} {
+		details["sqlstate"] = native.SQLState()
+		for key, value := range postgresErrorDetails(cause) {
 			if value != "" {
 				details[key] = value
 			}
 		}
 		wrapped = wrapped.WithDetails(details)
-		kind, retryable := postgresErrorKind(native.Code)
+		kind, retryable := postgresErrorKind(native.SQLState())
 		return classifySQLError(wrapped, kind, retryable)
 	}
 	switch {
@@ -64,6 +68,19 @@ func classifySQLError(wrapped *lua.Error, kind lua.Kind, retryable bool) *lua.Er
 		}
 	}
 	return wrapped
+}
+
+func postgresErrorDetails(cause error) map[string]string {
+	var schema, table, column, constraint, dataType string
+	var pgxError *pgconn.PgError
+	var pqError *pq.Error
+	switch {
+	case errors.As(cause, &pgxError):
+		schema, table, column, constraint, dataType = pgxError.SchemaName, pgxError.TableName, pgxError.ColumnName, pgxError.ConstraintName, pgxError.DataTypeName
+	case errors.As(cause, &pqError):
+		schema, table, column, constraint, dataType = pqError.Schema, pqError.Table, pqError.Column, pqError.Constraint, pqError.DataTypeName
+	}
+	return map[string]string{"schema": schema, "table": table, "column": column, "constraint": constraint, "data_type": dataType}
 }
 
 func postgresErrorKind(code string) (lua.Kind, bool) {

@@ -8,10 +8,25 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/lib/pq"
+	"github.com/lib/pq/pqerror"
 	lua "github.com/wippyai/go-lua"
 )
 
 func TestPostgresErrorClassification(t *testing.T) {
+	testPostgresErrorClassification(t, func(code string) error {
+		return &pgconn.PgError{Code: code, Message: "opaque driver message", SchemaName: "public", TableName: "records", ColumnName: "value", ConstraintName: "records_value_key", DataTypeName: "text"}
+	})
+}
+
+func TestPostgresPQErrorClassification(t *testing.T) {
+	testPostgresErrorClassification(t, func(code string) error {
+		return &pq.Error{Code: pqerror.Code(code), Message: "opaque driver message", Schema: "public", Table: "records", Column: "value", Constraint: "records_value_key", DataTypeName: "text"}
+	})
+}
+
+func testPostgresErrorClassification(t *testing.T, nativeError func(string) error) {
+	t.Helper()
 	cases := []struct {
 		code      string
 		kind      lua.Kind
@@ -53,7 +68,7 @@ func TestPostgresErrorClassification(t *testing.T) {
 		t.Run(tc.code, func(t *testing.T) {
 			l := lua.NewState()
 			defer l.Close()
-			native := &pgconn.PgError{Code: tc.code, Message: "opaque driver message", SchemaName: "public", TableName: "records", ColumnName: "value", ConstraintName: "records_value_key", DataTypeName: "text"}
+			native := nativeError(tc.code)
 			wrapped := wrapSQLError(l, fmt.Errorf("driver wrapper: %w", native), "query")
 			if wrapped.Kind() != tc.kind || wrapped.Retryable() != tc.retryable {
 				t.Fatalf("kind/retryable = %q/%v, want %q/%v", wrapped.Kind(), wrapped.Retryable(), tc.kind, tc.retryable)
