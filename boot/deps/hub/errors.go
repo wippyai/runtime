@@ -242,7 +242,9 @@ func NewDependencyOfflineError(operation, module string) apierror.Error {
 }
 
 func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {
-	details := make([]map[string]any, 0, len(errs))
+	// Error details use JSON-shaped containers so the Lua error protocol can
+	// preserve each diagnostic row instead of stringifying a typed Go slice.
+	details := make([]any, 0, len(errs))
 	unauthenticated := false
 	for _, e := range errs {
 		details = append(details, map[string]any{
@@ -303,6 +305,10 @@ func NewDependencyIntegrityError(module string, cause error, expectedDigest stri
 }
 
 func NewDependencyPipelineError(cause error) apierror.Error {
+	var diagnostic apierror.Error
+	if errors.As(cause, &diagnostic) {
+		return apierror.E(diagnostic.Kind(), "dependency pipeline failed", diagnostic.Retryable(), diagnostic.Details(), cause)
+	}
 	return apierror.New(apierror.Internal, "dependency pipeline failed").WithCause(cause)
 }
 

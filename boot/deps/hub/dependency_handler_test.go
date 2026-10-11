@@ -94,9 +94,12 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 	assert.Contains(t, apiErr.Details().GetString("summary", ""), "no matching version")
 
 	if details, ok := apiErr.Details().(attrs.Bag); ok {
-		errorsList, _ := details["errors"].([]map[string]any)
+		errorsList, ok := details["errors"].([]any)
+		require.True(t, ok, "resolution details use a Lua-safe array")
 		require.Len(t, errorsList, 1)
-		assert.Equal(t, "acme/http", errorsList[0]["module"])
+		row, ok := errorsList[0].(map[string]any)
+		require.True(t, ok, "resolution rows remain structured")
+		assert.Equal(t, "acme/http", row["module"])
 	}
 }
 

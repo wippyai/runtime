@@ -35,6 +35,13 @@ local function main()
 			assert.is_string(details.summary, "details.summary set")
 			assert.is_table(details.errors, "details.errors set")
 			assert.ok(details.count > 0, "details.count > 0")
+			assert.eq(#details.errors, details.count, "one row per resolution failure")
+			for _, row in ipairs(details.errors) do
+				assert.is_table(row, "resolution failure is structured")
+				assert.is_string(row.module, "resolution module set")
+				assert.is_string(row.constraint, "resolution constraint set")
+				assert.is_string(row.message, "resolution message set")
+			end
 		end
 	else
 		assert.contains(tostring(apply_err), "dependency resolution failed", "error message contains resolution failure")

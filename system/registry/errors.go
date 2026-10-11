@@ -3,6 +3,8 @@
 package registry
 
 import (
+	"errors"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
@@ -54,6 +56,10 @@ func NewSaveVersionError(err error, rollbackErr error) apierror.Error {
 
 // NewExpandChangesError creates an error when changeset expansion fails.
 func NewExpandChangesError(err error) apierror.Error {
+	var diagnostic apierror.Error
+	if errors.As(err, &diagnostic) {
+		return apierror.E(diagnostic.Kind(), "failed to expand changeset", diagnostic.Retryable(), diagnostic.Details(), err)
+	}
 	return apierror.New(apierror.Internal, "failed to expand changeset").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
