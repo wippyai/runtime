@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
@@ -419,6 +421,45 @@ func TestFutureCancellationRequestPreservesActualOutcome(t *testing.T) {
 				check += `; assert(tostring(err):find("actual failure", 1, true))`
 			}
 			if err := l.DoString(check); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Durable workflows must retain the cancellation result on which their
+// recorded command sequence can depend, even if an outcome is already cached.
+func TestWorkflowFutureCancellationResultUnchanged(t *testing.T) {
+	for _, outcome := range []string{"pending", "success", "canceled", "other error"} {
+		t.Run(outcome, func(t *testing.T) {
+			ctx, frame := ctxapi.OpenFrameContext(ctxapi.NewRootContext())
+			defer ctxapi.ReleaseFrameContext(frame)
+			if err := workflowapi.SetDeterministic(ctx); err != nil {
+				t.Fatal(err)
+			}
+			l := lua.NewState()
+			defer l.Close()
+			l.SetContext(ctx)
+			f := New("workflow", engine.NewChannel(1))
+			if outcome != "pending" {
+				actual := payload.New("completed")
+				switch outcome {
+				case "canceled":
+					actual = payload.NewError(context.Canceled)
+				case "other error":
+					actual = payload.NewError(errors.New("actual failure"))
+				}
+				f.CreateHandler()(ctx, l, pid.PID{}, f.Topic, []payload.Payload{actual})
+			}
+			f.MarkCanceled()
+			l.SetGlobal("future", value.PushTypedUserData(l, f, TypeName))
+			if err := l.DoString(`
+				assert(future:is_canceled())
+				local result, err = future:result()
+				assert(result == nil and err ~= nil, "workflow cancellation result changed")
+				assert(err:kind() == "Canceled")
+				assert(err:message() == "canceled")
+			`); err != nil {
 				t.Fatal(err)
 			}
 		})

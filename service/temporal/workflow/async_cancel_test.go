@@ -3,6 +3,7 @@
 package workflow
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	bindings "go.temporal.io/sdk/internalbindings"
@@ -26,13 +28,18 @@ func (e *cancelingActivityEnvironment) RequestCancelActivity(_ bindings.Activity
 	e.cancellations++
 }
 
-func TestAsyncActivityCancelPublishesOnlyActualCompletion(t *testing.T) {
-	for _, outcome := range []string{"success", "canceled"} {
-		t.Run(outcome, func(t *testing.T) {
+func TestAsyncActivityCancellationContractUnchanged(t *testing.T) {
+	for _, wait := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wait_for_cancellation=%t", wait), func(t *testing.T) {
 			var messages, acknowledgements int
 			proc := &recordingProcess{step: func(events []process.Event, out *process.StepOutput) error {
 				for _, event := range events {
 					if event.Type == process.EventMessage {
+						pkg := event.Data.(*relay.Package)
+						require.Len(t, pkg.Messages, 1)
+						require.Equal(t, "async-activity", pkg.Messages[0].Topic)
+						require.Len(t, pkg.Messages[0].Payloads, 1)
+						require.True(t, payload.IsTerminal(pkg.Messages[0].Payloads[0]))
 						messages++
 					}
 					if event.Type == process.EventYieldComplete {
@@ -49,7 +56,7 @@ func TestAsyncActivityCancelPublishesOnlyActualCompletion(t *testing.T) {
 			defer start.Release()
 			start.Topic = "async-activity"
 			options := attrs.NewBag()
-			options.Set(temporaloptions.OptionActivityWaitForCancel, false)
+			options.Set(temporaloptions.OptionActivityWaitForCancel, wait)
 			start.Task = runtimeapi.Task{ID: registry.NewID("test", "activity"), Options: options}
 			require.NoError(t, d.executeFunctionAsyncStart(start, 1))
 			cancel := function.AcquireAsyncCancelCmd()
@@ -57,31 +64,16 @@ func TestAsyncActivityCancelPublishesOnlyActualCompletion(t *testing.T) {
 			cancel.Topic = start.Topic
 			require.NoError(t, d.executeFunctionAsyncCancel(cancel, 2))
 			require.Equal(t, 1, env.cancellations)
-			require.Zero(t, messages, "cancel published a terminal before activity completion")
+			require.Equal(t, 1, messages, "workflow cancel must retain its immediate terminal")
 			require.Empty(t, d.signals)
-			require.Contains(t, d.asyncActivities, start.Topic, "cancellation discarded the pending outcome")
+			require.NotContains(t, d.asyncActivities, start.Topic)
 			require.Equal(t, 2, acknowledgements, "cancel must acknowledge without waiting for the activity")
-			require.True(t, env.activities[0].WaitForCancellation, "SDK must wait for activity cancellation completion")
-			if outcome == "canceled" {
-				env.activityDone[0](nil, temporal.NewCanceledError())
-			} else {
-				wire, err := d.dc.ToPayloads(payload.Payloads{jsonLiteral("completed")})
-				require.NoError(t, err)
-				env.activityDone[0](wire, nil)
-			}
-			require.Len(t, d.signals, 1)
-			require.Len(t, d.signals[0].Payloads, 2)
-			require.True(t, payload.IsTerminal(d.signals[0].Payloads[1]))
-			if outcome == "canceled" {
-				require.Equal(t, payload.GoError, d.signals[0].Payloads[0].Format())
-			} else {
-				require.Equal(t, jsonLiteral("completed").Data(), d.signals[0].Payloads[0].Data())
-			}
-			require.Empty(t, d.asyncActivities)
-			require.NoError(t, d.executeFunctionAsyncCancel(cancel, 3))
-			require.Equal(t, 1, env.cancellations)
-			require.Zero(t, messages, "completed activity acquired another terminal")
-			require.Len(t, d.signals, 1)
+			require.Equal(t, wait, env.activities[0].WaitForCancellation, "configured cancellation policy was overridden")
+			wire, err := d.dc.ToPayloads(payload.Payloads{jsonLiteral("completed")})
+			require.NoError(t, err)
+			env.activityDone[0](wire, nil)
+			env.activityDone[0](nil, temporal.NewCanceledError())
+			require.Empty(t, d.signals, "late outcomes must not reopen a canceled workflow future")
 		})
 	}
 }

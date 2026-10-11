@@ -65,7 +65,9 @@ Note: Just because cancel was called doesn't mean the operation stopped. The und
 
 #### future:result() -> value, error
 
-Returns the cached result if available.
+Returns the cached result if available. Native process futures expose the actual
+outcome. Workflow futures preserve their cancellation result: after `cancel()`,
+`result()` returns a cancellation error even if an outcome was already cached.
 
 **Returns:**
 - Not complete: `nil, nil`
@@ -108,15 +110,20 @@ end
 #### future:cancel() -> boolean, error
 
 Requests cancellation of the async operation. Marks the cancellation request
-for `is_canceled()` without completing the future.
+for `is_canceled()`.
 
 **Yields:** until cancel command is sent
 
-**Note:** Cancellation is non-blocking and best-effort. The future completes only
-after the function returns and its execution frame finishes cleanup. Receive on
-`response()` to wait for teardown, then read `result()` for the actual outcome,
-which may be cancellation, another error, or success. Until completion, `result()`
-returns `nil, nil`, including after a cancellation request.
+**Native processes:** Cancellation is non-blocking and best-effort. The future
+completes only after the function returns and its execution frame finishes
+cleanup. Receive on `response()` to wait for teardown, then read `result()` for
+the actual outcome, which may be cancellation, another error, or success. Until
+completion, `result()` returns `nil, nil`, including after a cancellation request.
+
+**Workflows:** Temporal cancellation retains its existing contract: it closes the
+future topic immediately and `result()` reports cancellation. The configured
+`activity.wait_for_cancellation` policy is preserved. A closed workflow future
+does not guarantee physical cleanup on a remote activity worker.
 
 ```lua
 local future = funcs.async("app.test:slow", 5000)
