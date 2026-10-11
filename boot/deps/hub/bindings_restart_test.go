@@ -389,16 +389,41 @@ func TestRejectedBindingUpdateLeavesSnapshotAndHistoryUnchanged(t *testing.T) {
 				current, err := history.Head()
 				require.NoError(t, err)
 				require.Equal(t, head.ID(), current.ID())
+				// A rejected operation must not leave hidden solver state that
+				// prevents a valid retry on the same running registry.
+				runner.reject = false
+				durable.reject = false
+				definition.Version = "2.0.0"
+				worker.Data = payload.New(definition)
+				retried, err := live.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: worker}})
+				require.NoError(t, err)
+				require.NotEqual(t, head.ID(), retried.ID())
+				afterRetry := live.Snapshot().Registry.Resolution.Canonical()
+				state, err = live.GetEntry(state.ID)
+				require.NoError(t, err)
+				require.Equal(t, []any{"scope:after"}, state.Data.Data().(map[string]any)["groups"])
+				wantRetryState := bindingEntryJSON(t, state)
 				closeHistory()
 				history, closeHistory = openHistory()
 				defer closeHistory()
 				ctx, restored, calls := fixture.registry(t, history, true)
-				require.NoError(t, restored.LoadState(ctx, fixture.baseline, head))
+				require.NoError(t, restored.LoadState(ctx, fixture.baseline, retried))
 				require.Zero(t, *calls)
+				require.Equal(t, afterRetry, restored.Snapshot().Registry.Resolution)
+				state, err = restored.GetEntry(state.ID)
+				require.NoError(t, err)
+				require.Equal(t, wantRetryState, bindingEntryJSON(t, state))
+				require.NoError(t, restored.ApplyVersion(ctx, head))
 				require.Equal(t, before, restored.Snapshot().Registry.Resolution)
 				state, err = restored.GetEntry(state.ID)
 				require.NoError(t, err)
 				require.Equal(t, wantState, bindingEntryJSON(t, state))
+				require.NoError(t, restored.ApplyVersion(ctx, retried))
+				require.Equal(t, afterRetry, restored.Snapshot().Registry.Resolution)
+				state, err = restored.GetEntry(state.ID)
+				require.NoError(t, err)
+				require.Equal(t, wantRetryState, bindingEntryJSON(t, state))
+				require.Zero(t, *calls, "restart and undo/redo must remain offline")
 			})
 		}
 	}

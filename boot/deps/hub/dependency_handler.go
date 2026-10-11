@@ -358,7 +358,7 @@ func (h *DependencyHandler) expand(
 	}
 	solverDeps := h.solverDependencies(desiredDeps, mutableModules, authoredIDs)
 	desiredRoots := dependencyDefinitions(solverDeps)
-	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx), snapshot)
+	resolved, err := h.resolveEffectiveModules(ctx, desiredRoots, lockedVersions, h.currentResolution(ctx))
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}

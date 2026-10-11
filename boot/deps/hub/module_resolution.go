@@ -27,7 +27,6 @@ func (h *DependencyHandler) resolveModules(
 	deps []DependencyDefinition,
 	lockedVersions map[string]string,
 	resolution *regapi.DependencyResolution,
-	resident regapi.State,
 ) ([]ResolvedModule, error) {
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
@@ -46,16 +45,12 @@ func (h *DependencyHandler) resolveModules(
 	defer cancel()
 
 	provider := ManifestProvider(h.hubFor(ctx))
+	if h.manifestCache != nil {
+		provider = h.manifestCache
+	}
 	baselineDigests := h.baselineModuleDigests()
 	if offlineStartup(ctx) {
 		provider = newLockedManifestProvider(h, h.offlineModules(resolution))
-	} else {
-		if current := h.currentResolution(ctx); current != nil && len(resident) > 0 {
-			provider = newResidentManifestProvider(provider, current.Modules, resident)
-		}
-		if h.manifestCache != nil {
-			provider = &ManifestCache{inner: provider, store: h.manifestCache.store}
-		}
 	}
 	provider = &replacementManifestProvider{
 		base:           provider,
@@ -112,7 +107,7 @@ func (h *DependencyHandler) ResolveWorkspaceDependencies(
 	deps []DependencyDefinition,
 ) ([]ResolvedModule, error) {
 	lockedVersions := h.workspaceLockedVersions(nil, false)
-	return h.resolveModules(ctx, deps, lockedVersions, nil, nil)
+	return h.resolveModules(ctx, deps, lockedVersions, nil)
 }
 
 // UpdateWorkspaceDependencies resolves a workspace graph while releasing the
@@ -132,7 +127,7 @@ func (h *DependencyHandler) UpdateWorkspaceDependencies(
 			updates[name] = struct{}{}
 		}
 	}
-	return h.resolveModules(ctx, deps, h.workspaceLockedVersions(updates, len(updateModules) == 0), nil, nil)
+	return h.resolveModules(ctx, deps, h.workspaceLockedVersions(updates, len(updateModules) == 0), nil)
 }
 func (h *DependencyHandler) workspaceLockedVersions(updates map[string]struct{}, updateAll bool) map[string]string {
 	lockedVersions := make(map[string]string)
@@ -166,7 +161,6 @@ func (h *DependencyHandler) resolveEffectiveModules(
 	deps []DependencyDefinition,
 	lockedVersions map[string]string,
 	resolution *regapi.DependencyResolution,
-	resident regapi.State,
 ) ([]ResolvedModule, error) {
 	if offlineStartup(ctx) {
 		if resolved, ok := h.lockedResolution(deps, lockedVersions); ok {
@@ -179,7 +173,7 @@ func (h *DependencyHandler) resolveEffectiveModules(
 		}
 	}
 
-	resolved, err := h.resolveModules(ctx, deps, lockedVersions, resolution, resident)
+	resolved, err := h.resolveModules(ctx, deps, lockedVersions, resolution)
 	if err != nil {
 		return nil, err
 	}
