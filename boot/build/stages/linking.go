@@ -4,12 +4,15 @@ package stages
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
 	"strings"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -169,6 +172,15 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 				zap.Error(err))
 			warningCount++
 			if s.shouldFailUnresolvedRequirement(req) {
+				targets := make([]any, 0, len(req.definition.Targets))
+				for _, target := range req.definition.Targets {
+					targets = append(targets, map[string]any{"entry": target.Entry, "path": target.Path})
+				}
+				var diagnostic apierror.Error
+				if errors.As(err, &diagnostic) {
+					err = apierror.E(diagnostic.Kind(), "unresolved requirement "+id, diagnostic.Retryable(),
+						attrs.Bag{"requirement": id, "targets": targets}, err)
+				}
 				unresolved = append(unresolved, err)
 			}
 		}

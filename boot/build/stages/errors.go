@@ -3,6 +3,7 @@
 package stages
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -73,7 +74,7 @@ func NewDecodeDependencyError(entryID string, cause error) apierror.Error {
 }
 
 func NewRequirementError(requirementName, namespace string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, fmt.Sprintf("requirement %s in namespace %s failed", requirementName, namespace)).WithCause(cause)
+	return newRequirementCauseError(fmt.Sprintf("requirement %s in namespace %s failed", requirementName, namespace), cause)
 }
 
 func NewNoTargetsError(requirementID string) apierror.Error {
@@ -81,24 +82,47 @@ func NewNoTargetsError(requirementID string) apierror.Error {
 }
 
 func NewRequirementTargetError(requirement, targetEntry, path string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, fmt.Sprintf("requirement %s, target entry=%s path=%s failed", requirement, targetEntry, path)).WithCause(cause)
+	return newRequirementCauseError(fmt.Sprintf("requirement %s, target entry=%s path=%s failed", requirement, targetEntry, path), cause)
+}
+
+func newRequirementCauseError(message string, cause error) apierror.Error {
+	var diagnostic apierror.Error
+	if errors.As(cause, &diagnostic) {
+		return apierror.E(diagnostic.Kind(), message, diagnostic.Retryable(), diagnostic.Details(), cause)
+	}
+	return apierror.New(apierror.Internal, message).WithCause(cause)
 }
 
 func NewUnresolvedRequirementsError(errs []error) apierror.Error {
 	details := make([]string, 0, len(errs))
+	messages := make([]any, 0, len(errs))
+	requirements := make([]any, 0, len(errs))
+	kind := apierror.Invalid
 	for _, err := range errs {
 		if err != nil {
 			details = append(details, err.Error())
+			messages = append(messages, err.Error())
+			var diagnostic apierror.Error
+			if !errors.As(err, &diagnostic) || diagnostic.Kind() == apierror.Internal {
+				kind = apierror.Internal
+			}
+			if diagnostic != nil && diagnostic.Details() != nil {
+				if address, ok := diagnostic.Details().Get("requirement"); ok {
+					targets, _ := diagnostic.Details().Get("targets")
+					requirements = append(requirements, map[string]any{"requirement": address, "targets": targets})
+				}
+			}
 		}
 	}
 	msg := "unresolved requirements"
 	if len(details) > 0 {
 		msg = fmt.Sprintf("%s: %s", msg, strings.Join(details, "; "))
 	}
-	return apierror.New(apierror.Invalid, msg).
+	return apierror.New(kind, msg).
 		WithDetails(attrs.NewBagFrom(map[string]any{
-			"count":  len(details),
-			"errors": details,
+			"count":        len(details),
+			"errors":       messages,
+			"requirements": requirements,
 		})).
 		WithRetryable(apierror.False)
 }

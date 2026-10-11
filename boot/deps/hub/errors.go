@@ -303,6 +303,10 @@ func NewDependencyIntegrityError(module string, cause error, expectedDigest stri
 }
 
 func NewDependencyPipelineError(cause error) apierror.Error {
+	var diagnostic apierror.Error
+	if errors.As(cause, &diagnostic) {
+		return apierror.E(diagnostic.Kind(), "dependency pipeline failed", diagnostic.Retryable(), diagnostic.Details(), cause)
+	}
 	return apierror.New(apierror.Internal, "dependency pipeline failed").WithCause(cause)
 }
 
