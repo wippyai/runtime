@@ -270,7 +270,12 @@ func procStart(l *lua.LState) int {
 		return 2
 	}
 	handle := p.handle
-	err := handle.Start()
+	var err error
+	if starter, ok := handle.(apiexec.ContextStarter); ok {
+		err = starter.StartContext(l.Context())
+	} else {
+		err = handle.Start()
+	}
 	if err != nil {
 		p.closed = true
 		p.handle = nil
