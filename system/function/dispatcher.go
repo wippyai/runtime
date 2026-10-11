@@ -21,7 +21,11 @@ import (
 type Dispatcher struct {
 	node       relay.Node
 	logger     *zap.Logger
-	asyncCalls sync.Map // map[asyncCallKey]context.CancelFunc
+	asyncCalls sync.Map // map[asyncCallKey]*asyncCall
+}
+
+type asyncCall struct {
+	cancel context.CancelFunc
 }
 
 type asyncCallKey struct {
@@ -120,13 +124,18 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 	callCtx, cancel := context.WithCancel(callCtx)
 	key := asyncCallKey{target: framePID.String(), topic: topic}
-	d.asyncCalls.Store(key, cancel)
+	call := &asyncCall{cancel: cancel}
+	d.asyncCalls.Store(key, call)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
-		defer ctxapi.ReleaseFrameContext(callFC)
-		defer cancel()
-		defer d.asyncCalls.Delete(key)
-		result, err := registry.Call(callCtx, task)
+		defer d.asyncCalls.CompareAndDelete(key, call)
+		result, err := func() (*runtime.Result, error) {
+			// Cancel before closers join context-bound workers, on every exit.
+			// Release the call frame before publishing its terminal outcome.
+			defer ctxapi.ReleaseFrameContext(callFC)
+			defer cancel()
+			return registry.Call(callCtx, task)
+		}()
 
 		resultPayload := resultToPayload(result, err)
 		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
@@ -171,16 +180,13 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 
 	topic := cancelCmd.Topic
 	key := asyncCallKey{target: framePID.String(), topic: topic}
-	if cancelFn, ok := d.asyncCalls.LoadAndDelete(key); ok {
-		cancelFn.(context.CancelFunc)()
+	if value, ok := d.asyncCalls.Load(key); ok {
+		call := value.(*asyncCall)
+		call.cancel()
 	}
 
-	if err := sendAsyncCancel(d.node, framePID, topic); err != nil {
-		d.logger.Warn("failed to send async cancel",
-			zap.String("topic", topic),
-			zap.String("target", framePID.String()),
-			zap.Error(err))
-	}
+	// Cancellation only requests that the call stop. Its goroutine publishes
+	// the actual outcome after returning and releasing its execution frame.
 
 	receiver.CompleteYield(tag, nil, nil)
 	return nil
@@ -188,10 +194,5 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 
 func sendAsyncResult(node relay.Node, target pid.PID, topic string, result payload.Payload) error {
 	pkg := relay.NewPackage(pid.PID{}, target, topic, result, payload.NewTerminal())
-	return node.Send(pkg)
-}
-
-func sendAsyncCancel(node relay.Node, target pid.PID, topic string) error {
-	pkg := relay.NewPackage(pid.PID{}, target, topic, payload.NewTerminal())
 	return node.Send(pkg)
 }

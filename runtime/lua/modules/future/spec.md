@@ -22,7 +22,7 @@ Returned by `funcs.async()` and executor methods. Provides access to async opera
 | is_canceled | () | boolean | Returns true if cancel() was called |
 | result | () | value, error | Returns cached result or error |
 | error | () | error, boolean | Returns error if failed, ok=true if has error |
-| cancel | () | - | Cancels async operation, yields |
+| cancel | () | boolean, error | Requests best-effort cancellation, yields |
 
 #### future:response() -> Channel
 
@@ -69,7 +69,7 @@ Returns the cached result if available.
 
 **Returns:**
 - Not complete: `nil, nil`
-- Canceled: `nil, error` with kind `errors.CANCELED`
+- Completed with cancellation: `nil, error` with kind `errors.CANCELED`
 - Error: `nil, error` (structured error from async operation)
 - Success: `value, nil` (Payload or table of Payloads)
 
@@ -105,13 +105,18 @@ if ok then
 end
 ```
 
-#### future:cancel() -> -
+#### future:cancel() -> boolean, error
 
-Cancels the async operation. Marks the future as canceled.
+Requests cancellation of the async operation. Marks the cancellation request
+for `is_canceled()` without completing the future.
 
 **Yields:** until cancel command is sent
 
-**Note:** Cancel is best-effort. The async operation may still complete if already in progress.
+**Note:** Cancellation is non-blocking and best-effort. The future completes only
+after the function returns and its execution frame finishes cleanup. Receive on
+`response()` to wait for teardown, then read `result()` for the actual outcome,
+which may be cancellation, another error, or success. Until completion, `result()`
+returns `nil, nil`, including after a cancellation request.
 
 ```lua
 local future = funcs.async("app.test:slow", 5000)

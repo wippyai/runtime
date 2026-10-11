@@ -24,6 +24,7 @@ local function main(input)
 		}
 	end
 
+	future:response():receive()
 	local _, future_err = future:result()
 
 	return {

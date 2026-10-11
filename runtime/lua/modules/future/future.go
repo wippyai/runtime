@@ -202,16 +202,6 @@ func futureResult(l *lua.LState) int {
 		return 0
 	}
 
-	// Check if canceled
-	if f.IsCanceled() {
-		luaErr := lua.NewLuaError(l, "canceled").
-			WithKind(lua.Canceled).
-			WithRetryable(false)
-		l.Push(lua.LNil)
-		l.Push(luaErr)
-		return 2
-	}
-
 	// Check if completed with error
 	if hasErr, err := f.Error(); hasErr {
 		luaErr := lua.WrapErrorWithLua(l, err, "")

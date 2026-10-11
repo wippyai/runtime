@@ -39,6 +39,12 @@ Calls a registered function synchronously.
 
 **Context inheritance:** Automatically inherits actor, scope, and values from calling frame context.
 
+**Completion:** The future publishes the actual outcome only after the function and
+its execution frame finish teardown. `cancel()` requests cancellation without
+waiting; receive on the same future to wait for completion. In workflows, async
+activities always wait for activity cancellation completion, including when
+`activity.wait_for_cancellation` was configured as false.
+
 ```lua
 local result, err = funcs.call("app.test:echo", "hello")
 if err then error(err) end
@@ -71,6 +77,12 @@ Starts an async function call, returns immediately.
 **Yields:** until async operation starts (not until completion)
 
 **Context inheritance:** Automatically inherits actor, scope, and values from calling frame context.
+
+**Completion:** The future publishes the actual outcome only after the function and
+its execution frame finish teardown. `cancel()` requests cancellation without
+waiting; receive on the same future to wait for completion. In workflows, async
+activities always wait for activity cancellation completion, including when
+`activity.wait_for_cancellation` was configured as false.
 
 ```lua
 local future, err = funcs.async("app.process:heavy", 42)
@@ -266,7 +278,7 @@ Returned by `funcs.async()` and `executor:async()`.
 | is_canceled | () | boolean |
 | result | () | value, error |
 | error | () | error, boolean |
-| cancel | () | - |
+| cancel | () | boolean, error |
 
 See: `runtime/lua/modules/future/spec.md`
 

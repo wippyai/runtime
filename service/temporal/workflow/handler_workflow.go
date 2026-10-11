@@ -9,9 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/api/relay"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
@@ -86,6 +84,10 @@ func (d *Definition) executeFunctionAsyncStart(cmd *function.AsyncStartCmd, tag 
 		return nil
 	}
 
+	// Async futures acknowledge teardown through activity completion, never
+	// through the SDK's immediate cancellation response.
+	opts.WaitForCancellation = true
+
 	if d.asyncActivities == nil {
 		d.asyncActivities = make(map[string]bindings.ActivityID, 4)
 	}
@@ -110,35 +112,23 @@ func (d *Definition) executeFunctionAsyncStart(cmd *function.AsyncStartCmd, tag 
 	return nil
 }
 
-// executeFunctionAsyncCancel requests activity cancellation and closes the future topic.
+// executeFunctionAsyncCancel requests cancellation without completing the future.
 func (d *Definition) executeFunctionAsyncCancel(cmd *function.AsyncCancelCmd, tag uint64) error {
 	if d.asyncActivities != nil {
 		if activityID, ok := d.asyncActivities[cmd.Topic]; ok {
-			delete(d.asyncActivities, cmd.Topic)
 			d.env.RequestCancelActivity(activityID)
 		}
 	}
 
-	d.stepProcess([]process.Event{
-		{
-			Type: process.EventYieldComplete,
-			Tag:  tag,
-		},
-		{
-			Type: process.EventMessage,
-			Data: &relay.Package{
-				Messages: []*relay.Message{{
-					Topic:    cmd.Topic,
-					Payloads: payload.Payloads{payload.NewTerminal()},
-				}},
-			},
-		},
-	})
+	// The actual activity callback completes the future after cancellation and
+	// activity-owned teardown, including when the activity returns success.
+	d.resumeProcess(tag, nil, nil)
 	return nil
 }
 
 func (d *Definition) handleFunctionAsyncResult(topic string, result *commonpb.Payloads, err error) {
-	// Canceled/unknown topics are intentionally ignored.
+	// Unknown or already-completed topics are ignored; cancellation retains
+	// tracking until the actual activity outcome arrives.
 	if d.asyncActivities != nil {
 		if _, ok := d.asyncActivities[topic]; !ok {
 			return
