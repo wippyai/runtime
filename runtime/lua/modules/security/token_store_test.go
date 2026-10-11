@@ -4,14 +4,95 @@ package security
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	secsystem "github.com/wippyai/runtime/system/security"
 )
+
+func TestValidateYieldErrorMetadata(t *testing.T) {
+	lua.SetErrorMetadataExtractor(func(err error) *lua.ErrorMetadata {
+		root := apierror.BuildChain(err).Root()
+		return &lua.ErrorMetadata{Kind: lua.Kind(root.Kind), Retryable: root.Retryable, Details: root.Details}
+	})
+	t.Cleanup(func() { lua.SetErrorMetadataExtractor(nil) })
+
+	for _, kind := range []apierror.Kind{apierror.PermissionDenied, apierror.Unavailable, apierror.Invalid, apierror.Internal} {
+		for _, retryable := range []apierror.Ternary{apierror.False, apierror.True, apierror.Unspecified} {
+			cause := apierror.New(kind, "validation fails").WithRetryable(retryable).
+				WithDetails(attrs.Bag{"stage": "subject lookup", "attempt": 2})
+			for _, path := range []string{"dispatcher", "native"} {
+				t.Run(fmt.Sprintf("%s/%s/%s", path, kind, retryable), func(t *testing.T) {
+					l := lua.NewState()
+					defer l.Close()
+					var data any
+					var err error
+					wrapped := fmt.Errorf("store validation: %w", cause)
+					if path == "dispatcher" {
+						err = wrapped
+					} else {
+						data = secapi.ValidateTokenResponse{Error: wrapped}
+					}
+					result := (&ValidateYield{}).HandleResult(l, data, err)
+					if len(result) != 3 || result[0] != lua.LNil || result[1] != lua.LNil {
+						t.Fatalf("unexpected validation result: %v", result)
+					}
+					got, ok := result[2].(*lua.Error)
+					if !ok {
+						t.Fatalf("expected structured error, got %T", result[2])
+					}
+					wantRetry := map[apierror.Ternary]lua.Ternary{apierror.False: lua.TernaryFalse,
+						apierror.True: lua.TernaryTrue, apierror.Unspecified: lua.TernaryUnknown}[retryable]
+					if got.Kind() != lua.Kind(kind) || got.Retryable() != wantRetry {
+						t.Errorf("metadata = %s/%s, want %s/%s", got.Kind(), got.Retryable(), kind, wantRetry)
+					}
+					if !reflect.DeepEqual(got.Details(), map[string]any{"stage": "subject lookup", "attempt": 2}) {
+						t.Errorf("details = %v", got.Details())
+					}
+					if !errors.Is(got, cause) || got.Context != "validate token" {
+						t.Errorf("cause or operation context is lost: %v", got)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestValidateYieldInternalFailures(t *testing.T) {
+	for _, path := range []string{"dispatcher", "native", "malformed response"} {
+		t.Run(path, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			var data any
+			var err error
+			cause := errors.New("plain failure")
+			switch path {
+			case "dispatcher":
+				err = cause
+			case "native":
+				data = secapi.ValidateTokenResponse{Error: cause}
+			case "malformed response":
+				data = "unexpected"
+			}
+			result := (&ValidateYield{}).HandleResult(l, data, err)
+			if len(result) != 3 || result[0] != lua.LNil || result[1] != lua.LNil {
+				t.Fatalf("unexpected validation result: %v", result)
+			}
+			got, ok := result[2].(*lua.Error)
+			if !ok || got.Kind() != lua.Internal || got.Retryable() != lua.TernaryFalse {
+				t.Fatalf("expected nonretryable Internal, got %v", result[2])
+			}
+		})
+	}
+}
 
 // denyingTokenStore fails the test if any method runs, proving the permission
 // check short-circuits before the store is touched.
