@@ -54,8 +54,7 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 			defer executor.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 			defer cancel()
-			executor.ownerCtx = ctx
-			proc, err := executor.NewProcess("true", execapi.ProcessOptions{Env: map[string]string{"OWNER": "bee", "NODE": "node-1", "STATE": "state-1", "ATTEMPT": "attempt-1"}})
+			proc, err := executor.newProcess(ctx, "true", execapi.ProcessOptions{Env: map[string]string{"OWNER": "bee", "NODE": "node-1", "STATE": "state-1", "ATTEMPT": "attempt-1"}})
 			require.NoError(t, err)
 			var process *Process
 			switch selected := proc.(type) {

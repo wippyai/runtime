@@ -39,7 +39,6 @@ var (
 // Executor implements exec.ProcessExecutor for Docker containers
 type Executor struct {
 	lifecycleCtx     context.Context
-	ownerCtx         context.Context
 	cancelLifecycle  context.CancelFunc
 	labelsFromEnv    map[string]string
 	log              *zap.Logger
@@ -109,6 +108,10 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 
 // NewProcess creates a new container process
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	return e.newProcess(e.lifecycleCtx, cmd, options)
+}
+
+func (e *Executor) newProcess(ownerCtx context.Context, cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
 	options, err := options.Clone()
 	if err != nil {
 		return nil, err
@@ -163,7 +166,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 	if lifecycleCtx == nil {
 		lifecycleCtx = context.Background()
 	}
-	startupCtx := e.ownerCtx
+	startupCtx := ownerCtx
 	if startupCtx == nil {
 		startupCtx = lifecycleCtx
 	}
@@ -382,6 +385,10 @@ func (p *Process) Start() error {
 	p.stderrReader = stderrPipeR
 	p.started = true
 	committed = true
+	// Startup has handed off to the independent stream/wait lifecycle. Do not
+	// retain the acquiring execution frame for the lifetime of the container.
+	p.startupCtx = nil
+	p.lifecycleCtx = nil
 	go p.copyAttachedOutput(attachResp, stdoutPipeW, stderrPipeW)
 	p.log.Debug("container started", zap.String("id", p.containerID))
 	return nil

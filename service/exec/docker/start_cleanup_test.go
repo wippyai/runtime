@@ -159,6 +159,8 @@ func TestStartReportsStartupOutcome(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.True(t, p.started)
+			require.Nil(t, p.startupCtx, "completed startup must not retain its acquiring frame")
+			require.Nil(t, p.lifecycleCtx, "startup shutdown watcher must not outlive startup")
 			// Startup cancellation is no longer allowed to close a successful stream.
 			cancel()
 			output <- struct{}{}

@@ -209,12 +209,24 @@ func (p *executorProvider) Acquire(ctx context.Context, _ registry.ID, mode reso
 	// owner, and NewProcess retains that owner's context for Start.
 	executor := p.executor
 	if dockerExecutor, ok := executor.(*Executor); ok {
-		owned := *dockerExecutor
-		owned.ownerCtx = ctx
-		executor = &owned
+		executor = &ownedExecutor{executor: dockerExecutor, ctx: ctx}
 	}
 	return &executorResource{executor: executor}, nil
 }
+
+// ownedExecutor binds only the borrower's startup context, sharing the immutable
+// executor configuration rather than copying it on every resource acquisition.
+type ownedExecutor struct {
+	ctx      context.Context
+	executor *Executor
+}
+
+func (e *ownedExecutor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	return e.executor.newProcess(e.ctx, cmd, options)
+}
+
+// Preserve the existing closer capability of the acquired executor value.
+func (e *ownedExecutor) Close() error { return e.executor.Close() }
 
 func (p *executorProvider) Close() error {
 	p.mu.Lock()
