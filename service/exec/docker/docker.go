@@ -38,6 +38,8 @@ var (
 
 // Executor implements exec.ProcessExecutor for Docker containers
 type Executor struct {
+	lifecycleCtx     context.Context
+	cancelLifecycle  context.CancelFunc
 	labelsFromEnv    map[string]string
 	log              *zap.Logger
 	cli              *client.Client
@@ -78,7 +80,10 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 		return nil, NewDockerClientError(err)
 	}
 
+	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
 	return &Executor{
+		lifecycleCtx:     lifecycleCtx,
+		cancelLifecycle:  cancelLifecycle,
 		labelsFromEnv:    maps.Clone(config.LabelsFromEnv),
 		log:              log,
 		cli:              cli,
@@ -103,6 +108,10 @@ func NewDockerExecutor(log *zap.Logger, config *execapi.DockerExecutorConfig) (*
 
 // NewProcess creates a new container process
 func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
+	return e.newProcess(e.lifecycleCtx, cmd, options)
+}
+
+func (e *Executor) newProcess(ownerCtx context.Context, cmd string, options execapi.ProcessOptions) (execapi.Process, error) {
 	options, err := options.Clone()
 	if err != nil {
 		return nil, err
@@ -151,7 +160,19 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		workDir = e.defaultWD
 	}
 
+	// Direct callers belong to the executor lifecycle. Resource acquisitions
+	// additionally carry their owner's context without changing ProcessOptions.
+	lifecycleCtx := e.lifecycleCtx
+	if lifecycleCtx == nil {
+		lifecycleCtx = context.Background()
+	}
+	startupCtx := ownerCtx
+	if startupCtx == nil {
+		startupCtx = lifecycleCtx
+	}
 	process := &Process{
+		startupCtx:      startupCtx,
+		lifecycleCtx:    lifecycleCtx,
 		labels:          labels,
 		log:             e.log,
 		cli:             e.cli,
@@ -188,11 +209,16 @@ type ptyProcess struct{ *Process }
 
 // Close closes the Docker client
 func (e *Executor) Close() error {
+	if e.cancelLifecycle != nil {
+		e.cancelLifecycle()
+	}
 	return e.cli.Close()
 }
 
 // Process represents a Docker container process
 type Process struct {
+	startupCtx      context.Context
+	lifecycleCtx    context.Context
 	labels          map[string]string
 	waitCtx         context.Context
 	stdinWriter     io.WriteCloser
@@ -227,15 +253,10 @@ type Process struct {
 	autoRemove      bool
 }
 
-// Start creates and starts the container without an implicit deadline.
-// Lifecycle owners should use StartContext to cancel abandoned startup.
-func (p *Process) Start() error {
-	return p.StartContext(context.Background())
-}
-
-// StartContext reports success only once create, attach and start have completed.
+// Start reports success only once create, attach and start have completed.
+// Startup uses the owning acquisition's context and ends if the executor closes.
 // Failures preserve the daemon or context error and clean up a created container.
-func (p *Process) StartContext(ctx context.Context) error {
+func (p *Process) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -243,6 +264,15 @@ func (p *Process) StartContext(ctx context.Context) error {
 		return ErrContainerAlreadyStart
 	}
 
+	ctx, cancel := context.WithCancel(p.startupCtx)
+	defer cancel()
+	stop := context.AfterFunc(p.lifecycleCtx, cancel)
+	defer stop()
+	// AfterFunc runs asynchronously; reject an already closed executor before
+	// issuing any daemon request.
+	if p.lifecycleCtx.Err() != nil {
+		cancel()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -355,6 +385,10 @@ func (p *Process) StartContext(ctx context.Context) error {
 	p.stderrReader = stderrPipeR
 	p.started = true
 	committed = true
+	// Startup has handed off to the independent stream/wait lifecycle. Do not
+	// retain the acquiring execution frame for the lifetime of the container.
+	p.startupCtx = nil
+	p.lifecycleCtx = nil
 	go p.copyAttachedOutput(attachResp, stdoutPipeW, stderrPipeW)
 	p.log.Debug("container started", zap.String("id", p.containerID))
 	return nil
