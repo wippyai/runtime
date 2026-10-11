@@ -92,7 +92,7 @@ func postgresErrorKind(code string) (lua.Kind, bool) {
 	case "40001", "40P01", "55P03":
 		return lua.Conflict, true
 	case "42P01", "42703", "42704":
-		return lua.NotFound, false
+		return lua.Internal, false
 	case "42501":
 		return lua.PermissionDenied, false
 	case "57P01", "57P02", "57P03":

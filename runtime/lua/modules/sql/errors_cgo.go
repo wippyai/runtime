@@ -29,11 +29,14 @@ func wrapSQLiteError(wrapped *lua.Error, cause error) *lua.Error {
 
 func sqliteErrorKind(native sqlite3.Error) (lua.Kind, bool) {
 	switch native.ExtendedCode {
+	case sqlite3.ErrConstraintTrigger, sqlite3.ErrConstraintCommitHook, sqlite3.ErrConstraintFunction, sqlite3.ErrConstraintVTab:
+		// Programmable constraints do not establish an input validation failure.
+		return lua.Internal, false
 	case sqlite3.ErrConstraintUnique, sqlite3.ErrConstraintPrimaryKey, sqlite3.ErrConstraintRowID:
 		return lua.Conflict, false
 	}
 	switch native.Code {
-	case sqlite3.ErrConstraint, sqlite3.ErrError, sqlite3.ErrMismatch, sqlite3.ErrRange, sqlite3.ErrTooBig:
+	case sqlite3.ErrConstraint, sqlite3.ErrMismatch, sqlite3.ErrRange, sqlite3.ErrTooBig:
 		return lua.Invalid, false
 	case sqlite3.ErrBusy, sqlite3.ErrLocked:
 		return lua.Conflict, true
@@ -48,7 +51,7 @@ func sqliteErrorKind(native sqlite3.Error) (lua.Kind, bool) {
 		return lua.Canceled, false
 	case sqlite3.ErrAbort:
 		return lua.Conflict, false
-	case sqlite3.ErrInternal, sqlite3.ErrCorrupt, sqlite3.ErrNotADB:
+	case sqlite3.ErrError, sqlite3.ErrInternal, sqlite3.ErrCorrupt, sqlite3.ErrNotADB:
 		return lua.Internal, false
 	}
 	return lua.Unknown, false
