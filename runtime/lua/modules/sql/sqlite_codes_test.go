@@ -77,6 +77,13 @@ func TestSQLiteCodesAtLuaBoundary(t *testing.T) {
 					if e.Details()["sqlite_code"] != int(driver.Code) || e.Details()["sqlite_extended_code"] != int(driver.ExtendedCode) {
 						t.Fatalf("missing SQLite codes: %v", e.Details())
 					}
+					expectedKind := lua.Invalid
+					if driver.ExtendedCode == sqlite3.ErrConstraintTrigger {
+						expectedKind = lua.Internal
+					}
+					if e.Kind() != expectedKind || e.Retryable() != lua.TernaryFalse {
+						t.Fatalf("unclassified SQLite failure: %q/%v", e.Kind(), e.Retryable())
+					}
 					if !errors.Is(e, native) {
 						t.Fatal("native cause was lost")
 					}
