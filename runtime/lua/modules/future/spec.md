@@ -115,9 +115,10 @@ for `is_canceled()`.
 **Yields:** until cancel command is sent
 
 **Native processes:** Cancellation is non-blocking and best-effort. The future
-completes only after the function returns and its execution frame finishes
-cleanup. Receive on `response()` to wait for teardown, then read `result()` for
-the actual outcome, which may be cancellation, another error, or success. Until
+completes only after the function returns and its execution frame, including
+retained nested calls, finishes cleanup. Receive on `response()` to wait for
+teardown, then read `result()` for the actual outcome, which may be cancellation,
+another error, or success. Until
 completion, `result()` returns `nil, nil`, including after a cancellation request.
 
 **Workflows:** Temporal cancellation retains its existing contract: it closes the

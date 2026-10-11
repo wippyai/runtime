@@ -73,8 +73,9 @@ Starts an async function call, returns immediately.
 **Context inheritance:** Automatically inherits actor, scope, and values from calling frame context.
 
 **Native process completion:** The future publishes the actual outcome only after
-the function and its execution frame finish teardown. `cancel()` requests
-cancellation without waiting; receive on the same future to wait for completion.
+the function and its execution frame, including retained nested calls, finish
+teardown. `cancel()` requests cancellation without waiting; receive on the same
+future to wait for completion.
 
 **Workflow cancellation:** Temporal futures retain their existing behavior:
 `cancel()` closes the future topic immediately and `result()` reports cancellation.

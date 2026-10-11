@@ -25,7 +25,8 @@ type Dispatcher struct {
 }
 
 type asyncCall struct {
-	cancel context.CancelFunc
+	cancel  context.CancelFunc
+	outcome payload.Payload
 }
 
 type asyncCallKey struct {
@@ -121,30 +122,29 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	task := startCmd.Task
 	logger := d.logger
 
-	callCtx, fc := ctxapi.ForkFrameContext(ctx)
-	callCtx, cancel := context.WithCancel(callCtx)
 	key := asyncCallKey{target: framePID.String(), topic: topic}
-	call := &asyncCall{cancel: cancel}
-	d.asyncCalls.Store(key, call)
-
-	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
+	call := &asyncCall{}
+	callCtx, fc := ctxapi.ForkFrameContextWithCompletion(ctx, func() {
 		defer d.asyncCalls.CompareAndDelete(key, call)
-		result, err := func() (*runtime.Result, error) {
-			// Cancel before closers join context-bound workers, on every exit.
-			// Release the call frame before publishing its terminal outcome.
-			defer ctxapi.ReleaseFrameContext(callFC)
-			defer cancel()
-			return registry.Call(callCtx, task)
-		}()
-
-		resultPayload := resultToPayload(result, err)
-		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
+		if err := sendAsyncResult(node, framePID, topic, call.outcome); err != nil {
 			logger.Warn("failed to send async result",
 				zap.String("topic", topic),
 				zap.String("target", framePID.String()),
 				zap.Error(err))
 		}
-	}(callCtx, fc)
+	})
+	callCtx, call.cancel = context.WithCancel(callCtx)
+	d.asyncCalls.Store(key, call)
+
+	go func() {
+		// The owner reference keeps completion from reading the outcome until
+		// this release. Descendants may retain it after the call has returned.
+		defer ctxapi.ReleaseFrameContext(fc)
+		// Cancel before closers join context-bound workers, on every exit.
+		defer call.cancel()
+		result, err := registry.Call(callCtx, task)
+		call.outcome = resultToPayload(result, err)
+	}()
 
 	receiver.CompleteYield(tag, function.AsyncStartResult{}, nil)
 	return nil
@@ -185,8 +185,8 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 		call.cancel()
 	}
 
-	// Cancellation only requests that the call stop. Its goroutine publishes
-	// the actual outcome after returning and releasing its execution frame.
+	// Cancellation only requests that the call stop. Frame completion publishes
+	// the actual outcome after the call and its retained descendants finish cleanup.
 
 	receiver.CompleteYield(tag, nil, nil)
 	return nil
