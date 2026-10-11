@@ -145,36 +145,32 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return NewServiceNotFoundError(entry.ID)
 	}
 
-	m.unregisterService(ctx, entry)
+	if err := m.unregisterService(ctx, entry); err != nil {
+		return err
+	}
 	delete(m.services, entry.ID)
 	return nil
 }
 
 // registerService handles the common service registration logic
 func (m *Manager) registerService(ctx context.Context, entry registry.Entry, pool *ConnPool, lifecycle supervisor.LifecycleConfig) error {
-	m.services[entry.ID] = pool
-
-	// Register with supervisor
-	m.bus.Send(ctx, event.Event{
-		System: supervisor.System,
-		Kind:   supervisor.ServiceRegister,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Service: pool,
-			Config:  lifecycle,
-		},
-	})
-
-	// Register as resource provider
-	m.bus.Send(ctx, event.Event{
+	// Publish routing before the supervisor can start the service, and do not
+	// acknowledge the registry entry until the provider is visible.
+	if err := m.awaitResource(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   entry.ID.String(),
-		Data: resource.Entry{
-			ID:       entry.ID,
-			Provider: pool,
-			Meta:     map[string]any{"type": entry.Kind},
-		},
+		Data:   resource.Entry{ID: entry.ID, Provider: pool, Meta: map[string]any{"type": entry.Kind}},
+	}); err != nil {
+		_ = pool.Stop(context.Background())
+		return err
+	}
+	m.services[entry.ID] = pool
+	m.bus.Send(context.WithoutCancel(ctx), event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   entry.ID.String(),
+		Data:   &supervisor.Entry{Service: pool, Config: lifecycle},
 	})
 
 	m.log.Info("added database service",
@@ -201,22 +197,21 @@ func (m *Manager) updateService(ctx context.Context, entry registry.Entry, lifec
 }
 
 // unregisterService handles the common service unregistration logic
-func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
+func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) error {
+	// Retire routing before the supervisor can stop the pool.
+	if err := m.awaitResource(ctx, event.Event{
+		System: resource.System, Kind: resource.Delete, Path: entry.ID.String(), Data: entry.ID,
+	}); err != nil {
+		return err
+	}
 	// Delete from supervisor
-	m.bus.Send(ctx, event.Event{
+	m.bus.Send(context.WithoutCancel(ctx), event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
 
-	// Delete resource provider
-	m.bus.Send(ctx, event.Event{
-		System: resource.System,
-		Kind:   resource.Delete,
-		Path:   entry.ID.String(),
-		Data:   entry.ID,
-	})
-
 	m.log.Info("removed database service",
 		zap.String("id", entry.ID.String()))
+	return nil
 }

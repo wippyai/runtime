@@ -26,6 +26,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/runtime/system/eventbus"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -284,6 +285,9 @@ func ctxWithEnv(reg envapi.Registry) context.Context {
 func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
+	resources := systemresource.NewRegistry(bus, logger)
+	require.NoError(t, resources.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, resources.Stop()) })
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
 
@@ -368,7 +372,7 @@ func TestManager_Add(t *testing.T) {
 		ctx,
 		bus,
 		resource.System,
-		"*",
+		"resource.(register|update|delete)",
 		func(evt event.Event) {
 			resourceEvents <- evt
 		},
@@ -578,7 +582,7 @@ func TestManager_Delete(t *testing.T) {
 		ctx,
 		bus,
 		resource.System,
-		"*",
+		"resource.(register|update|delete)",
 		func(evt event.Event) {
 			resourceEvents <- evt
 		},
