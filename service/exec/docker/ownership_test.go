@@ -52,6 +52,9 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 			executor, err := NewDockerExecutor(zap.NewNop(), &config)
 			require.NoError(t, err)
 			defer executor.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			defer cancel()
+			executor.ownerCtx = ctx
 			proc, err := executor.NewProcess("true", execapi.ProcessOptions{Env: map[string]string{"OWNER": "bee", "NODE": "node-1", "STATE": "state-1", "ATTEMPT": "attempt-1"}})
 			require.NoError(t, err)
 			var process *Process
@@ -61,9 +64,7 @@ func TestOwnershipLabelsExistOnFailedCreate(t *testing.T) {
 			default:
 				t.Fatalf("unexpected Docker process %T", proc)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-			defer cancel()
-			err = process.StartContext(ctx)
+			err = process.Start()
 			require.Error(t, err)
 			if deadline {
 				require.ErrorContains(t, err, "context deadline exceeded")

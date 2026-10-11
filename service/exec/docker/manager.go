@@ -193,7 +193,7 @@ func newExecutorProvider(executor execapi.ProcessExecutor) *executorProvider {
 	return &executorProvider{executor: executor}
 }
 
-func (p *executorProvider) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+func (p *executorProvider) Acquire(ctx context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -205,7 +205,15 @@ func (p *executorProvider) Acquire(_ context.Context, _ registry.ID, mode resour
 		return nil, systemresource.ErrLocked
 	}
 
-	return &executorResource{executor: p.executor}, nil
+	// Keep the shared executor immutable: each borrow belongs to a different
+	// owner, and NewProcess retains that owner's context for Start.
+	executor := p.executor
+	if dockerExecutor, ok := executor.(*Executor); ok {
+		owned := *dockerExecutor
+		owned.ownerCtx = ctx
+		executor = &owned
+	}
+	return &executorResource{executor: executor}, nil
 }
 
 func (p *executorProvider) Close() error {

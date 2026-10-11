@@ -4,7 +4,6 @@
 package exec
 
 import (
-	"context"
 	"io"
 	"path"
 	"path/filepath"
@@ -183,13 +182,6 @@ func (o *PTYOptions) Dimensions() (int, int, error) {
 type ProcessExecutor interface {
 	// NewProcess creates a new process with the given command and options
 	NewProcess(cmd string, options ProcessOptions) (Process, error)
-}
-
-// ContextStarter is implemented by processes whose startup can block on an
-// external service. The owner supplies its lifecycle context; a nil error
-// acknowledges startup, and a non-nil error reports why startup failed.
-type ContextStarter interface {
-	StartContext(context.Context) error
 }
 
 // Process defines the interface for an executable process
