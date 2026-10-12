@@ -3,11 +3,29 @@
 package toolchain
 
 import (
+	"runtime/debug"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestModuleIdentity_LuaVersionSeparatesCompileCaches(t *testing.T) {
+	previous := readBuildInfoFn
+	t.Cleanup(func() { readBuildInfoFn = previous })
+	module := &debug.Module{
+		Path: "github.com/wippyai/go-lua", Version: "v1.6.5", Sum: "same-test-checksum",
+	}
+	readBuildInfoFn = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Deps: []*debug.Module{module}}, true
+	}
+	oldIdentity, err := ModuleIdentity(module.Path)
+	require.NoError(t, err)
+	module.Version = "v1.6.6"
+	newIdentity, err := ModuleIdentity(module.Path)
+	require.NoError(t, err)
+	require.NotEqual(t, oldIdentity, newIdentity)
+}
 
 func TestModuleIdentity_NormalDependency(t *testing.T) {
 	id1, err := ModuleIdentity("github.com/stretchr/testify")
