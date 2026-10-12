@@ -46,6 +46,7 @@ type Connection struct {
 	msgCount            atomic.Int64
 	heartbeatInterval   time.Duration
 	mu                  sync.RWMutex
+	sendMu              sync.Mutex
 	closeOnce           sync.Once
 }
 
@@ -232,6 +233,15 @@ func (c *Connection) forwardMessageToRelay(msgType websocket.MessageType, data [
 		payloadData = payload.NewPayload(data, payload.Bytes)
 	}
 
+	// Serialize enqueueing with a target handoff: an old-target command must
+	// precede LEAVE, and a new-target command must follow JOIN. Do not hold the
+	// state lock while Node.Send applies backpressure.
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
+
 	// Read target PID and topic under lock
 	c.mu.RLock()
 	targetPID := c.currentTargetPID
@@ -242,6 +252,7 @@ func (c *Connection) forwardMessageToRelay(msgType websocket.MessageType, data [
 	msg := relay.NewPackage(c.wsPID, targetPID, messageTopic, payloadData)
 	err := c.node.Send(msg)
 	if err != nil {
+		relay.ReleasePackage(msg)
 		c.logger.Error("Failed to send message to node", zap.Error(err))
 	}
 	return err
@@ -356,16 +367,14 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 		return
 	}
 
-	c.mu.Lock()
+	c.mu.RLock()
 	oldTarget := c.currentTargetPID
 	changed := oldTarget.String() != newTarget.String()
-	if changed {
-		c.currentTargetPID = newTarget
-	}
+	metadata := c.config.Metadata
+	c.mu.RUnlock()
 	if len(command.Metadata) > 0 {
-		c.config.Metadata = command.Metadata
+		metadata = command.Metadata
 	}
-	c.mu.Unlock()
 
 	if changed {
 		// Stop monitoring the old target
@@ -380,15 +389,41 @@ func (c *Connection) handleTargetPIDChange(command RelayCommand) {
 			return
 		}
 
+		c.sendMu.Lock()
+		if c.ctx.Err() != nil {
+			c.sendMu.Unlock()
+			if err := c.topo.Demonitor(c.wsPID, newTarget); err != nil {
+				c.logger.Warn("error releasing canceled target monitor", zap.Error(err))
+			}
+			return
+		}
 		// Send leave to old target
-		if err := c.sendLeaveNotification(oldTarget); err != nil {
+		if err := c.enqueueClientNotification(oldTarget, LeaveTopic, metadata); err != nil {
 			c.logger.Error("error sending leave on target change", zap.Error(err))
 		}
 
-		// Send join to new target
-		if err := c.sendJoinNotification(newTarget); err != nil {
+		// Publish the new route only after JOIN was accepted by the relay.
+		if err := c.enqueueClientNotification(newTarget, JoinTopic, metadata); err != nil {
 			c.logger.Error("error sending join on target change", zap.Error(err))
+			c.cancelCtx()
+			c.sendMu.Unlock()
+			if err := c.topo.Demonitor(c.wsPID, newTarget); err != nil {
+				c.logger.Warn("error releasing failed target monitor", zap.Error(err))
+			}
+			c.Close("Failed to join new target PID")
+			return
 		}
+	}
+
+	c.mu.Lock()
+	c.currentTargetPID = newTarget
+	c.config.Metadata = metadata
+	if command.MessageTopic != "" {
+		c.currentMessageTopic = command.MessageTopic
+	}
+	c.mu.Unlock()
+	if changed {
+		c.sendMu.Unlock()
 	}
 }
 
@@ -494,19 +529,29 @@ func (c *Connection) forwardPayloadToWebSocket(topic relay.Topic, payloads ...pa
 
 // sendJoinNotification sends a join notification to the target PID
 func (c *Connection) sendJoinNotification(targetPID pid.PID) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
 	c.mu.RLock()
 	metadata := c.config.Metadata
 	c.mu.RUnlock()
+	return c.enqueueClientNotification(targetPID, JoinTopic, metadata)
+}
 
+// enqueueClientNotification requires sendMu, keeping lifecycle notifications
+// in the same per-sender FIFO as application commands.
+func (c *Connection) enqueueClientNotification(targetPID pid.PID, topic relay.Topic, metadata map[string]any) error {
 	// Create a join info structure that includes both client PID and metadata
 	joinInfo := JoinInfo{
 		ClientPID: c.wsPID.String(),
 		Metadata:  metadata,
 	}
 
-	// Marshal the join info to JSON
+	// Marshal the client info to JSON
 	joinData, err := json.Marshal(joinInfo)
 	if err != nil {
+		if topic == LeaveTopic {
+			return NewMarshalLeaveInfoError(err)
+		}
 		return NewMarshalJoinInfoError(err)
 	}
 
@@ -514,40 +559,25 @@ func (c *Connection) sendJoinNotification(targetPID pid.PID) error {
 	joinMsg := relay.NewPackage(
 		c.wsPID,
 		targetPID,
-		JoinTopic,
+		topic,
 		payload.NewPayload(joinData, payload.JSON),
 	)
 
-	return c.node.Send(joinMsg)
+	if err := c.node.Send(joinMsg); err != nil {
+		relay.ReleasePackage(joinMsg)
+		return err
+	}
+	return nil
 }
 
 // sendLeaveNotification sends a leave notification to the target PID
 func (c *Connection) sendLeaveNotification(targetPID pid.PID) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
 	c.mu.RLock()
 	metadata := c.config.Metadata
 	c.mu.RUnlock()
-
-	// Create a leave info structure that includes both client PID and metadata
-	leaveInfo := JoinInfo{
-		ClientPID: c.wsPID.String(),
-		Metadata:  metadata,
-	}
-
-	// Marshal the leave info to JSON
-	leaveData, err := json.Marshal(leaveInfo)
-	if err != nil {
-		return NewMarshalLeaveInfoError(err)
-	}
-
-	// Create and send a single package containing both the client PID and metadata
-	leaveMsg := relay.NewPackage(
-		c.wsPID,
-		targetPID,
-		LeaveTopic,
-		payload.NewPayload(leaveData, payload.JSON),
-	)
-
-	return c.node.Send(leaveMsg)
+	return c.enqueueClientNotification(targetPID, LeaveTopic, metadata)
 }
 
 // sendHeartbeat sends a heartbeat message to the current target PID
