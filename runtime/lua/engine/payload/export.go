@@ -125,7 +125,11 @@ func deepCopyTable(original *lua.LTable, visited map[*lua.LTable]*lua.LTable) *l
 		return newTable
 	}
 
-	newTable := &lua.LTable{Metatable: lua.LNil, Immutable: false}
+	// Preserve scalar storage metadata; copy every mutable backing below.
+	newTable := new(lua.LTable)
+	*newTable = *original
+	newTable.Metatable = lua.LNil
+	newTable.Immutable = false
 	visited[original] = newTable
 
 	if original.Metatable != lua.LNil {
