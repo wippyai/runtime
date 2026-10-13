@@ -313,17 +313,24 @@ func (y *ValidateYield) ToCommand() dispatcher.Command {
 }
 
 func (y *ValidateYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
-	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "validate token").WithKind(lua.Internal).WithRetryable(false)}
+	if err == nil {
+		resp, ok := data.(security.ValidateTokenResponse)
+		if !ok {
+			return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
+		}
+		if resp.Error == nil {
+			return []lua.LValue{wrapActor(l, resp.Actor), wrapScope(l, resp.Scope), lua.LNil}
+		}
+		err = resp.Error
 	}
-	resp, ok := data.(security.ValidateTokenResponse)
-	if !ok {
-		return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
+	wrapped := lua.WrapErrorWithLua(l, err, "validate token")
+	if wrapped.Kind() == lua.Unknown {
+		wrapped = wrapped.WithKind(lua.Internal)
+		if wrapped.Retryable() == lua.TernaryUnknown {
+			wrapped = wrapped.WithRetryable(false)
+		}
 	}
-	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "validate token").WithKind(lua.Internal).WithRetryable(false)}
-	}
-	return []lua.LValue{wrapActor(l, resp.Actor), wrapScope(l, resp.Scope), lua.LNil}
+	return []lua.LValue{lua.LNil, lua.LNil, wrapped}
 }
 
 // CreateYield is yielded to create a token.
