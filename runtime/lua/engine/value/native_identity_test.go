@@ -3,8 +3,9 @@
 package value
 
 import (
-	lua "github.com/wippyai/go-lua"
 	"testing"
+
+	lua "github.com/wippyai/go-lua"
 )
 
 func TestRegisteredNativeComparisonAndFunctionKeys(t *testing.T) {
