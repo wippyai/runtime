@@ -485,3 +485,34 @@ func TestLoaderFullLifecycle(t *testing.T) {
 		}
 	}
 }
+
+func TestShutdownSupervisorFirstRetainsErrorsAndReverseOrder(t *testing.T) {
+	stopErr := errors.New("supervisor stop failed")
+	var order []string
+	components := []*mockComponent{
+		{name: "base"},
+		{name: "supervisor", deps: []string{"base"}, stopErr: stopErr},
+		{name: "consumer", deps: []string{"supervisor"}},
+	}
+	loader, err := NewLoader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range components {
+		c.StopFn = func(context.Context) error { order = append(order, c.name); return c.stopErr }
+		if err := loader.Register(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, err := loader.Load(testContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = loader.Shutdown(ctx)
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("shutdown error = %v, want supervisor stop error", err)
+	}
+	if got := fmt.Sprint(order); got != "[supervisor consumer base]" {
+		t.Fatalf("stop order: %s", got)
+	}
+}
