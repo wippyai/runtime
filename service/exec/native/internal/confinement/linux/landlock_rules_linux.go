@@ -51,7 +51,7 @@ func InstallLandlock(grants []LandlockGrant) error {
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("set no_new_privs: %w", err)
 	}
-	ruleset := unix.LandlockRulesetAttr{Access_fs: landlockHandled}
+	ruleset := unix.LandlockRulesetAttr{Handled_access_fs: landlockHandled}
 	// ABI 5 supports handled_access_fs and handled_access_net but not the
 	// scoped field added later. Pass only the supported prefix of the struct.
 	fd, _, errno := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET,
