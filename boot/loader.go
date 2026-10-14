@@ -136,12 +136,33 @@ func (l *Loader) Start(ctx context.Context) (startErr error) {
 	return nil
 }
 
-// Shutdown stops all components in reverse order.
+// Shutdown stops supervised services before releasing their infrastructure,
+// then stops the remaining components in reverse load order.
 func (l *Loader) Shutdown(ctx context.Context) error {
 	var errors []error
 
+	// The supervisor loads early so later components can register services, but
+	// those services can use any of the infrastructure installed after it (TTY,
+	// engines, dispatchers, etc.). Reverse load order alone cannot express that
+	// lifetime. Stop the supervisor first without changing startup dependencies.
+	// This is core.SupervisorName; importing core here would create a cycle.
+	const supervisorName = "supervisor"
+	for _, c := range l.loaded {
+		if c.Name() == supervisorName {
+			if stopper, ok := c.(boot.Stopper); ok {
+				if err := stopper.Stop(ctx); err != nil {
+					errors = append(errors, NewComponentStopError(c.Name(), err))
+				}
+			}
+			break
+		}
+	}
+
 	for i := len(l.loaded) - 1; i >= 0; i-- {
 		c := l.loaded[i]
+		if c.Name() == supervisorName {
+			continue
+		}
 
 		if stopper, ok := c.(boot.Stopper); ok {
 			if err := stopper.Stop(ctx); err != nil {
