@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -62,6 +63,7 @@ type Controller struct {
 	config           supervisor.LifecycleConfig
 	startMu          sync.Mutex
 	startWG          sync.WaitGroup
+	startupCompleted atomic.Bool
 	startStopped     bool
 }
 
@@ -154,6 +156,8 @@ func (c *Controller) startContext(ctx context.Context) error {
 		return c.setupErr
 	}
 	if c.config.Startup == supervisor.StartupComplete {
+		// A new run satisfies dependents only after it completes again.
+		c.startupCompleted.Store(false)
 		waitCtx, cancel := context.WithCancel(ctx)
 		stopPropagation := context.AfterFunc(c.ctx, cancel)
 		c.startMu.Lock()
@@ -179,9 +183,18 @@ func (c *Controller) startContext(ctx context.Context) error {
 		if !ok {
 			return ErrStartupCompletionUnsupported
 		}
-		return waiter.WaitCompletion(ctx)
+		if err := waiter.WaitCompletion(ctx); err != nil {
+			return err
+		}
+		// Completion satisfies dependencies for this registration's lifetime,
+		// independently of terminal status delivery or later stop commands.
+		c.startupCompleted.Store(true)
 	}
 	return nil
+}
+
+func (c *Controller) dependencySatisfied() bool {
+	return c.startupCompleted.Load() || c.State().Status == supervisor.StatusRunning
 }
 
 // Stop gracefully stops the service and transitions it to the stopped state.
