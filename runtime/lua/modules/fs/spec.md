@@ -143,6 +143,16 @@ Gets file or directory information.
 - `modified` (number) - Modification time (Unix timestamp)
 - `is_dir` (boolean) - true if directory
 - `type` (string) - "file" or "directory" (use fs.type constants)
+- `dev` (integer|string, optional) - Device id
+- `ino` (integer|string, optional) - Inode number
+- `ctime_ns` (integer, optional) - Status change time in nanoseconds since epoch
+- `mtime_ns` (integer, optional) - Modification time in nanoseconds since epoch
+
+The optional fields are present only when the file lives on the real OS filesystem and are
+absent on virtual filesystems. `dev` and `ino` are decimal strings when the value exceeds 2^53.
+Inode, device and `ctime_ns` change on any write, rename or chmod, so equal values identify the same
+file version without re-reading it. Supported on Linux, macOS and FreeBSD; on Windows only
+`mtime_ns` is present because the volume serial and file index are not available from stat.
 
 **Errors (structured):**
 

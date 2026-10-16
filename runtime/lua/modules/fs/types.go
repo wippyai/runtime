@@ -28,6 +28,10 @@ var fileInfoType = typ.NewRecord().
 	Field("modified", typ.Number).
 	Field("is_dir", typ.Boolean).
 	Field("type", typ.String).
+	OptField("dev", typ.NewUnion(typ.Integer, typ.String)).
+	OptField("ino", typ.NewUnion(typ.Integer, typ.String)).
+	OptField("ctime_ns", typ.Integer).
+	OptField("mtime_ns", typ.Integer).
 	Build()
 
 // dirEntryType is the value produced by FS:readdir's generic-for iterator.

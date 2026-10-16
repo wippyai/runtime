@@ -4,6 +4,7 @@ package fs
 
 import (
 	"io/fs"
+	"strconv"
 
 	lua "github.com/wippyai/go-lua"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -164,5 +165,24 @@ func pushFileInfo(l *lua.LState, info fs.FileInfo) *lua.LTable {
 	if info.IsDir() {
 		t.RawSetString("type", lua.LString(typeDir))
 	}
+	if id, ok := osFileIdentity(info); ok {
+		if id.hasDev {
+			t.RawSetString("dev", pushUint64(id.dev))
+			t.RawSetString("ino", pushUint64(id.ino))
+		}
+		if id.hasCtim {
+			t.RawSetString("ctime_ns", lua.LInteger(id.ctimeNs))
+		}
+		t.RawSetString("mtime_ns", lua.LInteger(id.mtimeNs))
+	}
 	return t
+}
+
+// pushUint64 returns an integer, or a decimal string when the value is not
+// exactly representable as a Lua number.
+func pushUint64(v uint64) lua.LValue {
+	if v > maxExactFloat {
+		return lua.LString(strconv.FormatUint(v, 10))
+	}
+	return lua.LInteger(v)
 }
