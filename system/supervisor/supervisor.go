@@ -1074,10 +1074,12 @@ func (s *Supervisor) buildStartOperationsForRoots(
 				op.blockers = appendUniqueString(op.blockers, depID)
 				continue
 			}
-			if depCtrl.State().Status == supervisor.StatusRunning {
+			// Keep the edge if this dependency is also a start root in the
+			// batch. Otherwise the sequencer ignores the satisfied dependency.
+			op.dependencies = appendUniqueString(op.dependencies, depID)
+			if depCtrl.dependencySatisfied() {
 				continue
 			}
-			op.dependencies = appendUniqueString(op.dependencies, depID)
 			if err := visitWithPolicy(depID, required); err != nil {
 				return err
 			}
