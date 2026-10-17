@@ -38,7 +38,7 @@ func anyToLua(_ *lua.LState, v any) lua.LValue {
 	case bool:
 		return lua.LBool(val)
 	case time.Time:
-		return lua.LString(val.UTC().Format(time.RFC3339))
+		return lua.LString(val.UTC().Format(time.RFC3339Nano))
 	case error:
 		return lua.LString(val.Error())
 	default:
