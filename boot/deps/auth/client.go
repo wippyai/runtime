@@ -28,6 +28,10 @@ type Client struct {
 	baseURL string
 }
 
+func (c *Client) Close() {
+	c.http.CloseIdleConnections()
+}
+
 // NewClient creates a registry auth client.
 func NewClient(baseURL string) (*Client, error) {
 	u, err := url.Parse(baseURL)

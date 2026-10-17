@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
+	"github.com/wippyai/runtime/system/registry/history/composite"
 	"github.com/wippyai/runtime/system/registry/history/memory"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	registrymigration "github.com/wippyai/runtime/system/registry/migration"
@@ -22,6 +23,14 @@ func TestApplyIgnoresUnpersistedHistory(t *testing.T) {
 }
 
 func TestApplyMarksStoredResolutionRootsOutsideBaseline(t *testing.T) {
+	for _, wrap := range []bool{false, true} {
+		t.Run(map[bool]string{false: "driver", true: "composite"}[wrap], func(t *testing.T) {
+			testApplyMarksStoredResolutionRoots(t, wrap)
+		})
+	}
+}
+
+func testApplyMarksStoredResolutionRoots(t *testing.T, wrap bool) {
 	history, err := sqlite.NewSQLite(filepath.Join(t.TempDir(), "registry.db"), zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, history.Close()) })
@@ -49,7 +58,11 @@ func TestApplyMarksStoredResolutionRootsOutsideBaseline(t *testing.T) {
 		ID:       declaredID,
 		Registry: regapi.EntryMetadata{Owner: "example/application"},
 	}}
-	require.NoError(t, registrymigration.Apply(context.Background(), history, baseline))
+	var target regapi.History = history
+	if wrap {
+		target = composite.New(history)
+	}
+	require.NoError(t, registrymigration.Apply(context.Background(), target, baseline))
 	changes, err := history.Get(v1)
 	require.NoError(t, err)
 	require.Equal(t, regapi.EntryMetadata{Owner: "example/application", Root: true}, changes[0].Entry.Registry)

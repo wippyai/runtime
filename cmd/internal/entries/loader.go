@@ -5,6 +5,7 @@ package entries
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,13 +57,11 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		}
 		sources := moduleapi.GetSourceRegistry(ctx)
 		if sources == nil {
-			logger.Info("no deployment sources found, starting with empty registry")
-			return nil
+			return loadHistoryBaseline(ctx, logger)
 		}
 		modulePaths := moduleLoadPathsFromSources(sources.Snapshot())
 		if len(modulePaths) == 0 {
-			logger.Info("no deployment sources found, starting with empty registry")
-			return nil
+			return loadHistoryBaseline(ctx, logger)
 		}
 		configureSourceLoader(sources, logger)
 		loaded, loadErr := LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
@@ -117,6 +116,30 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 	logger.Info("entries loaded to registry successfully")
 	return nil
+}
+
+// loadHistoryBaseline restores the registry from the baseline that the history
+// stores. A runtime without project sources uses it to recover remote history.
+func loadHistoryBaseline(ctx context.Context, logger *zap.Logger) error {
+	reg := regapi.GetRegistry(ctx)
+	if reg == nil {
+		return nil
+	}
+	stored, ok := reg.History().(regapi.BaselineHistory)
+	if !ok {
+		logger.Info("no deployment sources found, starting with empty registry")
+		return nil
+	}
+	baseline, err := stored.Baseline()
+	if errors.Is(err, regapi.ErrBaselineNotFound) {
+		logger.Info("no deployment sources found, starting with empty registry")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read registry history baseline: %w", err)
+	}
+	logger.Info("no deployment sources found, restoring history baseline", zap.Int("count", len(baseline)))
+	return LoadEntriesToRegistry(ctx, baseline, logger)
 }
 
 // EnsureModulesInstalled checks if modules from the lock file are installed,
@@ -794,6 +817,11 @@ func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *
 
 	if err := reg.LoadState(ctx, baselineState, head); err != nil {
 		return err // Already wrapped by registry with proper context
+	}
+	if stored, ok := hist.(regapi.BaselineHistory); ok {
+		if err := stored.SaveBaseline(baselineState); err != nil {
+			return fmt.Errorf("store registry history baseline: %w", err)
+		}
 	}
 
 	logger.Debug("registry state loaded", zap.Uint("version", head.ID()))

@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/registry/history/composite"
 	"github.com/wippyai/runtime/system/registry/history/postgres"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
 )
@@ -17,6 +18,9 @@ import (
 // migration records its registry-history child transition (1.0 to 1.1) in the
 // existing schema ledger; in-memory histories contain no persisted rows.
 func Apply(ctx context.Context, history registry.History, baseline registry.State) error {
+	if selected, ok := history.(*composite.History); ok {
+		history = selected.Active()
+	}
 	switch history.(type) {
 	case *sqlite.History, *postgres.History:
 	default:
