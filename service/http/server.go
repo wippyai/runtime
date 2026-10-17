@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"runtime"
@@ -26,6 +27,7 @@ import (
 	config "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/runtime/security"
+	"go.uber.org/zap"
 )
 
 const (
@@ -288,6 +290,23 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 
 	// Wrap handler with per-request FrameContext creation
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Close && r.Body != nil && r.Body != http.NoBody {
+			defer func() {
+				controller := http.NewResponseController(w)
+				if err := controller.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+					logs.GetLogger(r.Context()).Error("set request body drain deadline", zap.Error(err))
+					return
+				}
+				// net/http skips its usual body drain for closing requests. Limit
+				// cleanup to the same 256 KiB budget used for keep-alive requests;
+				// MaxBytesReader also requests a graceful close when it is exceeded.
+				body := http.MaxBytesReader(w, r.Body, 256<<10)
+				if _, err := io.Copy(io.Discard, body); err != nil {
+					logs.GetLogger(r.Context()).Debug("request body drain interrupted", zap.Error(err))
+				}
+			}()
+		}
+
 		// Always fork a dedicated request frame from the inbound context.
 		ctx, fc := contextapi.ForkFrameContext(r.Context())
 		defer contextapi.ReleaseFrameContext(fc)
