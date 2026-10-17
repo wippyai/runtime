@@ -99,6 +99,7 @@ func TestResolveEffectiveModulesDoesNotCallHubForExactLock(t *testing.T) {
 		[]DependencyDefinition{{Component: "acme/app", Version: "1.2.3"}},
 		map[string]string{"acme/app": "1.2.3"},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, resolved, 1)
@@ -196,6 +197,7 @@ func TestVerifiedOfflineResolutionNeverFallsBackToHub(t *testing.T) {
 		[]DependencyDefinition{{Component: "acme/app", Version: "1.2.3"}},
 		map[string]string{"acme/app": "1.2.3"},
 		nil,
+		nil,
 	)
 	require.Error(t, err)
 	var apiErr apierror.Error
@@ -266,6 +268,7 @@ func TestVerifiedOfflineResolverUsesInstalledModuleGraph(t *testing.T) {
 	resolved, err := handler.resolveEffectiveModules(ctx,
 		[]DependencyDefinition{{Component: "acme/app", Version: "v1.0.0"}},
 		map[string]string{"acme/app": "v1.0.0", "acme/lib": "v1.0.0"},
+		nil,
 		nil,
 	)
 	require.NoError(t, err)
