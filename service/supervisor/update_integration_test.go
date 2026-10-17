@@ -21,6 +21,9 @@ import (
 	api "github.com/wippyai/runtime/api/supervisor"
 	topologyapi "github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/eventbus"
+	registryevents "github.com/wippyai/runtime/system/registry/events"
+	registryrunner "github.com/wippyai/runtime/system/registry/runner"
+	registrytopology "github.com/wippyai/runtime/system/registry/topology"
 	systemsupervisor "github.com/wippyai/runtime/system/supervisor"
 	"go.uber.org/zap"
 )
@@ -47,13 +50,21 @@ func (n *updateTestNode) Send(pkg *relay.Package) error {
 }
 
 type updateTestManager struct {
-	starts chan *processapi.Start
+	starts       chan *processapi.Start
+	releaseStart <-chan struct{}
 	mockProcessManager
 	next atomic.Int32
 }
 
-func (m *updateTestManager) Start(_ context.Context, opts *processapi.Start) (pid.PID, error) {
+func (m *updateTestManager) Start(ctx context.Context, opts *processapi.Start) (pid.PID, error) {
 	m.starts <- opts
+	if m.releaseStart != nil {
+		select {
+		case <-m.releaseStart:
+		case <-ctx.Done():
+			return pid.PID{}, ctx.Err()
+		}
+	}
 	return pid.PID{Node: "test-node", Host: opts.HostID, UniqID: fmt.Sprint(m.next.Add(1))}, nil
 }
 
@@ -132,4 +143,76 @@ func TestManagerUpdateReplacesRunningProcessThroughSupervisor(t *testing.T) {
 		state, err := sup.GetState(entry.ID.String())
 		return err == nil && state.Status == api.StatusExited
 	}, time.Second, time.Millisecond)
+}
+
+func TestManagerRegistryTransitionWaitsForAutoStart(t *testing.T) {
+	node := &updateTestNode{attachments: make(chan updateAttachment, 1), cancels: make(chan *relay.Package, 1)}
+	releaseStart := make(chan struct{})
+	processManager := &updateTestManager{starts: make(chan *processapi.Start, 1), releaseStart: releaseStart}
+	ctx, cancel := context.WithCancel(setupTestContext(node, &mockTopology{}, processManager))
+	defer cancel()
+
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+	ctx = event.WithBus(ctx, bus)
+	awaitService := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitService.Start(ctx))
+	defer func() { _ = awaitService.Stop() }()
+	ctx = event.WithAwaitService(ctx, awaitService)
+
+	sup := systemsupervisor.NewSupervisor(bus, zap.NewNop())
+	require.NoError(t, sup.Start(ctx))
+	defer func() {
+		bound, cancelStop := context.WithTimeout(context.Background(), time.Second)
+		defer cancelStop()
+		_ = sup.StopContext(bound)
+	}()
+
+	manager := NewManager(bus, &configTranscoder{}, newTestPIDGen(), zap.NewNop())
+	handler := registryevents.NewRegistryHandler(supervisorapi.ProcessService, manager)
+	participant, ok := handler.(registry.TransactionParticipant)
+	require.True(t, ok)
+	kindHandler, ok := handler.(registry.KindHandler)
+	require.True(t, ok)
+	router, err := eventbus.StartRouter(ctx, bus, eventbus.WithHandlers(handler))
+	require.NoError(t, err)
+	defer func() { _ = router.Stop() }()
+
+	busRunner := registryrunner.NewBusRunner(
+		bus,
+		zap.NewNop(),
+		registrytopology.NewStateBuilder(zap.NewNop(), nil),
+		registryrunner.WithTransactionParticipants(func() []string {
+			return []string{participant.RegistryTransactionParticipantID()}
+		}),
+		registryrunner.WithKindHandlerCheck(kindHandler.HandlesKind),
+	)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "pipeline"),
+		Kind: supervisorapi.ProcessService,
+		Data: payload.New(supervisorapi.ServiceConfig{
+			Process: registry.NewID("test", "source"),
+			HostID:  "test-host",
+			Lifecycle: api.LifecycleConfig{
+				AutoStart: true, StartTimeout: time.Second, StopTimeout: time.Second,
+			},
+		}),
+	}
+
+	completed := make(chan error, 1)
+	go func() {
+		_, err := busRunner.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: entry}}, nil)
+		completed <- err
+	}()
+
+	start := receiveUpdate(t, processManager.starts)
+	require.True(t, start.Source.Equal(entry.Data.Data().(supervisorapi.ServiceConfig).Process))
+	select {
+	case err := <-completed:
+		t.Fatalf("registry transition completed before automatic service start: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseStart)
+	require.NoError(t, receiveUpdate(t, completed))
 }

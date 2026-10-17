@@ -14,11 +14,14 @@ const System event.System = "supervisor"
 
 // Event kinds for service operations.
 const (
-	ServiceRegister event.Kind = "service.register"
-	ServiceRemove   event.Kind = "service.remove"
-	ServiceUpdate   event.Kind = "service.update"
-	ServiceStart    event.Kind = "service.start"
-	ServiceStop     event.Kind = "service.stop"
+	ServiceRegister    event.Kind = "service.register"
+	ServiceRemove      event.Kind = "service.remove"
+	ServiceUpdate      event.Kind = "service.update"
+	ServiceStart       event.Kind = "service.start"
+	ServiceStop        event.Kind = "service.stop"
+	TransactionBegin   event.Kind = "transaction.begin"
+	TransactionCommit  event.Kind = "transaction.commit"
+	TransactionDiscard event.Kind = "transaction.discard"
 )
 
 // Status constants for service states.
@@ -46,8 +49,8 @@ type (
 		Config  LifecycleConfig
 	}
 
-	// TransactionRequest asks a supervisor registry transaction event to report
-	// when its lifecycle action has completed.
+	// TransactionRequest asks a supervisor transaction command to report when
+	// its lifecycle action has completed.
 	TransactionRequest struct {
 		Result chan error
 	}

@@ -2744,8 +2744,8 @@ func TestSupervisor_CommitRequestWaitsForAutoStart(t *testing.T) {
 
 	committed := make(chan error, 1)
 	h.sup.handleEvent(event.Event{
-		System: registry.System,
-		Kind:   registry.TxCommit,
+		System: supervisor.System,
+		Kind:   supervisor.TransactionCommit,
 		Data:   &supervisor.TransactionRequest{Result: committed},
 	})
 

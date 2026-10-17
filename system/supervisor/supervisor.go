@@ -296,17 +296,13 @@ func (s *Supervisor) stopFailedStartRetries(ctx context.Context, controllers map
 
 func (s *Supervisor) handleEvent(e event.Event) {
 	if e.System == registry.System {
-		var result chan error
-		if request, ok := e.Data.(*supervisor.TransactionRequest); ok {
-			result = request.Result
-		}
 		switch e.Kind {
 		case registry.TxBegin:
-			s.enqueueAction(action{kind: actBegin, result: result})
+			s.enqueueAction(action{kind: actBegin})
 		case registry.TxCommit:
-			s.enqueueAction(action{kind: actCommit, result: result})
+			s.enqueueAction(action{kind: actCommit})
 		case registry.TxDiscard:
-			s.enqueueAction(action{kind: actDiscard, result: result})
+			s.enqueueAction(action{kind: actDiscard})
 		}
 		return
 	}
@@ -316,6 +312,21 @@ func (s *Supervisor) handleEvent(e event.Event) {
 	}
 
 	switch e.Kind {
+	case supervisor.TransactionBegin, supervisor.TransactionCommit, supervisor.TransactionDiscard:
+		request, ok := e.Data.(*supervisor.TransactionRequest)
+		if !ok || request.Result == nil {
+			s.logger.Error("failed to decode supervisor transaction request")
+			return
+		}
+		kind := actBegin
+		switch e.Kind {
+		case supervisor.TransactionCommit:
+			kind = actCommit
+		case supervisor.TransactionDiscard:
+			kind = actDiscard
+		}
+		s.enqueueAction(action{kind: kind, result: request.Result})
+
 	case supervisor.ServiceRegister:
 		entry, ok := e.Data.(*supervisor.Entry)
 		if !ok {
