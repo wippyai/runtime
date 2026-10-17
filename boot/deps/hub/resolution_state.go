@@ -157,7 +157,7 @@ func (h *DependencyHandler) refreshResolvedModules(
 }
 
 // changedDependencyParameterModules returns the modules whose authored root
-// parameters differ across a history transition. Dependency parameters belong
+// parameters differ across a state transition. Dependency parameters belong
 // to the referenced component's declared namespace and cannot mutate another
 // module, including through a fully qualified requirement ID.
 func changedDependencyParameterModules(
@@ -206,7 +206,10 @@ func changedDependencyParameterModules(
 	for id := range rootIDs {
 		before := currentRoots[id]
 		after := targetRoots[id]
-		if before.present == after.present && reflect.DeepEqual(before.definition.Parameters, after.definition.Parameters) {
+		if len(before.definition.Parameters) == 0 && len(after.definition.Parameters) == 0 {
+			continue
+		}
+		if before.definition.Component == after.definition.Component && reflect.DeepEqual(before.definition.Parameters, after.definition.Parameters) {
 			continue
 		}
 		for _, item := range []declaration{before, after} {
