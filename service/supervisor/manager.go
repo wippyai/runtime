@@ -157,4 +157,32 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
+func (m *Manager) transition(ctx context.Context, kind event.Kind) error {
+	result := make(chan error, 1)
+	m.bus.Send(ctx, event.Event{
+		System: registry.System,
+		Kind:   kind,
+		Data:   &supervisor.TransactionRequest{Result: result},
+	})
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (m *Manager) Begin(ctx context.Context) error {
+	return m.transition(ctx, registry.TxBegin)
+}
+
+func (m *Manager) Commit(ctx context.Context) error {
+	return m.transition(ctx, registry.TxCommit)
+}
+
+func (m *Manager) Discard(ctx context.Context) error {
+	return m.transition(ctx, registry.TxDiscard)
+}
+
 var _ registry.EntryListener = (*Manager)(nil)
+var _ registry.TransactionListener = (*Manager)(nil)

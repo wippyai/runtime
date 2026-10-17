@@ -37,6 +37,7 @@ type (
 
 	action struct {
 		entry     *supervisor.Entry
+		result    chan error
 		serviceID string
 		kind      actKind
 	}
@@ -161,7 +162,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	// services with its own bounded context.
 	s.ctx = context.WithoutCancel(ctx)
 
-	// Subscribe to all relevant events using a single subscriber with patterns
+	// Subscribe to all relevant events using a single subscriber with patterns.
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		s.bus,
@@ -295,13 +296,17 @@ func (s *Supervisor) stopFailedStartRetries(ctx context.Context, controllers map
 
 func (s *Supervisor) handleEvent(e event.Event) {
 	if e.System == registry.System {
+		var result chan error
+		if request, ok := e.Data.(*supervisor.TransactionRequest); ok {
+			result = request.Result
+		}
 		switch e.Kind {
 		case registry.TxBegin:
-			s.enqueueAction(action{kind: actBegin})
+			s.enqueueAction(action{kind: actBegin, result: result})
 		case registry.TxCommit:
-			s.enqueueAction(action{kind: actCommit})
+			s.enqueueAction(action{kind: actCommit, result: result})
 		case registry.TxDiscard:
-			s.enqueueAction(action{kind: actDiscard})
+			s.enqueueAction(action{kind: actDiscard, result: result})
 		}
 		return
 	}
@@ -353,6 +358,12 @@ func (s *Supervisor) enqueueAction(next action) {
 	}
 }
 
+func completeAction(next action, err error) {
+	if next.result != nil {
+		next.result <- err
+	}
+}
+
 func (s *Supervisor) run(ctx context.Context) {
 	defer s.logger.Info("supervisor control loop stopped")
 	defer s.wg.Done()
@@ -388,9 +399,11 @@ func (s *Supervisor) run(ctx context.Context) {
 		switch next.kind {
 		case actBegin:
 			s.tx.begin()
+			completeAction(next, nil)
 
 		case actDiscard:
 			s.tx.discard()
+			completeAction(next, nil)
 
 		case actCommit:
 			// execute commit protocol
@@ -398,10 +411,12 @@ func (s *Supervisor) run(ctx context.Context) {
 			if err != nil {
 				s.logger.Error("failed to execute commit protocol", zap.Error(err))
 				s.tx.reset()
+				completeAction(next, err)
 				continue
 			}
 
 			s.tx.reset()
+			completeAction(next, nil)
 
 		case actRegister:
 			next.entry.Config.InitDefaults()
@@ -411,8 +426,11 @@ func (s *Supervisor) run(ctx context.Context) {
 					zap.String("serviceID", next.serviceID),
 					zap.Error(err),
 				)
+				completeAction(next, err)
+				continue
 			}
 			s.logger.Info("service registered", zap.String("serviceID", next.serviceID))
+			completeAction(next, nil)
 
 		case actRemove:
 			if err := s.tx.removeService(next.serviceID); err != nil {
@@ -420,9 +438,12 @@ func (s *Supervisor) run(ctx context.Context) {
 					zap.String("serviceID", next.serviceID),
 					zap.Error(err),
 				)
+				completeAction(next, err)
+				continue
 			}
 
 			s.logger.Info("service removed", zap.String("serviceID", next.serviceID))
+			completeAction(next, nil)
 
 		case actStart:
 			if s.tx.open {

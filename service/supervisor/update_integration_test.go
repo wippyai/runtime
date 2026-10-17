@@ -90,8 +90,10 @@ func TestManagerUpdateReplacesRunningProcessThroughSupervisor(t *testing.T) {
 			Lifecycle: api.LifecycleConfig{AutoStart: true, StartTimeout: time.Second, StopTimeout: time.Second},
 		})}
 	bus.Send(ctx, event.Event{System: registry.System, Kind: registry.TxBegin})
+	require.NoError(t, m.Begin(ctx))
 	require.NoError(t, m.Add(ctx, entry))
 	bus.Send(ctx, event.Event{System: registry.System, Kind: registry.TxCommit})
+	require.NoError(t, m.Commit(ctx))
 	first := receiveUpdate(t, node.attachments)
 	start := receiveUpdate(t, manager.starts)
 	require.True(t, start.Source.Equal(registry.NewID("test", "before")))
@@ -104,11 +106,17 @@ func TestManagerUpdateReplacesRunningProcessThroughSupervisor(t *testing.T) {
 		Lifecycle: api.LifecycleConfig{AutoStart: false, StartTimeout: time.Second, StopTimeout: time.Second},
 	})
 	bus.Send(ctx, event.Event{System: registry.System, Kind: registry.TxBegin})
+	require.NoError(t, m.Begin(ctx))
 	require.NoError(t, m.Update(ctx, entry))
 	bus.Send(ctx, event.Event{System: registry.System, Kind: registry.TxCommit})
+	committed := make(chan error, 1)
+	go func() {
+		committed <- m.Commit(ctx)
+	}()
 	receiveUpdate(t, node.cancels)
 	first.ch <- relay.NewPackage(pid.PID{}, first.owner, topologyapi.TopicEvents,
 		payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
+	require.NoError(t, receiveUpdate(t, committed))
 	second := receiveUpdate(t, node.attachments)
 	start = receiveUpdate(t, manager.starts)
 	require.True(t, start.Source.Equal(registry.NewID("test", "after")))

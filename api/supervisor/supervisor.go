@@ -46,6 +46,12 @@ type (
 		Config  LifecycleConfig
 	}
 
+	// TransactionRequest asks a supervisor registry transaction event to report
+	// when its lifecycle action has completed.
+	TransactionRequest struct {
+		Result chan error
+	}
+
 	// Status represents the operational status of a service.
 	Status = string
 

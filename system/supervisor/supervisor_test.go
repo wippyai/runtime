@@ -2722,3 +2722,49 @@ func TestSupervisor_GetStateDoesNotBlockDuringCommitTransition(t *testing.T) {
 
 	t.Fatal("service did not reach running state")
 }
+
+func TestSupervisor_CommitRequestWaitsForAutoStart(t *testing.T) {
+	h := newTestHarness(t)
+	h.start(context.Background())
+	defer h.stop()
+
+	service := newBlockingStartService()
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "service",
+		Data: &supervisor.Entry{
+			Service: service,
+			Config: supervisor.LifecycleConfig{
+				AutoStart: true, StartTimeout: time.Second, StopTimeout: time.Second,
+			},
+		},
+	})
+
+	committed := make(chan error, 1)
+	h.sup.handleEvent(event.Event{
+		System: registry.System,
+		Kind:   registry.TxCommit,
+		Data:   &supervisor.TransactionRequest{Result: committed},
+	})
+
+	select {
+	case <-service.startedCh:
+	case <-time.After(time.Second):
+		t.Fatal("service did not start during the registry commit")
+	}
+	select {
+	case err := <-committed:
+		t.Fatalf("registry commit completed before the service started: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(service.releaseCh)
+	select {
+	case err := <-committed:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("registry commit did not complete after the service started")
+	}
+}
