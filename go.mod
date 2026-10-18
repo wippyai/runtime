@@ -24,6 +24,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
+	github.com/felixge/httpsnoop v1.1.0
 	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/goccy/go-yaml v1.19.2
@@ -134,7 +135,6 @@ require (
 	github.com/docker/go-connections v0.8.2 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
-	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/gaissmai/bart v0.29.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
