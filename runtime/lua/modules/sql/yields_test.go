@@ -4,7 +4,47 @@ package sql
 
 import (
 	"testing"
+	"time"
+
+	lua "github.com/wippyai/go-lua"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
+
+func TestQueryResultTimestampPrecision(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	for _, value := range []string{
+		"2026-10-13T10:12:00Z",
+		"2026-10-13T10:12:00.000001Z",
+		"2026-10-13T10:12:00.000000001Z",
+		"2026-10-13T10:12:00.123456Z",
+		"2026-10-13T10:12:00.123456789Z",
+		"2026-10-13T10:12:00.123456789-04:00",
+		"2026-12-31T23:59:59.999999999-04:00",
+		"2026-01-01T00:00:00.000000001+05:45",
+		"0001-01-01T00:00:00Z",
+	} {
+		t.Run(value, func(t *testing.T) {
+			stamp, err := time.Parse(time.RFC3339Nano, value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows := queryResultToLua(l, sqlapi.QueryResponse{
+				Columns: []string{"date"}, Rows: [][]any{{stamp}},
+			}).(*lua.LTable)
+			row := rows.RawGetInt(1).(*lua.LTable)
+			actual := row.RawGetString("date").String()
+			expected := stamp.UTC().Format(time.RFC3339Nano)
+			if actual != expected {
+				t.Fatalf("timestamp lost precision: got %q, want %q", actual, expected)
+			}
+			roundTrip, parseErr := time.Parse(time.RFC3339Nano, actual)
+			if parseErr != nil || !roundTrip.Equal(stamp) {
+				t.Fatalf("timestamp did not round-trip: %q (%v)", actual, parseErr)
+			}
+		})
+	}
+}
 
 func TestAcquireQueryYield(t *testing.T) {
 	yield := AcquireQueryYield()
