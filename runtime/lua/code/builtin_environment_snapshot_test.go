@@ -3,6 +3,7 @@
 package code
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,41 @@ import (
 	"github.com/wippyai/go-lua/types/typ"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 )
+
+func TestBuiltinEnvironmentConcurrentManifestFinalization(t *testing.T) {
+	manifest := io.NewManifest("native")
+	item := typ.NewRecord().Field("id", typ.String).Build()
+	manifest.DefineType("Item", item)
+	manifest.AddGlobal("native_item", item)
+	manifest.SetExport(typ.NewRecord().Field("item", item).Build())
+	mods := []*api.ModuleDef{{Name: "native", Types: func() *io.Manifest { return manifest }}}
+	const workers = 32
+	environments := make([]*BuiltinEnvironment, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range environments {
+		wg.Go(func() {
+			<-start
+			env := NewBuiltinEnvironment(mods, check.Options{})
+			// Registration may run concurrently with other environment builds.
+			env.NewDatabase()
+			environments[i] = env
+		})
+	}
+	close(start)
+	wg.Wait()
+	for _, env := range environments {
+		require.Same(t, manifest.Export, env.GlobalTypes["native"])
+		require.Same(t, manifest.Globals["native_item"], env.GlobalTypes["native_item"])
+		scoped, ok := env.TypeScope.LookupType("Item")
+		require.True(t, ok)
+		require.Same(t, manifest.Types["Item"], scoped)
+	}
+	// A subsequent build must reuse, rather than re-finalize, the graph.
+	export := manifest.Export
+	NewBuiltinEnvironment(mods, check.Options{}).NewDatabase()
+	require.Same(t, export, manifest.Export)
+}
 
 func TestBuiltinEnvironmentSnapshotsFinalizedManifest(t *testing.T) {
 	for _, bodyBacked := range []bool{false, true} {
