@@ -156,10 +156,10 @@ func (h *DependencyHandler) refreshResolvedModules(
 	return h.resolveEffectiveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions, resolution)
 }
 
-// changedDependencyParameterModules returns the modules whose authored root
-// parameters differ across a history transition. Dependency parameters belong
-// to the referenced component's declared namespace and cannot mutate another
-// module, including through a fully qualified requirement ID.
+// changedDependencyParameterModules returns the modules whose dependency
+// parameters differ across a state transition, including transitive declarations.
+// Parameters belong to the referenced component's declared namespace and cannot
+// mutate another module, including through a fully qualified requirement ID.
 func changedDependencyParameterModules(
 	ctx context.Context,
 	current regapi.State,
@@ -171,42 +171,45 @@ func changedDependencyParameterModules(
 		present    bool
 	}
 
-	decodeRoots := func(state regapi.State) (map[string]declaration, error) {
-		roots := make(map[string]declaration)
+	decodeDeclarations := func(state regapi.State) (map[string]declaration, error) {
+		declarations := make(map[string]declaration)
 		for _, entry := range state {
-			if !isRootDependency(entry) {
+			if entry.Kind != regapi.NamespaceDependency {
 				continue
 			}
 			definition, err := decodeDependency(ctx, transcoder, entry)
 			if err != nil {
 				return nil, err
 			}
-			roots[idKey(entry.ID)] = declaration{definition: definition, present: true}
+			declarations[idKey(entry.ID)] = declaration{definition: definition, present: true}
 		}
-		return roots, nil
+		return declarations, nil
 	}
 
-	currentRoots, err := decodeRoots(current)
+	currentDeclarations, err := decodeDeclarations(current)
 	if err != nil {
 		return nil, err
 	}
-	targetRoots, err := decodeRoots(target)
+	targetDeclarations, err := decodeDeclarations(target)
 	if err != nil {
 		return nil, err
 	}
 
 	changed := make(map[string]struct{})
-	rootIDs := make(map[string]struct{}, len(currentRoots)+len(targetRoots))
-	for id := range currentRoots {
-		rootIDs[id] = struct{}{}
+	declarationIDs := make(map[string]struct{}, len(currentDeclarations)+len(targetDeclarations))
+	for id := range currentDeclarations {
+		declarationIDs[id] = struct{}{}
 	}
-	for id := range targetRoots {
-		rootIDs[id] = struct{}{}
+	for id := range targetDeclarations {
+		declarationIDs[id] = struct{}{}
 	}
-	for id := range rootIDs {
-		before := currentRoots[id]
-		after := targetRoots[id]
-		if before.present == after.present && reflect.DeepEqual(before.definition.Parameters, after.definition.Parameters) {
+	for id := range declarationIDs {
+		before := currentDeclarations[id]
+		after := targetDeclarations[id]
+		if len(before.definition.Parameters) == 0 && len(after.definition.Parameters) == 0 {
+			continue
+		}
+		if before.definition.Component == after.definition.Component && reflect.DeepEqual(before.definition.Parameters, after.definition.Parameters) {
 			continue
 		}
 		for _, item := range []declaration{before, after} {

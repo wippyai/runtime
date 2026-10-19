@@ -415,30 +415,60 @@ func (h *DependencyHandler) expand(
 	desiredModules := resolvedModuleSet(resolved)
 	addModuleSet(controlledModules, desiredModules)
 
-	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), snapshot, transcoder)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
+	var moduleEntries regapi.State
+	var combined []regapi.Entry
+	unpackPlan := &unpackPlan{}
 	defer func() { _ = unpackPlan.cleanup() }()
+	toLoad := touchedModules
+	for {
+		loaded, loadedPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, toLoad), snapshot, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		unpackPlan.staged = append(unpackPlan.staged, loadedPlan.take()...)
+		moduleEntries = append(moduleEntries, loaded...)
 
-	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
-	for _, e := range snapshot {
-		if module := entryModule(e); module != "" {
-			if _, controlled := controlledModules[module]; controlled {
-				if _, desired := desiredModules[module]; !desired {
-					continue
-				}
-				if _, touched := touchedModules[module]; touched {
-					continue
+		combined = make(regapi.State, 0, len(snapshot)+len(moduleEntries))
+		for _, e := range snapshot {
+			if module := entryModule(e); module != "" {
+				if _, controlled := controlledModules[module]; controlled {
+					if _, desired := desiredModules[module]; !desired {
+						continue
+					}
+					if _, touched := touchedModules[module]; touched {
+						continue
+					}
 				}
 			}
+			combined = append(combined, e)
 		}
-		combined = append(combined, e)
+		combined = append(combined, moduleEntries...)
+		for _, change := range authoredChanges {
+			combined = applyOperationToState(combined, change)
+		}
+		// A changed declaration can reconfigure an unchanged child. Reload its
+		// authored entries before linking, including self-targeted defaults.
+		parameterModules, err := changedDependencyParameterModules(ctx, snapshot, applyOperationToState(combined, op), transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		toLoad = make(map[string]struct{})
+		for module := range parameterModules {
+			if _, desired := desiredModules[module]; !desired {
+				continue
+			}
+			if _, touched := touchedModules[module]; touched {
+				continue
+			}
+			toLoad[module] = struct{}{}
+			touchedModules[module] = struct{}{}
+			strictModules = append(strictModules, module)
+		}
+		if len(toLoad) == 0 {
+			break
+		}
 	}
-	combined = append(combined, moduleEntries...)
-	for _, change := range authoredChanges {
-		combined = applyOperationToState(combined, change)
-	}
+	sort.Strings(strictModules)
 	bindingArtifacts, bindingPlan, err := h.bindingArtifacts(ctx, resolved, moduleEntries, snapshot, authoredChanges, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -859,30 +889,57 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, err
 	}
 
-	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), target, transcoder)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
+	var moduleEntries regapi.State
+	var combined []regapi.Entry
+	unpackPlan := &unpackPlan{}
 	defer func() { _ = unpackPlan.cleanup() }()
-	combined := make([]regapi.Entry, 0, len(target)+len(moduleEntries))
-	for _, entry := range target {
-		if module := entryModule(entry); module != "" {
-			if _, dependencyOwned := controlled[module]; dependencyOwned {
-				if _, desired := desiredModules[module]; !desired {
-					continue
-				}
-				if _, changed := touched[module]; changed {
-					continue
+	toLoad := touched
+	for {
+		loaded, loadedPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, toLoad), target, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		unpackPlan.staged = append(unpackPlan.staged, loadedPlan.take()...)
+		moduleEntries = append(moduleEntries, loaded...)
+		combined = make([]regapi.Entry, 0, len(target)+len(moduleEntries))
+		for _, entry := range target {
+			if module := entryModule(entry); module != "" {
+				if _, dependencyOwned := controlled[module]; dependencyOwned {
+					if _, desired := desiredModules[module]; !desired {
+						continue
+					}
+					if _, changed := touched[module]; changed {
+						continue
+					}
 				}
 			}
+			combined = append(combined, entry)
 		}
-		combined = append(combined, entry)
-	}
-	combined = append(combined, residentUnchangedModuleEntries(current, combined, controlled, desiredModules, touched)...)
-	combined = append(combined, moduleEntries...)
-	combined, err = h.replayOwnedDependencyChanges(ctx, combined, effectiveResolution, transcoder)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
+		combined = append(combined, residentUnchangedModuleEntries(current, combined, controlled, desiredModules, touched)...)
+		combined = append(combined, moduleEntries...)
+		combined, err = h.replayOwnedDependencyChanges(ctx, combined, effectiveResolution, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		parameterModules, err := changedDependencyParameterModules(ctx, current, combined, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		toLoad = make(map[string]struct{})
+		for module := range parameterModules {
+			if _, desired := desiredModules[module]; !desired {
+				continue
+			}
+			if _, loaded := touched[module]; loaded {
+				continue
+			}
+			toLoad[module] = struct{}{}
+			touched[module] = struct{}{}
+			mutable[module] = struct{}{}
+		}
+		if len(toLoad) == 0 {
+			break
+		}
 	}
 	if refreshReason == "" {
 		recordedRoots := make(map[string]struct{}, len(resolution.Roots)+len(resolution.References))
