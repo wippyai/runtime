@@ -69,6 +69,11 @@ func newBuiltinEnvironment(manifests map[string]*io.Manifest, options check.Opti
 	moduleManifests := make([]*io.Manifest, 0, len(manifests))
 	for _, name := range names {
 		manifest := manifests[name]
+		// Connect finalizes native declarations. Finalize them before taking
+		// namespace references so the environment and database share one graph.
+		if !manifest.BodyBacked {
+			manifest.MarkDeclared()
+		}
 		moduleManifests = append(moduleManifests, manifest)
 		if manifest.Export != nil {
 			env.Modules[name] = manifest.Export
