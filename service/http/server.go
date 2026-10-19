@@ -287,7 +287,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	listenAddr := ""
 
 	// Wrap handler with per-request FrameContext creation
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := drainClosingRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always fork a dedicated request frame from the inbound context.
 		ctx, fc := contextapi.ForkFrameContext(r.Context())
 		defer contextapi.ReleaseFrameContext(fc)
@@ -298,7 +298,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		_ = fc.Set(config.ServerKey(), s)
 
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
-	})
+	}))
 
 	srv := &http.Server{
 		Addr:         s.config.Addr,
