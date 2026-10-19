@@ -277,6 +277,13 @@ Returns database type constant.
 
 Executes SELECT query and returns rows.
 
+Native timestamp values supplied by the database driver become UTC RFC3339
+strings, preserving fractional seconds up to nanosecond precision. Fractional
+digits are omitted when zero and trailing fractional zeros are trimmed. Text
+columns are returned unchanged. The same conversion applies to prepared and
+transactional queries. Compare timestamps as instants or in SQL, not by
+lexicographic string ordering.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | sql | string | yes | - | SQL query with ? placeholders |

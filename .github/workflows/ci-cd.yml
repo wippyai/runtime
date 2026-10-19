@@ -283,11 +283,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run PostgreSQL registry tests
+      - name: Run PostgreSQL registry and Lua SQL tests
         env:
           GORACE: "halt_on_error=1"
           WIPPY_POSTGRES_HISTORY_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-        run: go test -race -count=1 ./system/registry ./system/registry/history/postgres ./boot/deps/hub
+        run: go test -race -count=1 ./system/registry ./system/registry/history/postgres ./boot/deps/hub ./runtime/lua/modules/sql
 
   test-sqlite-cdc:
     name: Test SQLite CDC (Linux, CGO, race)
