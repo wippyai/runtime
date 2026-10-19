@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,16 @@ func (h *DependencyHandler) resolveModules(
 			Name:       name.Module,
 			Constraint: dep.Version,
 		})
+	}
+
+	lockedVersions = maps.Clone(lockedVersions)
+	for name := range h.replacements {
+		if version := h.replacementModuleVersion(name); version != "" {
+			if lockedVersions == nil {
+				lockedVersions = make(map[string]string)
+			}
+			lockedVersions[name] = version
+		}
 	}
 
 	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
