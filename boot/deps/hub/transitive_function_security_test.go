@@ -8,25 +8,35 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/internal/version"
 	registryimpl "github.com/wippyai/runtime/system/registry"
 	"github.com/wippyai/runtime/system/registry/expansion"
-	historysqlite "github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 
 func TestRuntimeParentUpdatePublishesTransitiveFunctionSecurity(t *testing.T) {
-	ctx := boot.WithConfig(newTestContext(), boot.NewConfig(boot.WithSection("override", map[string]any{
-		"acme.child:settings:value": "host override",
-	})))
+	for _, engine := range []string{"sqlite", "postgres"} {
+		t.Run(engine, func(t *testing.T) { testTransitiveFunctionSecurityHistory(t, engine) })
+	}
+}
+
+func testTransitiveFunctionSecurityHistory(t *testing.T, engine string) {
+	t.Helper()
+	newContext := func() context.Context {
+		return boot.WithConfig(newTestContext(), boot.NewConfig(boot.WithSection("override", map[string]any{
+			"acme.child:settings:value": "host override",
+		})))
+	}
+	ctx := regapi.WithDependencyAccess(newContext(), regapi.DependencyAccessOnline)
 	directory := t.TempDir()
 	vendor := filepath.Join(directory, "vendor")
 	lockPath := filepath.Join(directory, "wippy.lock")
@@ -77,11 +87,14 @@ modules:
     version: 1.0.0
     hash: %s
 `, digests[selection{"parent", "1.0.0"}], digests[selection{"child", "1.0.0"}])), 0o600))
+	var calls atomic.Int64
 	client := &fakeHub{
 		listVersions: func(context.Context, string, string) ([]VersionInfo, error) {
+			calls.Add(1)
 			return []VersionInfo{{Version: "2.0.0"}, {Version: "1.0.0"}}, nil
 		},
 		getManifest: func(_ context.Context, org, module, release string) (*ModuleManifest, error) {
+			calls.Add(1)
 			selected := selection{module, release}
 			artifact, ok := artifacts[selected]
 			if !ok {
@@ -96,6 +109,7 @@ modules:
 			return manifest, nil
 		},
 		downloadFile: func(_ context.Context, url, destination string) error {
+			calls.Add(1)
 			for selected, artifact := range artifacts {
 				if url == "memory://"+selected.name+"@"+selected.version {
 					require.NoError(t, os.MkdirAll(filepath.Dir(destination), 0o700))
@@ -105,17 +119,19 @@ modules:
 			return fmt.Errorf("unexpected download %s", url)
 		},
 	}
-	history, err := historysqlite.NewSQLite(filepath.Join(directory, "history.db"), zap.NewNop())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, history.Close()) })
+	openHistory := deploymentRestartHistory(t, engine)
+	history, closeHistory := openHistory()
+	t.Cleanup(func() { closeHistory() })
 	resolver := topology.NewResolver()
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: client, Logger: zap.NewNop(), Resolver: resolver,
 		LockPath: lockPath, VendorDir: vendor})
 	require.NoError(t, err)
 	t.Cleanup(handler.manifestCache.Close)
+	require.NoError(t, handler.PrepareRestore(ctx, history))
 	reg := registryimpl.NewRegistry(history, &bootRecordingRunner{}, topology.NewStateBuilder(zap.NewNop(), resolver), resolver,
 		zap.NewNop(), registryimpl.WithKindDirective(regapi.NamespaceDependency, expansion.NewDependencyDirective(handler.Expand).
 			WithChangesExpansion(handler.ExpandChanges).WithResolutionTransition(handler.ReconcileResolution)))
+	ctx = regapi.WithRegistry(ctx, reg)
 	parent := regapi.Entry{ID: parentID, Kind: regapi.NamespaceDependency,
 		Data: payload.New(rootClosureDependency{"acme/parent", "1.0.0"})}
 	child := regapi.Entry{ID: childID, Kind: regapi.NamespaceDependency,
@@ -130,35 +146,75 @@ modules:
 	}
 	authored := regapi.Entry{ID: regapi.NewID("host", "custom"), Kind: "registry.entry", Data: payload.New("retained")}
 	baseline = append(baseline, authored)
-	require.NoError(t, reg.LoadState(ctx, baseline, version.FromParent(nil, regapi.RootVersion)))
+	initial, err := history.Head()
+	require.NoError(t, err)
+	require.NoError(t, reg.LoadState(ctx, baseline, initial))
 	parent.Data = payload.New(rootClosureDependency{"acme/parent", "2.0.0"})
-	_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: parent}})
+	head, err := reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: parent}})
 	require.NoError(t, err)
-	function, err := reg.GetEntry(functionID)
-	require.NoError(t, err)
-	var functionData struct {
-		Source   string `json:"source"`
-		Security struct {
-			Policies []string `json:"policies"`
-		} `json:"security"`
+	check := func(reg regapi.Registry, release string) {
+		t.Helper()
+		function, err := reg.GetEntry(functionID)
+		require.NoError(t, err)
+		var functionData struct {
+			Source   string `json:"source"`
+			Security struct {
+				Policies []string `json:"policies"`
+			} `json:"security"`
+		}
+		require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(function.Data, &functionData))
+		require.Equal(t, functionSource, functionData.Source)
+		_, err = reg.GetEntry(policyID)
+		if release == "2.0.0" {
+			require.Equal(t, []string{policyID.String()}, functionData.Security.Policies,
+				"a transitive version update must publish new security on an existing function")
+			require.NoError(t, err)
+		} else {
+			require.Empty(t, functionData.Security.Policies)
+			var missing apierror.Error
+			require.ErrorAs(t, err, &missing, "rollback must remove the private policy introduced by the update")
+			require.Equal(t, apierror.NotFound, missing.Kind())
+		}
+		reader, err := reg.GetEntry(regapi.NewID("acme.child", "reader"))
+		require.NoError(t, err)
+		var data map[string]any
+		require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(reader.Data, &data))
+		require.Equal(t, "return {version=\""+release+"\"}", data["source"])
+		settings, err := reg.GetEntry(regapi.NewID("acme.child", "settings"))
+		require.NoError(t, err)
+		require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(settings.Data, &data))
+		require.Equal(t, "host override", data["value"])
+		retained, err := reg.GetEntry(authored.ID)
+		require.NoError(t, err)
+		require.True(t, entriesEqual(authored, retained))
+		require.Equal(t, release, snapshotModuleVersion(t, reg, "acme/child"))
 	}
-	require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(function.Data, &functionData))
-	require.Equal(t, functionSource, functionData.Source)
-	require.Equal(t, []string{policyID.String()}, functionData.Security.Policies,
-		"a transitive version update must publish new security on an existing function")
-	_, err = reg.GetEntry(policyID)
+	check(reg, "2.0.0")
+	saved := reg.Snapshot().Registry.Resolution
+	require.NoError(t, reg.ApplyVersion(ctx, initial))
+	check(reg, "1.0.0")
+	require.NoError(t, reg.ApplyVersion(ctx, head))
+	check(reg, "2.0.0")
+	require.Equal(t, saved, reg.Snapshot().Registry.Resolution)
+	closeHistory()
+	history, closeHistory = openHistory()
+	// A real cold boot has a new application context and resolver. Reusing the
+	// old context would keep its immutable registry binding and fake residency.
+	offlineCtx := regapi.WithDependencyAccess(newContext(), regapi.DependencyAccessVerifiedOffline)
+	restoredResolver := topology.NewResolver()
+	beforeRestart := calls.Load()
+	restoredHandler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: client, Logger: zap.NewNop(), Resolver: restoredResolver,
+		LockPath: lockPath, VendorDir: vendor})
 	require.NoError(t, err)
-	reader, err := reg.GetEntry(regapi.NewID("acme.child", "reader"))
-	require.NoError(t, err)
-	var data map[string]any
-	require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(reader.Data, &data))
-	require.Equal(t, "return {version=\"2.0.0\"}", data["source"])
-	settings, err := reg.GetEntry(regapi.NewID("acme.child", "settings"))
-	require.NoError(t, err)
-	require.NoError(t, payload.GetTranscoder(ctx).Unmarshal(settings.Data, &data))
-	require.Equal(t, "host override", data["value"])
-	retained, err := reg.GetEntry(authored.ID)
-	require.NoError(t, err)
-	require.True(t, entriesEqual(authored, retained))
-	require.Equal(t, "2.0.0", snapshotModuleVersion(t, reg, "acme/child"))
+	t.Cleanup(restoredHandler.manifestCache.Close)
+	require.NoError(t, restoredHandler.PrepareRestore(offlineCtx, history))
+	restored := registryimpl.NewRegistry(history, &bootRecordingRunner{}, topology.NewStateBuilder(zap.NewNop(), restoredResolver), restoredResolver,
+		zap.NewNop(), registryimpl.WithKindDirective(regapi.NamespaceDependency, expansion.NewDependencyDirective(restoredHandler.Expand).
+			WithChangesExpansion(restoredHandler.ExpandChanges).WithResolutionTransition(restoredHandler.ReconcileResolution)))
+	offlineCtx = regapi.WithRegistry(offlineCtx, restored)
+	require.Same(t, restored, regapi.GetRegistry(offlineCtx))
+	require.NoError(t, restored.LoadState(offlineCtx, baseline, head))
+	require.Equal(t, beforeRestart, calls.Load(), "offline restore must not consult the Hub")
+	check(restored, "2.0.0")
+	require.Equal(t, saved, restored.Snapshot().Registry.Resolution, "restore must preserve exact selected versions and digests")
 }
