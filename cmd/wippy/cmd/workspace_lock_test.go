@@ -296,10 +296,10 @@ func TestSymlinkedDeploymentCannotBypassRuntime(t *testing.T) {
 }
 
 func TestRuntimeGuardReportsStatErrors(t *testing.T) {
-	root := t.TempDir()
-	file := filepath.Join(root, "file")
-	require.NoError(t, os.WriteFile(file, []byte("data"), 0o600))
-	release, err := holdWorkspaceForRuntime(workspaceConfig(filepath.Join(file, "deployment.lock")), zap.NewNop())
+	// A NUL is invalid on every supported platform. A file used as a parent
+	// reports ENOTDIR on Unix but a missing path on Windows.
+	path := filepath.Join(t.TempDir(), "invalid\x00.lock")
+	release, err := holdWorkspaceForRuntime(workspaceConfig(path), zap.NewNop())
 	if release != nil {
 		t.Cleanup(release)
 	}
