@@ -7,9 +7,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 	"testing/fstest"
 
@@ -23,6 +26,7 @@ import (
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/wappextract"
+	dirfs "github.com/wippyai/runtime/service/fs/directory"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -235,4 +239,80 @@ func (m mapEnvRegistry) Get(_ context.Context, name string) (string, error) {
 		return value, nil
 	}
 	return "", env.ErrVariableNotFound
+}
+
+func TestSymlinkRootRefreshesWithReplacedModule(t *testing.T) {
+	ctx := newTestContext()
+	root := t.TempDir()
+	target := filepath.Join(root, "vendor", "acme", "ui")
+	assets := filepath.Join(target, "assets")
+	require.NoError(t, os.MkdirAll(assets, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(assets, "test.txt"), []byte("old"), 0o600))
+	alias := filepath.Join(root, "assets-alias")
+	symlinkModulePath(t, assets, alias)
+	opened, err := dirfs.NewFS(alias, 0o755, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = opened.Close() })
+
+	id := regapi.NewID("app", "aliased_assets")
+	state := regapi.State{appDirectoryEntry("aliased_assets", map[string]any{"directory": alias}, "alias")}
+	keys := moduleRootRefreshedEntries(ctx, payload.GetTranscoder(ctx),
+		[]stagedModuleDirectory{{module: "acme.ui", targetDir: target}}, state)
+
+	// The actual directory provider pins the symlink target. After the normal
+	// tree replacement/finalization it is unusable unless selected for refresh.
+	backup := filepath.Join(root, "old-module")
+	require.NoError(t, os.Rename(target, backup))
+	require.NoError(t, os.MkdirAll(assets, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(assets, "test.txt"), []byte("new"), 0o600))
+	require.NoError(t, os.RemoveAll(backup))
+	stale, staleErr := opened.Open("test.txt")
+	if stale != nil {
+		_ = stale.Close()
+	}
+	require.Error(t, staleErr, "the provider really retains the removed root")
+	require.Contains(t, keys, idKey(id), "a valid symlink root into a replaced module needs re-registration")
+}
+
+func symlinkModulePath(t *testing.T, target, alias string) {
+	t.Helper()
+	if err := os.Symlink(target, alias); err != nil {
+		if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skipf("symlink privilege unavailable: %v", err)
+		}
+		require.NoError(t, err)
+	}
+}
+
+func TestModuleRootRefreshResolvesBothRootsAndIgnoresUnrelatedAliases(t *testing.T) {
+	ctx := newTestContext()
+	root := t.TempDir()
+	vendor := filepath.Join(root, "vendor")
+	target := filepath.Join(vendor, "acme", "ui")
+	assets := filepath.Join(target, "assets")
+	outside := filepath.Join(root, "outside")
+	require.NoError(t, os.MkdirAll(assets, 0o755))
+	require.NoError(t, os.MkdirAll(outside, 0o755))
+	vendorAlias := filepath.Join(root, "vendor-alias")
+	symlinkModulePath(t, vendor, vendorAlias)
+	assetsAlias := filepath.Join(root, "assets-alias")
+	symlinkModulePath(t, assets, assetsAlias)
+	outsideAlias := filepath.Join(root, "outside-alias")
+	symlinkModulePath(t, outside, outsideAlias)
+	missingAlias := filepath.Join(root, "missing-alias")
+	symlinkModulePath(t, filepath.Join(root, "missing"), missingAlias)
+	state := regapi.State{
+		appDirectoryEntry("direct", map[string]any{"directory": assets}, "direct"),
+		appDirectoryEntry("alias", map[string]any{"directory": assetsAlias}, "alias"),
+		appDirectoryEntry("outside", map[string]any{"directory": outsideAlias}, "outside"),
+		appDirectoryEntry("missing", map[string]any{"directory": missingAlias}, "missing"),
+	}
+	for _, stagedRoot := range []string{target, filepath.Join(vendorAlias, "acme", "ui")} {
+		keys := moduleRootRefreshedEntries(ctx, payload.GetTranscoder(ctx),
+			[]stagedModuleDirectory{{module: "acme.ui", targetDir: stagedRoot}}, state)
+		assert.Equal(t, map[string]struct{}{
+			idKey(regapi.NewID("app", "direct")): {},
+			idKey(regapi.NewID("app", "alias")):  {},
+		}, keys)
+	}
 }

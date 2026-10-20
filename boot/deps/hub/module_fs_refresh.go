@@ -34,6 +34,7 @@ func moduleRootRefreshedEntries(
 
 	replaced := make(map[string]struct{}, len(staged))
 	roots := make([]string, 0, len(staged))
+	resolvedRoots := make([]string, 0, len(staged))
 	for _, item := range staged {
 		if item.module != "" {
 			replaced[item.module] = struct{}{}
@@ -43,6 +44,9 @@ func moduleRootRefreshedEntries(
 		}
 		if root, err := filepath.Abs(item.targetDir); err == nil {
 			roots = append(roots, root)
+			if resolved, err := filepath.EvalSymlinks(root); err == nil {
+				resolvedRoots = append(resolvedRoots, resolved)
+			}
 		}
 	}
 
@@ -74,6 +78,16 @@ func moduleRootRefreshedEntries(
 			if pathWithin(root, dir) {
 				keys[idKey(entry.ID)] = struct{}{}
 				break
+			}
+		}
+		// os.OpenRoot follows symlinks and pins the target directory. An alias
+		// outside the vendor tree needs the same refresh as a direct path into it.
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			for _, root := range resolvedRoots {
+				if pathWithin(root, resolved) {
+					keys[idKey(entry.ID)] = struct{}{}
+					break
+				}
 			}
 		}
 	}

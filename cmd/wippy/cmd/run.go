@@ -257,7 +257,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		logger.Error("dependency preparation failed", zap.Error(err))
 		return err
 	}
-	releaseWorkspace, err := holdWorkspaceForRuntime(defaultLockFile, logger)
+	releaseWorkspace, err := holdWorkspaceForRuntime(cfg, logger)
 	if err != nil {
 		logger.Error("failed to lock workspace", zap.Error(err))
 		return err

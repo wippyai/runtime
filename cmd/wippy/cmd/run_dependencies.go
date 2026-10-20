@@ -31,7 +31,7 @@ func prepareRunDependencies(
 	registryURL string,
 	logger *zap.Logger,
 ) error {
-	lockPath, err := lock.Find(".", defaultLockFile)
+	lockPath, err := lock.Find(".", runtimeLockFile(cfg))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
