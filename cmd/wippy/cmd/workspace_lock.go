@@ -15,8 +15,8 @@ import (
 // An update runs install in the same process, and install without a lock file
 // runs update. One process holds the exclusive workspace lock once.
 var workspaceChange = struct {
-	sync.Mutex
 	held map[string]*workspaceHold
+	sync.Mutex
 }{held: make(map[string]*workspaceHold)}
 
 type workspaceHold struct {

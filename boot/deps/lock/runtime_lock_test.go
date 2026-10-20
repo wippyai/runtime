@@ -17,11 +17,11 @@ import (
 const holdWorkspaceLockEnv = "WIPPY_TEST_HOLD_WORKSPACE_LOCK"
 
 func TestRuntimeLockPath(t *testing.T) {
-	root := filepath.Join("/", "app")
+	root := filepath.Join(t.TempDir(), "app")
 	assert.Equal(t, filepath.Join(root, ".wippy", RuntimeLockFilename), RuntimeLockPath(root, ""))
 	assert.Equal(t, filepath.Join(root, ".wippy", RuntimeLockFilename), RuntimeLockPath(root, ".wippy"))
 	assert.Equal(t, filepath.Join(root, "mods", RuntimeLockFilename), RuntimeLockPath(root, filepath.Join("mods", "vendor")))
-	abs := filepath.Join("/", "var", "mods")
+	abs := filepath.Join(t.TempDir(), "mods")
 	assert.Equal(t, filepath.Join(abs, RuntimeLockFilename), RuntimeLockPath(root, abs))
 }
 
@@ -86,7 +86,7 @@ func TestWorkspaceLockRuntimeWaitsForUpdate(t *testing.T) {
 // A lock held by a process that dies is released by the operating system.
 func TestWorkspaceLockCrashedHolderDoesNotBlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), RuntimeLockFilename)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestWorkspaceLockHolderProcess$")
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestWorkspaceLockHolderProcess$")
 	cmd.Env = append(os.Environ(), holdWorkspaceLockEnv+"="+path)
 	stdout, err := cmd.StdoutPipe()
 	require.NoError(t, err)
