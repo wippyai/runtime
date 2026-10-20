@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
@@ -28,23 +29,49 @@ import (
 
 func TestModuleRootRefreshedEntriesSelectsReplacedModuleDirectories(t *testing.T) {
 	ctx := newTestContext()
+	targetDir := filepath.Join(t.TempDir(), "vendor", "acme", "ui")
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	projectRelative, err := filepath.Rel(cwd, filepath.Join(targetDir, "assets"))
+	require.NoError(t, err)
+	ctx = env.WithRegistry(ctx, mapEnvRegistry{vars: map[string]string{"ACME_UI_ASSETS": filepath.Join(targetDir, "assets")}})
+
 	state := regapi.State{
 		moduleDirectoryEntry("acme.ui", "assets", map[string]any{"directory": "./assets", "base": "module"}, "a"),
 		moduleDirectoryEntry("acme.ui", "data", map[string]any{"directory": "./data"}, "b"),
 		moduleDirectoryEntry("acme.ui", "host", map[string]any{"directory": "/var/lib/acme"}, "c"),
 		moduleDirectoryEntry("acme.ui", "project", map[string]any{"directory": "./assets", "base": "project"}, "d"),
-		moduleDirectoryEntry("other.mod", "assets", map[string]any{"directory": "./assets", "base": "module"}, "e"),
+		moduleDirectoryEntry("acme.ui", "env", map[string]any{"directory": "${env:ACME_UI_UNSET}"}, "e"),
+		moduleDirectoryEntry("other.mod", "assets", map[string]any{"directory": "./assets", "base": "module"}, "f"),
+		appDirectoryEntry("absolute", map[string]any{"directory": filepath.Join(targetDir, "assets")}, "g"),
+		appDirectoryEntry("root", map[string]any{"directory": targetDir}, "h"),
+		appDirectoryEntry("relative", map[string]any{"directory": projectRelative, "base": "project"}, "i"),
+		appDirectoryEntry("placeholder", map[string]any{"directory": "${env:ACME_UI_ASSETS}"}, "j"),
+		appDirectoryEntry("sibling", map[string]any{"directory": targetDir + "-backup"}, "k"),
+		appDirectoryEntry("parent", map[string]any{"directory": filepath.Dir(targetDir)}, "l"),
+		appDirectoryEntry("outside", map[string]any{"directory": "/var/lib/app"}, "m"),
 		{ID: regapi.NewID("acme.ui", "service"), Kind: "service", Registry: regapi.EntryMetadata{Owner: "acme.ui"}},
 	}
 
 	keys := moduleRootRefreshedEntries(ctx, payload.GetTranscoder(ctx), []stagedModuleDirectory{
-		{module: "acme.ui", targetDir: "/tmp/acme/ui"},
+		{module: "acme.ui", targetDir: targetDir},
 	}, state)
 
 	assert.Equal(t, map[string]struct{}{
-		idKey(regapi.NewID("acme.ui", "assets")): {},
-		idKey(regapi.NewID("acme.ui", "data")):   {},
+		idKey(regapi.NewID("acme.ui", "assets")):  {},
+		idKey(regapi.NewID("acme.ui", "data")):    {},
+		idKey(regapi.NewID("acme.ui", "host")):    {},
+		idKey(regapi.NewID("acme.ui", "project")): {},
+		idKey(regapi.NewID("acme.ui", "env")):     {},
+		idKey(regapi.NewID("app", "absolute")):    {},
+		idKey(regapi.NewID("app", "root")):        {},
+		idKey(regapi.NewID("app", "relative")):    {},
+		idKey(regapi.NewID("app", "placeholder")): {},
 	}, keys)
+
+	ids := moduleRootRefreshIDs(state, keys)
+	assert.Len(t, ids, len(keys))
+	assert.Nil(t, moduleRootRefreshIDs(state, nil))
 }
 
 func TestModuleRootRefreshedEntriesIgnoresUnreplacedModules(t *testing.T) {
@@ -153,6 +180,7 @@ func TestDependencyHandlerUpdateRefreshesModuleRootFilesystemEntry(t *testing.T)
 	require.NotNil(t, assets, "a module-relative filesystem entry must be re-registered after its tree is replaced")
 	assert.Equal(t, regapi.EntryUpdate, assets.Kind)
 	assert.Nil(t, definition, "an unchanged entry outside a replaced directory must not be re-registered")
+	assert.Equal(t, []regapi.ID{assetsID}, result.Refresh, "a version transition must re-register the entry after its state delta")
 }
 
 func buildModuleWapp(t *testing.T, version, page string) []byte {
@@ -189,4 +217,22 @@ func moduleDirectoryEntry(module, name string, data map[string]any, meta string)
 		Meta:     attrs.NewBagFrom(map[string]any{"test": meta}),
 		Data:     payload.New(data),
 	}
+}
+
+func appDirectoryEntry(name string, data map[string]any, meta string) regapi.Entry {
+	entry := moduleDirectoryEntry("app", name, data, meta)
+	entry.Registry.Owner = ""
+	return entry
+}
+
+type mapEnvRegistry struct {
+	env.Registry
+	vars map[string]string
+}
+
+func (m mapEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if value, ok := m.vars[name]; ok {
+		return value, nil
+	}
+	return "", env.ErrVariableNotFound
 }

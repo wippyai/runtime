@@ -506,11 +506,8 @@ func (h *DependencyHandler) expand(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	additional = appendModuleRootRefreshes(
-		additional,
-		combined,
-		moduleRootRefreshedEntries(ctx, transcoder, unpackPlan.staged, snapshot),
-	)
+	refreshKeys := moduleRootRefreshedEntries(ctx, transcoder, unpackPlan.staged, snapshot)
+	additional = appendModuleRootRefreshes(additional, combined, refreshKeys)
 
 	scoped := make([]regapi.ScopedOperation, 0, len(additional))
 	for _, op := range additional {
@@ -571,6 +568,7 @@ func (h *DependencyHandler) expand(
 		Resolution: selectedResolution,
 		Additional: scoped,
 		Effects:    effects,
+		Refresh:    moduleRootRefreshIDs(combined, refreshKeys),
 	}, nil
 }
 
@@ -1033,6 +1031,8 @@ func (h *DependencyHandler) ReconcileResolution(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	refreshKeys := moduleRootRefreshedEntries(ctx, transcoder, unpackPlan.staged, current)
+	additional = appendModuleRootRefreshes(additional, combined, refreshKeys)
 	scoped := make([]regapi.ScopedOperation, 0, len(additional))
 	for _, op := range additional {
 		scoped = append(scoped, regapi.ScopedOperation{Operation: op, Scope: regapi.ScopeBaseline})
@@ -1088,6 +1088,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		Resolution: effectiveResolution,
 		Additional: scoped,
 		Effects:    effects,
+		Refresh:    moduleRootRefreshIDs(combined, refreshKeys),
 	}, nil
 }
 

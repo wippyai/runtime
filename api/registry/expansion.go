@@ -31,7 +31,12 @@ type DirectiveResult struct {
 	Resolution    *DependencyResolution
 	Additional    []ScopedOperation
 	Effects       []Effect
-	Applied       bool
+	// Refresh lists entries whose registration must be applied again although
+	// the entry is unchanged, because an effect replaces a resource that the
+	// registration holds. A transition that rebuilds its changeset as a state
+	// delta re-adds an update for each listed entry that the delta dropped.
+	Refresh []ID
+	Applied bool
 }
 
 // ResolutionDirective restores derived state from the exact dependency graph

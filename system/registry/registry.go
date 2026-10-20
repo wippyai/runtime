@@ -290,6 +290,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		planner          *regexp.Planner
 		targetResolution *registry.DependencyResolution
 		targetShadows    map[registry.ID]overlayShadow
+		refresh          []registry.ID
 	)
 	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
 		stored, resolutionErr := resolutionHistory.GetDependencyResolution(targetVersion)
@@ -320,6 +321,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			if result.Resolution != nil {
 				targetResolution = result.Resolution.Canonical()
 			}
+			refresh = append(refresh, result.Refresh...)
 			prepared, prepareErr := planner.PrepareEffects(ctx, result.Effects)
 			if prepareErr != nil {
 				planner.RollbackEffects(ctx, prepared)
@@ -349,6 +351,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(buildErr)
 		}
+		allOps = appendRefreshOperations(allOps, stateMap, refresh)
 	} else if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 		stateMap := topology.NewStateMap(targetState)
@@ -386,6 +389,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			if plan.Resolution != nil {
 				targetResolution = plan.Resolution.Canonical()
 			}
+			refresh = append(refresh, plan.Refresh...)
 			applyStateOperations(stateMap, ops)
 		}
 		rebasedShadows, composeErr := r.composeOverlays(stateMap)
@@ -399,6 +403,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewComputeTransitionError(err)
 		}
+		allOps = appendRefreshOperations(allOps, stateMap, refresh)
 	} else {
 		stateMap := topology.NewStateMap(targetState)
 		rebasedShadows, composeErr := r.composeOverlays(stateMap)
@@ -881,6 +886,32 @@ func reconcileStoredResolution(
 		return result, true, err
 	}
 	return registry.DirectiveResult{}, false, nil
+}
+
+// appendRefreshOperations re-adds an update for each entry a directive marked
+// for refresh when the state delta dropped it as unchanged. An entry that the
+// delta already changes, or that the target state does not hold, is skipped.
+func appendRefreshOperations(ops registry.ChangeSet, stateMap registry.StateMap, refresh []registry.ID) registry.ChangeSet {
+	if len(refresh) == 0 {
+		return ops
+	}
+	planned := make(map[registry.ID]struct{}, len(ops)+len(refresh))
+	for _, op := range ops {
+		planned[canonicalEntryID(op.Entry.ID)] = struct{}{}
+	}
+	for _, id := range refresh {
+		id = canonicalEntryID(id)
+		if _, exists := planned[id]; exists {
+			continue
+		}
+		entry, ok := stateMap[id]
+		if !ok {
+			continue
+		}
+		planned[id] = struct{}{}
+		ops = append(ops, registry.Operation{Kind: registry.EntryUpdate, Entry: entry})
+	}
+	return ops
 }
 
 func applyStateOperations(stateMap registry.StateMap, ops registry.ChangeSet) {
