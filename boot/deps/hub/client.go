@@ -40,15 +40,20 @@ type Client struct {
 	Download downloadv1connect.DownloadServiceClient
 	Manifest manifestv1connect.ManifestServiceClient
 
-	httpClient *http.Client
-	baseURL    string
-	token      string
+	httpClient  *http.Client
+	baseURL     string
+	token       string
+	tokenSource func() string
 }
 
 type Options struct {
 	BaseURL string
 	Token   string
 	Timeout time.Duration
+	// TokenSource, when set, overrides Token and is read before each Hub
+	// request. An empty result sends no credential. It must be safe for
+	// concurrent calls; the client never caches its result.
+	TokenSource func() string
 }
 
 func NewClient(opts Options) (*Client, error) {
@@ -84,32 +89,45 @@ func NewClient(opts Options) (*Client, error) {
 		Transport: sharedTransport,
 	}
 
+	client := &Client{
+		httpClient:  httpClient,
+		baseURL:     baseURL,
+		token:       opts.Token,
+		tokenSource: opts.TokenSource,
+	}
 	var connectOpts []connect.ClientOption
-	if opts.Token != "" {
+	if opts.Token != "" || opts.TokenSource != nil {
 		connectOpts = append(connectOpts, connect.WithInterceptors(
-			newAuthInterceptor(opts.Token),
+			newAuthInterceptor(client.currentToken),
 		))
 	}
 
-	return &Client{
-		Publish:    publishv1connect.NewPublishServiceClient(httpClient, baseURL, connectOpts...),
-		Module:     modulev1connect.NewModuleServiceClient(httpClient, baseURL, connectOpts...),
-		Download:   downloadv1connect.NewDownloadServiceClient(httpClient, baseURL, connectOpts...),
-		Manifest:   manifestv1connect.NewManifestServiceClient(httpClient, baseURL, connectOpts...),
-		httpClient: httpClient,
-		baseURL:    baseURL,
-		token:      opts.Token,
-	}, nil
+	client.Publish = publishv1connect.NewPublishServiceClient(httpClient, baseURL, connectOpts...)
+	client.Module = modulev1connect.NewModuleServiceClient(httpClient, baseURL, connectOpts...)
+	client.Download = downloadv1connect.NewDownloadServiceClient(httpClient, baseURL, connectOpts...)
+	client.Manifest = manifestv1connect.NewManifestServiceClient(httpClient, baseURL, connectOpts...)
+	return client, nil
+}
+
+func (c *Client) currentToken() string {
+	if c.tokenSource != nil {
+		return c.tokenSource()
+	}
+	return c.token
 }
 
 func (c *Client) Upload(ctx context.Context, uploadURL, filePath string) error {
 	return uploadFile(ctx, c.httpClient, uploadURL, filePath)
 }
 
-func newAuthInterceptor(token string) connect.UnaryInterceptorFunc {
+func newAuthInterceptor(tokenSource func() string) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			req.Header().Set("Authorization", "Bearer "+token)
+			if token := tokenSource(); token != "" {
+				req.Header().Set("Authorization", "Bearer "+token)
+			} else {
+				req.Header().Del("Authorization")
+			}
 			req.Header().Set("User-Agent", "wippy-cli/"+version.Version)
 			return next(ctx, req)
 		}

@@ -1271,16 +1271,18 @@ func newHubClientFromAuth() (*Client, error) {
 	store := auth.NewStore(authCfg)
 
 	registryURL := store.DefaultRegistry()
-	cred, _ := store.Get(registryURL)
-
-	var token string
-	if cred != nil {
-		token = cred.Token
-	}
 
 	client, err := NewClient(Options{
 		BaseURL: registryURL,
-		Token:   token,
+		TokenSource: func() string {
+			// The handler lives for the runtime's lifetime. Login, logout and
+			// rotation update this store after the client has been constructed.
+			cred, _ := store.Get(registryURL)
+			if cred != nil {
+				return cred.Token
+			}
+			return ""
+		},
 	})
 	if err != nil {
 		return nil, err

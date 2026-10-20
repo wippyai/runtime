@@ -47,7 +47,7 @@ type UploadOutput struct {
 // — notably Windows winsock against AWS endpoints — get retried *here*,
 // not silently fail.
 func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutput, error) {
-	if c.token == "" {
+	if c.currentToken() == "" {
 		return nil, ErrNotAuthenticated
 	}
 
@@ -66,12 +66,16 @@ func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutp
 
 	var out UploadOutput
 	err = retryDo(ctx, DefaultRetryConfig(), func(_ int) error {
+		token := c.currentToken()
+		if token == "" {
+			return ErrNotAuthenticated
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, bytes.NewReader(body))
 		if err != nil {
 			return NewHubRequestError("build upload request", err)
 		}
 		req.ContentLength = size
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("X-Wippy-Org", in.Org)
 		req.Header.Set("X-Wippy-Module", in.Module)
@@ -141,8 +145,8 @@ func (c *Client) DownloadViaHub(ctx context.Context, digest, destPath string) er
 		if err != nil {
 			return NewHubRequestError("build download request", err)
 		}
-		if c.token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.token)
+		if token := c.currentToken(); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
 
 		resp, err := c.httpClient.Do(req)
