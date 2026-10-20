@@ -119,6 +119,8 @@ func TestClientTokenSourceDoesNotReachArtifactStorage(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "module.wapp")
 	require.NoError(t, client.DownloadToFile(t.Context(), storage.URL+"/signed-artifact", destination))
 	require.Empty(t, <-headers, "Hub credentials must not be attached to storage URLs")
+	require.NoError(t, client.Upload(t.Context(), storage.URL+"/signed-upload", wappFixture(t)))
+	require.Empty(t, <-headers, "Hub credentials must not be attached to storage uploads")
 }
 
 func TestHubDownloadRereadsTokenOnRetry(t *testing.T) {

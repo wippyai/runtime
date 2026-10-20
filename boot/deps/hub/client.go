@@ -40,20 +40,20 @@ type Client struct {
 	Download downloadv1connect.DownloadServiceClient
 	Manifest manifestv1connect.ManifestServiceClient
 
+	tokenSource func() string
 	httpClient  *http.Client
 	baseURL     string
 	token       string
-	tokenSource func() string
 }
 
 type Options struct {
-	BaseURL string
-	Token   string
-	Timeout time.Duration
 	// TokenSource, when set, overrides Token and is read before each Hub
 	// request. An empty result sends no credential. It must be safe for
 	// concurrent calls; the client never caches its result.
 	TokenSource func() string
+	BaseURL     string
+	Token       string
+	Timeout     time.Duration
 }
 
 func NewClient(opts Options) (*Client, error) {
