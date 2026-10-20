@@ -550,7 +550,9 @@ func TestRunServer_BootReadiness_Success_KeepsServing(t *testing.T) {
         return 0
       end}`)
 
-	child := exec.Command(os.Args[0], "-test.run=^TestRunServerBootReadinessHelper$")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRunServerBootReadinessHelper$")
 	child.Dir = workDir
 	child.Env = append(os.Environ(), "WIPPY_SERVER_BOOT_READINESS_HELPER=1")
 	require.NoError(t, child.Start())
@@ -563,11 +565,10 @@ func TestRunServer_BootReadiness_Success_KeepsServing(t *testing.T) {
 	case <-time.After(3 * time.Second):
 	}
 
-	require.NoError(t, child.Process.Signal(os.Interrupt))
+	cancel()
 	select {
 	case <-exited:
 	case <-time.After(10 * time.Second):
-		_ = child.Process.Kill()
-		t.Fatal("the runtime did not stop after an interrupt")
+		t.Fatal("the runtime did not stop after it was killed")
 	}
 }
