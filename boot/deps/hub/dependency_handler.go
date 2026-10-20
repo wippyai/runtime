@@ -506,6 +506,11 @@ func (h *DependencyHandler) expand(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	additional = appendModuleRootRefreshes(
+		additional,
+		combined,
+		moduleRootRefreshedEntries(ctx, transcoder, unpackPlan.staged, snapshot),
+	)
 
 	scoped := make([]regapi.ScopedOperation, 0, len(additional))
 	for _, op := range additional {
