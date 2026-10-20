@@ -96,6 +96,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	releaseWorkspace, err := holdWorkspaceForChange(lockFilePath, modulesDir)
+	if err != nil {
+		return err
+	}
+	defer releaseWorkspace()
+
 	// Get auth credentials
 	projectDir, _ := os.Getwd()
 	authCfg := bootauth.NewConfig(projectDir)

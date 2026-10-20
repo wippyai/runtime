@@ -103,6 +103,12 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
+	releaseWorkspace, err := holdWorkspaceForChange(lockObj.Path(), lockObj.GetDirectories().Modules)
+	if err != nil {
+		return err
+	}
+	defer releaseWorkspace()
+
 	selection := selectInstallModules(lockObj, args, logger)
 	modules := selection.modules
 	lockDir := filepath.Dir(lockObj.Path())
