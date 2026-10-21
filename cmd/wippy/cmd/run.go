@@ -344,7 +344,9 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		}
 	}
 
-	waitForShutdown(ctx, sources, logger, nil)
+	if err := waitForShutdownOrBootFailure(ctx, sources, logger); err != nil {
+		return err
+	}
 	return ctx.Err()
 }
 

@@ -469,3 +469,106 @@ end}`,
 	require.NoError(t, err, "output: %s", output)
 	require.True(t, strings.Contains(string(output), "NO_GATE_COMMAND_EXECUTED"), "output: %s", output)
 }
+
+func TestRunServerBootReadinessHelper(t *testing.T) {
+	if os.Getenv("WIPPY_SERVER_BOOT_READINESS_HELPER") != "1" {
+		return
+	}
+	setTestConfigFiles(t, "wippy.yaml")
+	cmd := &cobra.Command{}
+	cmd.Flags().String("exec", "", "")
+	cmd.Flags().String("host", "", "")
+	cmd.Flags().String("registry", "", "")
+	cmd.Flags().Bool("verbose", false, "")
+	require.NoError(t, cmd.ParseFlags([]string{"--verbose"}))
+	cmd.SetContext(context.Background())
+	err := runWithUseCase(cmd, cmd.Flags().Args(), defaultUseCase)
+	if err != nil {
+		os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(1)
+	}
+}
+
+func writeServerBootProject(t *testing.T, bootSource string) string {
+	t.Helper()
+	workDir := t.TempDir()
+	require.NoError(t, os.Mkdir(workDir+"/src", 0o755))
+	require.NoError(t, os.WriteFile(workDir+"/wippy.lock", []byte("directories:\n  src: ./src\n  modules: .wippy\n"), 0o600))
+	require.NoError(t, os.WriteFile(workDir+"/wippy.yaml", []byte("version: \"1.0\"\nshutdown:\n  timeout: 5s\n"), 0o600))
+	require.NoError(t, os.WriteFile(workDir+"/src/_index.yaml", []byte(`version: "1.0"
+namespace: app
+entries:
+  - name: workers
+    kind: process.host
+    host:
+      workers: 2
+    lifecycle:
+      auto_start: true
+  - name: boot_proc
+    kind: process.lua
+    method: main
+    source: |
+`+bootSource+`
+  - name: boot_service
+    kind: process.service
+    process: app:boot_proc
+    host: app:workers
+    lifecycle:
+      auto_start: true
+      startup: complete
+      restart:
+        initial_delay: 50ms
+`), 0o600))
+
+	return workDir
+}
+
+// A bare `wippy run` serves until it is stopped. When a required boot gate fails,
+// nothing that depends on it starts, so the process must exit non-zero instead
+// of staying alive with nothing to serve.
+func TestRunServer_BootReadiness_Fail_ExitsNonZero(t *testing.T) {
+	workDir := writeServerBootProject(t, `      return {main = function()
+        error("deliberate migration failure")
+      end}`)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRunServerBootReadinessHelper$")
+	child.Dir = workDir
+	child.Env = append(os.Environ(), "WIPPY_SERVER_BOOT_READINESS_HELPER=1")
+	output, err := child.CombinedOutput()
+	require.NoError(t, ctx.Err(), "the runtime kept running after a failed boot gate: %s", output)
+	var exitErr *exec.ExitError
+	require.True(t, errors.As(err, &exitErr), "expected non-zero exit, got err=%v output: %s", err, output)
+	require.Equal(t, 1, exitErr.ExitCode(), "output: %s", output)
+	require.Contains(t, string(output), "boot readiness failed", "output: %s", output)
+	require.Contains(t, string(output), "deliberate migration failure", "output: %s", output)
+}
+
+func TestRunServer_BootReadiness_Success_KeepsServing(t *testing.T) {
+	workDir := writeServerBootProject(t, `      return {main = function()
+        return 0
+      end}`)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRunServerBootReadinessHelper$")
+	child.Dir = workDir
+	child.Env = append(os.Environ(), "WIPPY_SERVER_BOOT_READINESS_HELPER=1")
+	require.NoError(t, child.Start())
+	exited := make(chan error, 1)
+	go func() { exited <- child.Wait() }()
+
+	select {
+	case err := <-exited:
+		t.Fatalf("the runtime stopped after a successful boot: %v", err)
+	case <-time.After(3 * time.Second):
+	}
+
+	cancel()
+	select {
+	case <-exited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the runtime did not stop after it was killed")
+	}
+}
