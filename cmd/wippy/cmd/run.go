@@ -344,8 +344,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		}
 	}
 
-	waitForShutdown(ctx, sources, logger, nil)
-	return ctx.Err()
+	return waitForShutdown(ctx, sources, logger, nil)
 }
 
 // loadRuntimeConfig resolves the effective runtime configuration for run-like
@@ -1178,20 +1177,39 @@ func setupShutdownSources(ctx context.Context) *shutdownSources {
 	return sources
 }
 
-// waitForShutdown blocks until the graceful shutdown starts, which the first of
-// an OS signal, a shutdown request or the caller's cancellation does. onFirstSignal
-// runs when that first trigger is an OS signal.
-func waitForShutdown(ctx context.Context, sources *shutdownSources, logger *zap.Logger, onFirstSignal func()) {
-	var cause shutdownCause
-	select {
-	case <-ctx.Done():
-		return
-	case <-callerCancellation(ctx):
-		cause = shutdownCause{kind: causeCallerCancellation}
-	case <-sources.requests:
-		cause = shutdownCause{kind: causeRequest}
-	case sig := <-sources.signals:
-		cause = shutdownCause{kind: causeSignal, signal: sig}
+// waitForShutdown observes boot failure alongside shutdown triggers. A successful
+// boot keeps serving. onFirstSignal runs only when an OS signal starts shutdown.
+func waitForShutdown(ctx context.Context, sources *shutdownSources, logger *zap.Logger, onFirstSignal func()) error {
+	var bootResult chan error
+	if readiness := bootpkg.GetReadiness(ctx); readiness != nil {
+		waitCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		bootResult = make(chan error, 1)
+		go func() {
+			bootResult <- readiness.Wait(waitCtx)
+		}()
 	}
-	startShutdown(ctx, sources, logger, cause, onFirstSignal)
+	for {
+		var cause shutdownCause
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-bootResult:
+			if err != nil {
+				logger.Error("boot readiness failed", zap.Error(err))
+				armForceExit(ctx, sources, logger)
+				return fmt.Errorf("boot readiness failed: %w", err)
+			}
+			bootResult = nil
+			continue
+		case <-callerCancellation(ctx):
+			cause = shutdownCause{kind: causeCallerCancellation}
+		case <-sources.requests:
+			cause = shutdownCause{kind: causeRequest}
+		case sig := <-sources.signals:
+			cause = shutdownCause{kind: causeSignal, signal: sig}
+		}
+		startShutdown(ctx, sources, logger, cause, onFirstSignal)
+		return ctx.Err()
+	}
 }

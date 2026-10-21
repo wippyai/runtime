@@ -742,8 +742,7 @@ func runPackEntriesWithShutdown(
 		}
 	}
 
-	waitForShutdown(appCtx, sources, logger, nil)
-	return appCtx.Err()
+	return waitForShutdown(appCtx, sources, logger, nil)
 }
 
 func moduleIdentityFromPackFile(packFile string) (moduleName string, moduleVersion string, err error) {
