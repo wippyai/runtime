@@ -180,6 +180,31 @@ func TestPrepareRootedWorkspaceDefaultLeavesLockAndMissingSourceAlone(t *testing
 	require.Equal(t, before, after)
 }
 
+func TestPrepareWorkspaceRepairRespectsRunningRuntime(t *testing.T) {
+	w := newHostDependencyWorkspace(t, true)
+	t.Chdir(w.root)
+	ctx := setupLoaderContext(t)
+	const unreachableHub = "http://127.0.0.1:1"
+	require.NoError(t, prepareRunDependencies(ctx, w.cfg, unreachableHub, zap.NewNop()))
+	releaseRuntime, err := holdWorkspaceForRuntime(w.cfg, zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(releaseRuntime)
+	// Complete deployments remain readable by multiple runtimes.
+	require.NoError(t, prepareRunDependencies(ctx, w.cfg, unreachableHub, zap.NewNop()))
+	w.writeHost(t, false)
+	before, err := os.ReadFile(w.lockPath)
+	require.NoError(t, err)
+	err = prepareRunDependencies(ctx, w.cfg, unreachableHub, zap.NewNop())
+	require.ErrorContains(t, err, "a Wippy runtime is running from this workspace")
+	after, err := os.ReadFile(w.lockPath)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "startup must not rewrite a running deployment")
+	releaseRuntime()
+	require.NoError(t, prepareRunDependencies(ctx, w.cfg, unreachableHub, zap.NewNop()))
+	_, selected := w.configuredLock(t).GetModule("local/guide")
+	require.False(t, selected, "repair succeeds once the running deployment releases its guard")
+}
+
 func TestPrepareRootedWorkspacePrunesRemovedHostDependency(t *testing.T) {
 	w := newHostDependencyWorkspace(t, true)
 	t.Chdir(w.root)

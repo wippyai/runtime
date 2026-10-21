@@ -22,7 +22,10 @@ type Plan struct {
 	Resolution *registry.DependencyResolution
 	Ops        []ScopedOp
 	Effects    []registry.Effect
-	Expanded   bool
+	// Refresh lists entries a directive marked for re-registration. See
+	// registry.DirectiveResult.Refresh.
+	Refresh  []registry.ID
+	Expanded bool
 }
 
 // SplitScopes separates all operations from history-only operations.
@@ -82,6 +85,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 	}
 
 	var effects []registry.Effect
+	var refresh []registry.ID
 	var ownedEffects []registry.Effect
 	succeeded := false
 	defer func() {
@@ -133,7 +137,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 				return nil, err
 			}
 			ownedEffects = append(ownedEffects, result.Effects...)
-			if !result.Applied && result.OriginalScope == nil && result.Resolution == nil && len(result.Additional) == 0 && len(result.Effects) == 0 {
+			if !result.Applied && result.OriginalScope == nil && result.Resolution == nil && len(result.Additional) == 0 && len(result.Effects) == 0 && len(result.Refresh) == 0 {
 				continue // Capability is present but not configured; use per-op expansion.
 			}
 			if result.OriginalScope != nil {
@@ -173,7 +177,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 				ownedEffects = append(ownedEffects, res.Effects...)
 			}
 			if !res.Applied {
-				if res.OriginalScope != nil || res.Resolution != nil || len(res.Additional) > 0 || len(res.Effects) > 0 {
+				if res.OriginalScope != nil || res.Resolution != nil || len(res.Additional) > 0 || len(res.Effects) > 0 || len(res.Refresh) > 0 {
 					return nil, NewDirectiveResultInvalidError(op.Entry.ID, kind)
 				}
 				continue
@@ -205,11 +209,12 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 			if len(res.Effects) > 0 {
 				effects = append(effects, res.Effects...)
 			}
+			refresh = append(refresh, res.Refresh...)
 		}
 	}
 
 	succeeded = true
-	return &Plan{Ops: scoped, Effects: effects, Resolution: resolution, Expanded: expanded}, nil
+	return &Plan{Ops: scoped, Effects: effects, Refresh: refresh, Resolution: resolution, Expanded: expanded}, nil
 }
 
 func recordExpandedOperation(opsByID map[registry.ID]map[string]struct{}, op registry.Operation) bool {

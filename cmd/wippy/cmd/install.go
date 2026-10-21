@@ -81,6 +81,11 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	lockPath, _ := cmd.Flags().GetString("lock-file")
 	registryURL, _ := cmd.Flags().GetString("registry")
+	releaseWorkspace, err := holdWorkspaceForChange(lockPath, "")
+	if err != nil {
+		return err
+	}
+	defer releaseWorkspace()
 
 	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
 		logger.Info("lock file not found, running init and update")

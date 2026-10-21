@@ -1852,9 +1852,15 @@ func hubCallError(l *lua.LState, err error) *lua.Error {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
 		luaErr := lua.WrapErrorWithLua(l, connectErr, "hub request failed")
-		kind := mapConnectError(connectErr.Code())
-		return luaErr.WithKind(kind).WithRetryable(isRetryableConnect(connectErr.Code())).WithDetails(map[string]any{
-			"code": connectErr.Code().String(),
+		code := connectErr.Code()
+		// connect reports a transport reset on a reused connection as canceled.
+		// Only the caller's context cancels a call; any other cancel means the
+		// Hub could not be reached.
+		if code == connect.CodeCanceled && callerActive(l) {
+			code = connect.CodeUnavailable
+		}
+		return luaErr.WithKind(mapConnectError(code)).WithRetryable(isRetryableConnect(code)).WithDetails(map[string]any{
+			"code": code.String(),
 		})
 	}
 
@@ -1866,6 +1872,11 @@ func hubCallError(l *lua.LState, err error) *lua.Error {
 	}
 
 	return lua.WrapErrorWithLua(l, err, "hub request failed").WithKind(lua.Internal).WithRetryable(false)
+}
+
+func callerActive(l *lua.LState) bool {
+	ctx := l.Context()
+	return ctx == nil || ctx.Err() == nil
 }
 
 func mapConnectError(code connect.Code) lua.Kind {
