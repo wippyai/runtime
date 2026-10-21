@@ -208,15 +208,26 @@ func TestHost_CompileCache_ConcurrentSafe(t *testing.T) {
 // TestHost_Run_CachedProgramReusedCorrectly proves the shared cached program
 // (one immutable proto) yields correct results across repeated runs.
 func TestHost_Run_CachedProgramReusedCorrectly(t *testing.T) {
-	host := NewHost(zap.NewNop(), safeModulesProvider(), WithProgramCache(HostConfig{CacheSize: 8}))
-	cmd := RunCmd{Source: `return { run = function() return 20 + 3 end }`, Method: "run", Modules: []string{"json"}}
-
-	for range 3 {
-		res, err := host.Run(context.Background(), cmd)
-		require.NoError(t, err)
-		num, ok := res.(lua.LNumber)
-		require.True(t, ok, "result should be LNumber, got %T", res)
-		assert.Equal(t, lua.LNumber(23), num)
+	for _, tc := range []struct {
+		name       string
+		expression string
+		want       lua.LValue
+	}{
+		{"integer", "20 + 3", lua.LInteger(23)},
+		{"float", "20.0 + 3.0", lua.LNumber(23)},
+		{"mixed", "20 + 3.0", lua.LNumber(23)},
+		{"wide_integer", "9007199254740993 + 2", lua.LInteger(9007199254740995)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host := NewHost(zap.NewNop(), safeModulesProvider(), WithProgramCache(HostConfig{CacheSize: 8}))
+			cmd := RunCmd{Source: `return { run = function() return ` + tc.expression + ` end }`, Method: "run", Modules: []string{"json"}}
+			for range 3 {
+				res, err := host.Run(context.Background(), cmd)
+				require.NoError(t, err)
+				require.IsType(t, tc.want, res)
+				assert.Equal(t, tc.want, res)
+			}
+		})
 	}
 }
 
