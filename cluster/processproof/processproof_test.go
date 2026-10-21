@@ -153,7 +153,6 @@ func TestThreeProcessStrongClaimAndRevoke(t *testing.T) {
 			Node: name, Membership: ports[i], DataDir: filepath.Join(root, name),
 			TLSCert: shared.certs[name], TLSKey: shared.keys[name], TLSCA: shared.ca,
 			Secret: shared.secret, Identity: shared.identities[name], Trusted: shared.trusted,
-			Control: filepath.Join(root, name+".sock"),
 		}
 		if i > 0 {
 			cfg.Join = net.JoinHostPort("127.0.0.1", fmt.Sprint(ports[0]))
@@ -243,7 +242,7 @@ func TestHelperEarlyExitIsReported(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires Unix-domain test control sockets")
 	}
-	p := launchHelper(t, helperConfig{FailEarly: true, Control: filepath.Join(t.TempDir(), "early.sock")})
+	p := launchHelper(t, helperConfig{FailEarly: true})
 	t.Cleanup(func() { _ = p.stop() })
 	require.Eventually(t, func() bool {
 		select {
@@ -261,7 +260,7 @@ func TestHelperCleanExitWithoutShutdownIsReported(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires Unix-domain test control sockets")
 	}
-	p := launchHelper(t, helperConfig{CleanExit: true, Control: filepath.Join(t.TempDir(), "clean.sock")})
+	p := launchHelper(t, helperConfig{CleanExit: true})
 	t.Cleanup(func() { _ = p.stop() })
 	require.Eventually(t, func() bool {
 		select {
@@ -287,8 +286,17 @@ type helperProcess struct {
 
 func launchHelper(t *testing.T, cfg helperConfig) *helperProcess {
 	t.Helper()
-	raw, err := json.Marshal(cfg)
+	// Unix socket paths have a smaller length limit than filesystem paths.
+	control, err := os.CreateTemp("", "proof-*.sock")
 	require.NoError(t, err)
+	cfg.Control = filepath.Clean(control.Name())
+	if err := control.Close(); err != nil {
+		require.NoError(t, errors.Join(err, os.RemoveAll(cfg.Control)))
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		require.NoError(t, errors.Join(err, os.RemoveAll(cfg.Control)))
+	}
 	p := &helperProcess{cfg: cfg, done: make(chan error, 1)}
 	// stop owns diagnostics, shutdown acknowledgement and reaping; a canceled
 	// test context must not kill the child before that lifecycle completes.
@@ -296,7 +304,9 @@ func launchHelper(t *testing.T, cfg helperConfig) *helperProcess {
 	configureHelperCommand(p.cmd)
 	p.cmd.Env = append(os.Environ(), helperEnv+"="+string(raw))
 	p.cmd.Stderr = &p.stderr
-	require.NoError(t, p.cmd.Start())
+	if err := p.cmd.Start(); err != nil {
+		require.NoError(t, errors.Join(err, os.RemoveAll(cfg.Control)))
+	}
 	go func() { p.done <- p.cmd.Wait() }()
 	return p
 }
@@ -340,6 +350,9 @@ func (p *helperProcess) call(req controlRequest) (controlResponse, error) {
 
 func (p *helperProcess) stop() error {
 	p.stopOnce.Do(func() {
+		defer func() {
+			p.stopErr = errors.Join(p.stopErr, os.RemoveAll(p.cfg.Control))
+		}()
 		if p.cmd.Process == nil {
 			return
 		}
