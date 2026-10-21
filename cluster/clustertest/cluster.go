@@ -105,7 +105,7 @@ func (c *Cluster) buildNode(id, dataDir string) *Node {
 }
 
 func drain(ch <-chan any) {
-	for range ch { //nolint:revive // draining
+	for range ch { // Drain remaining events.
 	}
 }
 
