@@ -119,7 +119,6 @@ func (l *topologyEventListener) Stop(_ context.Context) error {
 
 	// Drain any remaining events to prevent send-to-closed-channel panic
 	go func() {
-		//nolint:revive // intentionally empty drain loop
 		for range l.events {
 		}
 	}()

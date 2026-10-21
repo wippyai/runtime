@@ -52,7 +52,7 @@ func acquireDoneChan() chan error {
 	ch := doneChanPool.Get().(chan error)
 	// Drain any stale data so a misuse elsewhere can't poison the pool.
 	select {
-	case <-ch:
+	case _ = <-ch: // Discard a stale result belonging to the previous caller.
 	default:
 	}
 	return ch
