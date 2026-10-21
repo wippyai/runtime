@@ -204,7 +204,9 @@ func (l *Launch) Start(start func(*exec.Cmd) error, beforePolicy func(int) error
 	case <-time.After(helperSetupTimeout):
 		l.abort()
 		_ = l.statusReader.Close()
-		<-result
+		// Join the reader after closing its pipe; the setup timeout remains the cause.
+		setupErr := <-result
+		_ = setupErr
 		return errors.New("confinement setup timed out")
 	}
 }

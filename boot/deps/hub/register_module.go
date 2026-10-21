@@ -61,8 +61,8 @@ func (c *Client) RegisterModule(ctx context.Context, p *RegisterModuleParams) (*
 		return nil, NewHubRequestError("build register-module request", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if token := c.currentToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := c.httpClient.Do(req)
