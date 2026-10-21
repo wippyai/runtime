@@ -5,6 +5,7 @@ package logger
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/wippyai/runtime/api/logs"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
@@ -31,10 +32,10 @@ func init() {
 	})
 }
 
-// Logger wraps zap.Logger for Lua.
-// If logger is nil, it gets the logger from context at call time.
+// Logger resolves the execution logger at write time and applies its name and fields.
 type Logger struct {
-	logger *zap.Logger
+	name   string
+	fields []zap.Field
 }
 
 // Module is the logger ModuleDef.
@@ -49,7 +50,6 @@ var Module = &luaapi.ModuleDef{
 func buildModule() (lua.LValue, []luaapi.YieldType) {
 	// Return shared userdata for V1 API compatibility
 	// V1: local log = require("logger"); log:info("msg")
-	// Logger.logger is nil - will be fetched from context at call time
 	ud := &lua.LUserData{
 		Value:     &Logger{},
 		Metatable: loggerMetatable,
@@ -57,15 +57,11 @@ func buildModule() (lua.LValue, []luaapi.YieldType) {
 	return ud, nil
 }
 
-// getLogger returns the zap logger, either from the Logger struct or from context
+// getLogger applies the derivation to the current execution logger.
 func (lg *Logger) getLogger(l *lua.LState) *zap.Logger {
-	if lg.logger != nil {
-		return lg.logger
-	}
-	// Get logger from Lua context
 	ctx := l.Context()
 	if ctx != nil {
-		return logs.GetLogger(ctx)
+		return logs.GetLogger(ctx).Named(lg.name).With(lg.fields...)
 	}
 	return zap.NewNop()
 }
@@ -189,8 +185,11 @@ func loggerWith(l *lua.LState) int {
 		return 0
 	}
 
-	newLogger := logger.getLogger(l).With(tableToFields(fields)...)
-	value.PushTypedUserData(l, &Logger{logger: newLogger}, typeLoggerName)
+	newLogger := &Logger{
+		name:   logger.name,
+		fields: slices.Concat(logger.fields, tableToFields(fields)),
+	}
+	value.PushTypedUserData(l, newLogger, typeLoggerName)
 	return 1
 }
 
@@ -206,8 +205,10 @@ func loggerNamed(l *lua.LState) int {
 		return 0
 	}
 
-	newLogger := logger.getLogger(l).Named(name)
-	value.PushTypedUserData(l, &Logger{logger: newLogger}, typeLoggerName)
+	if logger.name != "" {
+		name = logger.name + "." + name
+	}
+	value.PushTypedUserData(l, &Logger{name: name, fields: logger.fields}, typeLoggerName)
 	return 1
 }
 

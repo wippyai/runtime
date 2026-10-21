@@ -81,13 +81,13 @@ func TestLibraryLoggerPooledExecutions(t *testing.T) {
 		entries := output.All()
 		require.Len(t, entries, 4)
 		for j, expected := range []struct {
-			name   string
 			fields map[string]any
+			name   string
 		}{
-			{"library", nil},
-			{"", map[string]any{"component": "library"}},
-			{"library.child", map[string]any{"component": "library", "ready": true, "call": int64(i)}},
-			{"cached", map[string]any{"cached": true}},
+			{nil, "library"},
+			{map[string]any{"component": "library"}, ""},
+			{map[string]any{"component": "library", "ready": true, "call": int64(i)}, "library.child"},
+			{map[string]any{"cached": true}, "cached"},
 		} {
 			name := invocation
 			if expected.name != "" {

@@ -19,13 +19,13 @@ import (
 
 func TestDerivedLoggerUsesWriteContext(t *testing.T) {
 	for _, derivation := range []struct {
+		fields map[string]any
 		name   string
 		source string
-		fields map[string]any
 	}{
-		{"named", `logger:named("child")`, nil},
-		{"with", `logger:with({component = "library"})`, map[string]any{"component": "library"}},
-		{"chained", `logger:named("parent"):with({component = "library"}):named("child"):with({ready = true})`, map[string]any{"component": "library", "ready": true}},
+		{nil, "named", `logger:named("child")`},
+		{map[string]any{"component": "library"}, "with", `logger:with({component = "library"})`},
+		{map[string]any{"component": "library", "ready": true}, "chained", `logger:named("parent"):with({component = "library"}):named("child"):with({ready = true})`},
 	} {
 		for _, binding := range []string{"no_context", "no_logger", "with_logger"} {
 			t.Run(derivation.name+"/"+binding, func(t *testing.T) {
