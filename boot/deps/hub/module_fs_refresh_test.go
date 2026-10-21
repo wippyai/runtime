@@ -258,10 +258,20 @@ func TestSymlinkRootRefreshesWithReplacedModule(t *testing.T) {
 	state := regapi.State{appDirectoryEntry("aliased_assets", map[string]any{"directory": alias}, "alias")}
 	keys := moduleRootRefreshedEntries(ctx, payload.GetTranscoder(ctx),
 		[]stagedModuleDirectory{{module: "acme.ui", targetDir: target}}, state)
+	require.Contains(t, keys, idKey(id), "a valid symlink root into a replaced module needs re-registration")
 
 	// The actual directory provider pins the symlink target. After the normal
 	// tree replacement/finalization it is unusable unless selected for refresh.
 	backup := filepath.Join(root, "old-module")
+	if runtime.GOOS == "windows" {
+		// Windows protects an open os.Root from rename. The Unix stale-root
+		// scenario cannot occur until the provider releases its handle.
+		require.Error(t, os.Rename(target, backup))
+		data, err := fs.ReadFile(opened, "test.txt")
+		require.NoError(t, err)
+		require.Equal(t, "old", string(data), "a refused replacement preserves the live tree")
+		require.NoError(t, opened.Close())
+	}
 	require.NoError(t, os.Rename(target, backup))
 	require.NoError(t, os.MkdirAll(assets, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(assets, "test.txt"), []byte("new"), 0o600))
@@ -270,8 +280,13 @@ func TestSymlinkRootRefreshesWithReplacedModule(t *testing.T) {
 	if stale != nil {
 		_ = stale.Close()
 	}
-	require.Error(t, staleErr, "the provider really retains the removed root")
-	require.Contains(t, keys, idKey(id), "a valid symlink root into a replaced module needs re-registration")
+	require.Error(t, staleErr, "the old provider cannot serve the replaced tree")
+	refreshed, err := dirfs.NewFS(alias, 0o755, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = refreshed.Close() })
+	data, err := fs.ReadFile(refreshed, "test.txt")
+	require.NoError(t, err)
+	require.Equal(t, "new", string(data))
 }
 
 func symlinkModulePath(t *testing.T, target, alias string) {

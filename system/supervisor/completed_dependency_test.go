@@ -193,6 +193,12 @@ func TestSupervisorFailedRerunBlocksDependent(t *testing.T) {
 	require.NoError(t, sup.execute(t.Context(), tx))
 	require.Equal(t, int32(1), gate.runs.Load())
 
+	// Completion and terminal status arrive independently. Starting a service
+	// still marked running is a no-op, so observe the first exit before rerunning.
+	require.Eventually(t, func() bool {
+		state, err := sup.GetState("gate")
+		return err == nil && state.Status == supervisor.StatusExited
+	}, time.Second, time.Millisecond)
 	sup.handleEvent(event.Event{System: supervisor.System, Kind: supervisor.ServiceStart, Path: "gate"})
 	require.Eventually(t, func() bool {
 		state, err := sup.GetState("gate")
