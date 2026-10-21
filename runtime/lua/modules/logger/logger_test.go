@@ -5,6 +5,7 @@ package logger
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,86 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 )
+
+func TestErrorLoggerPreservesFields(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	module, _ := Module.BuildValue()
+	l.SetGlobal("logger", module)
+	core, output := observer.New(zap.DebugLevel)
+	l.SetContext(logs.WithLogger(ctxapi.NewRootContext(), zap.New(core)))
+	require.NoError(t, l.DoString(`
+		local fields = {error = "failure", component = "test"}
+		logger:error("first", fields)
+		assert(fields.error == "failure")
+		logger:error("second", fields)
+		assert(fields.error == "failure")
+	`))
+	require.Len(t, output.All(), 2)
+	for _, entry := range output.All() {
+		require.Equal(t, map[string]any{"error": "failure", "component": "test"}, entry.ContextMap())
+	}
+}
+
+func TestSharedDerivedLoggerConcurrentStates(t *testing.T) {
+	owner := lua.NewState()
+	defer owner.Close()
+	module, _ := Module.BuildValue()
+	owner.SetGlobal("logger", module)
+	require.NoError(t, owner.DoString(`
+		parent = logger:with({component = "shared", a = true, b = true}):named("library")
+		fields = {error = "failure", detail = "shared"}
+	`))
+	parent, fields := owner.GetGlobal("parent"), owner.GetGlobal("fields")
+	// Each goroutine owns its Lua state and context. Only the immutable logger
+	// and read-only message fields are shared, as reusable libraries may do.
+	t.Run("workers", func(t *testing.T) {
+		for worker := range 16 {
+			t.Run(fmt.Sprint(worker), func(t *testing.T) {
+				t.Parallel()
+				l := lua.NewState()
+				defer l.Close()
+				l.SetGlobal("logger", module)
+				l.SetGlobal("parent", parent)
+				l.SetGlobal("fields", fields)
+				l.SetGlobal("worker", lua.LInteger(worker))
+				require.NoError(t, l.DoString(`child = parent:with({worker_field = worker}):named("child")`))
+				for invocation := range 20 {
+					core, output := observer.New(zap.DebugLevel)
+					base := zap.New(core).Named("execution").With(zap.Int("worker", worker), zap.Int("invocation", invocation))
+					l.SetContext(logs.WithLogger(ctxapi.NewRootContext(), base))
+					require.NoError(t, l.DoString(`
+						child:info("child")
+						parent:info("parent")
+						logger:info("root")
+						child:error("error", fields)
+					`))
+					entries := output.All()
+					require.Len(t, entries, 4)
+					for i, entry := range entries {
+						got := entry.ContextMap()
+						require.EqualValues(t, worker, got["worker"])
+						require.EqualValues(t, invocation, got["invocation"])
+						if i == 0 || i == 3 {
+							require.Equal(t, "execution.library.child", entry.LoggerName)
+							require.EqualValues(t, worker, got["worker_field"])
+						} else {
+							require.NotContains(t, got, "worker_field")
+						}
+						if i == 2 {
+							require.Equal(t, "execution", entry.LoggerName)
+							require.NotContains(t, got, "component")
+						} else {
+							require.Equal(t, "shared", got["component"])
+						}
+					}
+					require.Equal(t, "failure", entries[3].ContextMap()["error"])
+				}
+			})
+		}
+	})
+	require.Equal(t, lua.LString("failure"), fields.(*lua.LTable).RawGetString("error"))
+}
 
 func TestDerivedLoggerUsesWriteContext(t *testing.T) {
 	for _, derivation := range []struct {

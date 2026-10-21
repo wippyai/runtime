@@ -33,6 +33,7 @@ func init() {
 }
 
 // Logger resolves the execution logger at write time and applies its name and fields.
+// Derivations are immutable after construction and may be shared across Lua states.
 type Logger struct {
 	name   string
 	fields []zap.Field
@@ -160,9 +161,8 @@ func loggerError(l *lua.LState) int {
 		if tbl := l.CheckTable(3); tbl != nil {
 			if errValue := tbl.RawGetString("error"); errValue != lua.LNil {
 				fields = append(fields, zap.Error(errors.New(lua.LVAsString(errValue))))
-				tbl.RawSetString("error", lua.LNil)
 			}
-			fields = append(fields, tableToFields(tbl)...)
+			fields = append(fields, tableToFieldsExcept(tbl, "error")...)
 		}
 	}
 
@@ -214,10 +214,17 @@ func loggerNamed(l *lua.LState) int {
 
 // tableToFields converts Lua table to zap fields.
 func tableToFields(table *lua.LTable) []zap.Field {
+	return tableToFieldsExcept(table, "")
+}
+
+func tableToFieldsExcept(table *lua.LTable, excludedKey string) []zap.Field {
 	fields := make([]zap.Field, 0)
 	table.ForEach(func(k, v lua.LValue) {
 		key, ok := k.(lua.LString)
 		if !ok {
+			return
+		}
+		if excludedKey != "" && string(key) == excludedKey {
 			return
 		}
 
