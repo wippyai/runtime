@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -399,7 +400,12 @@ func TestSecureService_DialContext_UnixSocket(t *testing.T) {
 		t.Skip("skipping unix socket test on windows")
 	}
 
-	socketPath := filepath.Join(t.TempDir(), "test.sock")
+	socket, err := os.CreateTemp("", "net-*.sock")
+	require.NoError(t, err)
+	socketPath := filepath.Clean(socket.Name())
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(socketPath)) })
+	require.NoError(t, socket.Close())
+	require.NoError(t, os.Remove(socketPath))
 	ln, err := new(net.ListenConfig).Listen(context.Background(), "unix", socketPath)
 	require.NoError(t, err)
 	defer ln.Close()
