@@ -262,7 +262,7 @@ func BenchmarkBaseline_SendDirect(b *testing.B) {
 
 	// Drain in background
 	go func() {
-		for range ch { //nolint:revive
+		for range ch {
 		}
 	}()
 
@@ -295,7 +295,7 @@ func BenchmarkBaseline_SelectSend(b *testing.B) {
 
 	// Drain in background
 	go func() {
-		for range ch { //nolint:revive
+		for range ch {
 		}
 	}()
 

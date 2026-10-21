@@ -146,7 +146,8 @@ func (e *RaftEngine) barrierContext(ctx context.Context, permit *authorityPermit
 		permit.transfer()
 		go func() {
 			// The caller already received cancellation; wait only to release admission.
-			_ = <-done
+			barrierErr := <-done
+			_ = barrierErr
 			permit.complete()
 		}()
 		return ctx.Err()

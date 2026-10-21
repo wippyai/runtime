@@ -205,7 +205,8 @@ func (l *Launch) Start(start func(*exec.Cmd) error, beforePolicy func(int) error
 		l.abort()
 		_ = l.statusReader.Close()
 		// Join the reader after closing its pipe; the setup timeout remains the cause.
-		_ = <-result
+		setupErr := <-result
+		_ = setupErr
 		return errors.New("confinement setup timed out")
 	}
 }

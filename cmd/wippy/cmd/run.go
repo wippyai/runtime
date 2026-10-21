@@ -1046,17 +1046,20 @@ func launchExecUntilShutdown(ctx context.Context, sources *shutdownSources, logg
 		return false, nil
 	case sig := <-sources.signals:
 		stopExecSignals()
-		<-done
+		execErr := <-done
+		_ = execErr // Shutdown has already won; join the canceled launch.
 		startShutdown(ctx, sources, logger, shutdownCause{kind: causeSignal, signal: sig}, nil)
 		return true, nil
 	case <-sources.requests:
 		stopExecSignals()
-		<-done
+		execErr := <-done
+		_ = execErr // Shutdown has already won; join the canceled launch.
 		startShutdown(ctx, sources, logger, shutdownCause{kind: causeRequest}, nil)
 		return true, nil
 	case <-callerCancellation(ctx):
 		stopExecSignals()
-		<-done
+		execErr := <-done
+		_ = execErr // Shutdown has already won; join the canceled launch.
 		startShutdown(ctx, sources, logger, shutdownCause{kind: causeCallerCancellation}, nil)
 		return true, nil
 	}
