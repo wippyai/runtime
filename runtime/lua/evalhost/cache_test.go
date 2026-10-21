@@ -209,14 +209,14 @@ func TestHost_CompileCache_ConcurrentSafe(t *testing.T) {
 // (one immutable proto) yields correct results across repeated runs.
 func TestHost_Run_CachedProgramReusedCorrectly(t *testing.T) {
 	for _, tc := range []struct {
+		want       lua.LValue
 		name       string
 		expression string
-		want       lua.LValue
 	}{
-		{"integer", "20 + 3", lua.LInteger(23)},
-		{"float", "20.0 + 3.0", lua.LNumber(23)},
-		{"mixed", "20 + 3.0", lua.LNumber(23)},
-		{"wide_integer", "9007199254740993 + 2", lua.LInteger(9007199254740995)},
+		{lua.LInteger(23), "integer", "20 + 3"},
+		{lua.LNumber(23), "float", "20.0 + 3.0"},
+		{lua.LNumber(23), "mixed", "20 + 3.0"},
+		{lua.LInteger(9007199254740995), "wide_integer", "9007199254740993 + 2"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			host := NewHost(zap.NewNop(), safeModulesProvider(), WithProgramCache(HostConfig{CacheSize: 8}))
