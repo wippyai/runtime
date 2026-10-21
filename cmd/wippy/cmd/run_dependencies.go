@@ -31,6 +31,10 @@ func prepareRunDependencies(
 	registryURL string,
 	logger *zap.Logger,
 ) error {
+	return prepareRunDependenciesWithGuard(ctx, cfg, registryURL, logger, false)
+}
+
+func prepareRunDependenciesWithGuard(ctx context.Context, cfg boot.Config, registryURL string, logger *zap.Logger, guarded bool) error {
 	lockPath, err := lock.Find(".", runtimeLockFile(cfg))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -106,6 +110,17 @@ func prepareRunDependencies(
 			logger.Info("workspace dependency graph needs online completion",
 				zap.Error(err))
 		}
+	}
+	if !guarded {
+		// A second runtime may read a complete deployment, but repairing it is
+		// a workspace change. Re-read and resolve under the guard: another CLI
+		// may have changed the lock since the optimistic read above.
+		release, err := holdWorkspaceForChange(lockPath, dirs.Modules)
+		if err != nil {
+			return err
+		}
+		defer release()
+		return prepareRunDependenciesWithGuard(ctx, cfg, registryURL, logger, true)
 	}
 	if resolved == nil || err != nil {
 		// Completing the graph is explicit workspace work, so it may reach the Hub.
