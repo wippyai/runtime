@@ -15,7 +15,7 @@ type scope struct {
 // NewScope creates a new Scope with the given policies.
 func NewScope(policies []security.Policy) security.Scope {
 	s := &scope{
-		policies: make(map[registry.ID]security.Policy),
+		policies: make(map[registry.ID]security.Policy, len(policies)),
 	}
 	for _, policy := range policies {
 		s.policies[policy.ID()] = policy
