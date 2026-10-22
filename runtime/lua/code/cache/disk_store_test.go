@@ -103,6 +103,7 @@ func TestDiskStorePrunesOldestGenerationByEntryLimit(t *testing.T) {
 			Proto: []byte(key),
 		}))
 	}
+	store.WaitPrune()
 
 	_, oldExists, err := store.Get("old")
 	require.NoError(t, err)
@@ -124,6 +125,7 @@ func TestDiskStorePrunesToByteLimit(t *testing.T) {
 		Meta:  Meta{EntryID: "new", SourceHash: "new", CreatedAt: time.Unix(2, 0)},
 		Proto: make([]byte, 512),
 	}))
+	store.WaitPrune()
 
 	_, oldExists, err := store.Get("old")
 	require.NoError(t, err)
@@ -133,10 +135,82 @@ func TestDiskStorePrunesToByteLimit(t *testing.T) {
 	assert.True(t, newExists)
 }
 
+func TestDiskStorePutAndGetDoNotWaitForPrune(t *testing.T) {
+	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 1, 2)
+	require.NoError(t, store.Put("old", &Entry{
+		Meta:  Meta{EntryID: "old", SourceHash: "old", CreatedAt: time.Unix(1, 0)},
+		Proto: []byte("old"),
+	}))
+
+	scanning := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	previous := beforePruneScan
+	beforePruneScan = func() {
+		close(scanning)
+		<-release
+	}
+	t.Cleanup(func() {
+		unblock()
+		store.WaitPrune()
+		beforePruneScan = previous
+	})
+
+	// The second write reaches the prune interval and starts the held prune.
+	putDone := make(chan error, 1)
+	go func() {
+		putDone <- store.Put("new", &Entry{
+			Meta:  Meta{EntryID: "new", SourceHash: "new", CreatedAt: time.Unix(2, 0)},
+			Proto: []byte("new"),
+		})
+	}()
+	select {
+	case <-scanning:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the prune interval did not start a prune")
+	}
+
+	select {
+	case err := <-putDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		unblock()
+		t.Fatal("Put waited for the prune scan")
+	}
+
+	getDone := make(chan bool, 1)
+	go func() {
+		_, ok, _ := store.Get("new")
+		getDone <- ok
+	}()
+	select {
+	case ok := <-getDone:
+		assert.True(t, ok)
+	case <-time.After(5 * time.Second):
+		unblock()
+		t.Fatal("Get waited for the prune scan")
+	}
+
+	unblock()
+	store.WaitPrune()
+
+	_, oldExists, err := store.Get("old")
+	require.NoError(t, err)
+	assert.False(t, oldExists, "the background prune still evicts the oldest generation")
+	_, newExists, err := store.Get("new")
+	require.NoError(t, err)
+	assert.True(t, newExists)
+}
+
 func TestDiskStore_ConcurrentTwoStoresInterleaved(t *testing.T) {
 	dir := t.TempDir()
 	store1 := NewBoundedDiskStore(dir, 10<<20, 20, 5)
 	store2 := NewBoundedDiskStore(dir, 10<<20, 20, 5)
+	t.Cleanup(func() {
+		store1.WaitPrune()
+		store2.WaitPrune()
+	})
 
 	manifestA := []byte("manifest-A")
 	manifestB := []byte("manifest-B")

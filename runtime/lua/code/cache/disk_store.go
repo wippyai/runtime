@@ -26,13 +26,22 @@ const (
 )
 
 // DiskStore stores cache entries on disk.
+//
+// Put never prunes inline. A prune walks every retained entry, and the cache
+// directory is shared by every application on the machine, so on a large cold
+// cache one walk takes minutes. Put runs on the compile path of registry
+// listeners, where a walk that long stalls boot past the registry event wait.
 type DiskStore struct {
-	root          string
-	maxBytes      int64
-	maxEntries    int
-	pruneInterval uint64
-	writes        atomic.Uint64
-	mu            sync.RWMutex
+	root           string
+	maxBytes       int64
+	maxEntries     int
+	pruneInterval  uint64
+	writes         atomic.Uint64
+	mu             sync.RWMutex
+	background     sync.WaitGroup
+	pruneMu        sync.Mutex
+	pruning        atomic.Bool
+	pruneRequested atomic.Bool
 }
 
 // NewDiskStore creates a disk-backed cache store.
@@ -135,9 +144,38 @@ func (s *DiskStore) Put(key string, entry *Entry) error {
 		return err
 	}
 	if s.writes.Add(1)%s.pruneInterval == 0 {
-		return s.Prune()
+		s.pruneInBackground()
 	}
 	return nil
+}
+
+// pruneInBackground runs at most one prune goroutine. A request that arrives
+// while it runs makes it prune once more, so the newest writes are counted.
+// Background prunes are best effort: a failed eviction leaves extra entries
+// for the next prune, and a miss only recompiles.
+func (s *DiskStore) pruneInBackground() {
+	s.pruneRequested.Store(true)
+	if !s.pruning.CompareAndSwap(false, true) {
+		return
+	}
+	s.background.Add(1)
+	go func() {
+		defer s.background.Done()
+		for {
+			s.pruneRequested.Store(false)
+			_ = s.Prune()
+			s.pruning.Store(false)
+			if !s.pruneRequested.Load() || !s.pruning.CompareAndSwap(false, true) {
+				return
+			}
+		}
+	}()
+}
+
+// WaitPrune blocks until background prunes started by Put have finished.
+// Call it after the writes it should cover have returned.
+func (s *DiskStore) WaitPrune() {
+	s.background.Wait()
 }
 
 func (s *DiskStore) put(key string, entry *Entry) error {
@@ -207,10 +245,16 @@ type diskEntryInfo struct {
 
 // Prune removes the oldest retained generations until both configured limits
 // are satisfied. Cache eviction never affects correctness: a miss recompiles.
+//
+// The scan holds no store lock, so Get and Put continue while it walks the
+// directory; the walk already tolerates entries that appear or vanish under
+// it, as it must for other processes sharing the directory. Only each removal
+// takes the write lock.
 func (s *DiskStore) Prune() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.pruneMu.Lock()
+	defer s.pruneMu.Unlock()
 
+	beforePruneScan()
 	root := filepath.Join(s.root, "v1", "entries")
 	dirs, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -276,10 +320,19 @@ func (s *DiskStore) Prune() error {
 	for len(entries) > s.maxEntries || total > s.maxBytes {
 		oldest := entries[0]
 		entries = entries[1:]
-		if err := os.RemoveAll(oldest.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := s.removeEntryDir(oldest.path); err != nil {
 			return err
 		}
 		total -= oldest.size
+	}
+	return nil
+}
+
+func (s *DiskStore) removeEntryDir(path string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return nil
 }
@@ -308,3 +361,6 @@ func writeFileAtomic(dir, name string, data []byte) error {
 }
 
 var nowUTC = func() time.Time { return time.Now().UTC() }
+
+// beforePruneScan lets tests hold a prune at the start of its directory scan.
+var beforePruneScan = func() {}

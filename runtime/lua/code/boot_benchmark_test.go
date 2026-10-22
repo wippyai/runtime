@@ -59,6 +59,7 @@ func benchmarkBootCompileCache(b *testing.B, count int) {
 			b.Fatal(err)
 		}
 	}
+	store.WaitPrune()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {

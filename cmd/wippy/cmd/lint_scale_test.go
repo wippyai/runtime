@@ -111,6 +111,7 @@ func runLintCacheHarness(t *testing.T, count int, chain bool) {
 	cold := lintEntries(entries, report, linter, lcache, lintConfig{minSeverity: severityError}, nil)
 	require.Zero(t, cold.ErrorCount)
 	require.NoError(t, store.Prune())
+	store.WaitPrune()
 	coldDuration := time.Since(started)
 	before := cacheFileModTimes(t, dir)
 
