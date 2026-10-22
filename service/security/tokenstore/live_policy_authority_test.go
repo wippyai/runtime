@@ -18,8 +18,8 @@ import (
 
 func TestLiveAuthorityPolicyIDs(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
 		response       attrs.Bag
+		name           string
 		records, admin security.Result
 		wantError      bool
 	}{
