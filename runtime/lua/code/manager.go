@@ -169,9 +169,17 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			int(min(cacheCfg.MaxBytes, int64(defaultCompileMemoryBytes))),
 			cacheCfg.MaxEntries,
 		)
-		cm.cacheStore = cache.NewBoundedDiskStore(
+		diskStore := cache.NewBoundedDiskStore(
 			cacheCfg.Dir, cacheCfg.MaxBytes, cacheCfg.MaxEntries, cacheCfg.PruneInterval,
 		)
+		var pruneWarning sync.Once
+		diskStore.SetPruneErrorHandler(func(err error) {
+			pruneWarning.Do(func() {
+				cm.log.Warn("lua persistent cache prune failed; the cache may grow past its limits",
+					zap.String("dir", cacheCfg.Dir), zap.Error(err))
+			})
+		})
+		cm.cacheStore = diskStore
 		if cfg.EmbeddedCache != nil {
 			cm.cacheStore = cache.NewLayeredStore(cfg.EmbeddedCache, cm.cacheStore)
 		}

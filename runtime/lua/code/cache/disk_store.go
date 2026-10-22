@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +33,7 @@ const (
 // cache one walk takes minutes. Put runs on the compile path of registry
 // listeners, where a walk that long stalls boot past the registry event wait.
 type DiskStore struct {
+	pruneErrors    atomic.Pointer[func(error)]
 	root           string
 	maxBytes       int64
 	maxEntries     int
@@ -149,6 +151,16 @@ func (s *DiskStore) Put(key string, entry *Entry) error {
 	return nil
 }
 
+// SetPruneErrorHandler sets the function that receives the errors of
+// background prunes started by Put. Put itself never returns them.
+func (s *DiskStore) SetPruneErrorHandler(fn func(error)) {
+	if fn == nil {
+		s.pruneErrors.Store(nil)
+		return
+	}
+	s.pruneErrors.Store(&fn)
+}
+
 // pruneInBackground runs at most one prune goroutine. A request that arrives
 // while it runs makes it prune once more, so the newest writes are counted.
 // Background prunes are best effort: a failed eviction leaves extra entries
@@ -163,7 +175,11 @@ func (s *DiskStore) pruneInBackground() {
 		defer s.background.Done()
 		for {
 			s.pruneRequested.Store(false)
-			_ = s.Prune()
+			if err := s.Prune(); err != nil {
+				if handler := s.pruneErrors.Load(); handler != nil {
+					(*handler)(err)
+				}
+			}
 			s.pruning.Store(false)
 			if !s.pruneRequested.Load() || !s.pruning.CompareAndSwap(false, true) {
 				return
@@ -247,14 +263,15 @@ type diskEntryInfo struct {
 // are satisfied. Cache eviction never affects correctness: a miss recompiles.
 //
 // The scan holds no store lock, so Get and Put continue while it walks the
-// directory; the walk already tolerates entries that appear or vanish under
-// it, as it must for other processes sharing the directory. Only each removal
-// takes the write lock.
+// directory. An entry that cannot be scanned or removed is skipped, so one
+// stuck entry cannot stop eviction; Prune returns those errors only when the
+// limits are still exceeded at the end. Each removal takes the write lock and
+// first scans its entry again, so an entry rewritten or completed after the
+// scan is kept.
 func (s *DiskStore) Prune() error {
 	s.pruneMu.Lock()
 	defer s.pruneMu.Unlock()
 
-	beforePruneScan()
 	root := filepath.Join(s.root, "v1", "entries")
 	dirs, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -263,6 +280,7 @@ func (s *DiskStore) Prune() error {
 	if err != nil {
 		return err
 	}
+	var errs []error
 	entries := make([]diskEntryInfo, 0, len(dirs))
 	var total int64
 	for _, dir := range dirs {
@@ -270,43 +288,13 @@ func (s *DiskStore) Prune() error {
 			continue
 		}
 		path := filepath.Join(root, dir.Name())
-		info := diskEntryInfo{path: path}
-		walkErr := filepath.WalkDir(path, func(_ string, d os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				if errors.Is(walkErr, os.ErrNotExist) {
-					return nil
-				}
-				return walkErr
+		info, scanErr := scanEntry(path)
+		pruneScanHook(path)
+		if scanErr != nil {
+			if !errors.Is(scanErr, os.ErrNotExist) {
+				errs = append(errs, scanErr)
 			}
-			if d.Type().IsRegular() {
-				if strings.Contains(d.Name(), ".tmp-") {
-					return nil
-				}
-				stat, statErr := d.Info()
-				if statErr != nil {
-					if errors.Is(statErr, os.ErrNotExist) {
-						return nil
-					}
-					return statErr
-				}
-				info.size += stat.Size()
-				if info.created.IsZero() || stat.ModTime().Before(info.created) {
-					info.created = stat.ModTime()
-				}
-			}
-			return nil
-		})
-		if walkErr != nil {
-			if errors.Is(walkErr, os.ErrNotExist) {
-				continue
-			}
-			return walkErr
-		}
-		if data, readErr := os.ReadFile(filepath.Join(path, metaFile)); readErr == nil {
-			var meta Meta
-			if json.Unmarshal(data, &meta) == nil && !meta.CreatedAt.IsZero() {
-				info.created = meta.CreatedAt
-			}
+			continue
 		}
 		total += info.size
 		entries = append(entries, info)
@@ -317,24 +305,96 @@ func (s *DiskStore) Prune() error {
 		}
 		return entries[i].created.Before(entries[j].created)
 	})
-	for len(entries) > s.maxEntries || total > s.maxBytes {
-		oldest := entries[0]
-		entries = entries[1:]
-		if err := s.removeEntryDir(oldest.path); err != nil {
-			return err
+	count := len(entries)
+	for _, victim := range entries {
+		if count <= s.maxEntries && total <= s.maxBytes {
+			break
 		}
-		total -= oldest.size
+		removed, removeErr := s.removeEntryDir(victim)
+		if removeErr != nil {
+			errs = append(errs, removeErr)
+			continue
+		}
+		if removed {
+			count--
+			total -= victim.size
+		}
+	}
+	if count > s.maxEntries || total > s.maxBytes {
+		return errors.Join(errs...)
 	}
 	return nil
 }
 
-func (s *DiskStore) removeEntryDir(path string) error {
+// scanEntry measures one entry directory. A complete entry is dated by its
+// metadata. An entry without metadata is still being written or was abandoned,
+// so it is dated by its latest activity: a write in progress then sorts as new
+// instead of as the oldest entry.
+func scanEntry(path string) (diskEntryInfo, error) {
+	info := diskEntryInfo{path: path}
+	var oldest, latest time.Time
+	err := walkDir(path, func(_ string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		stat, statErr := d.Info()
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				return nil
+			}
+			return statErr
+		}
+		if stat.ModTime().After(latest) {
+			latest = stat.ModTime()
+		}
+		if !d.Type().IsRegular() || strings.Contains(d.Name(), ".tmp-") {
+			return nil
+		}
+		info.size += stat.Size()
+		if oldest.IsZero() || stat.ModTime().Before(oldest) {
+			oldest = stat.ModTime()
+		}
+		return nil
+	})
+	if err != nil {
+		return info, err
+	}
+	data, err := os.ReadFile(filepath.Join(path, metaFile))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		info.created = latest
+	case err != nil:
+		return info, err
+	default:
+		var meta Meta
+		if json.Unmarshal(data, &meta) == nil && !meta.CreatedAt.IsZero() {
+			info.created = meta.CreatedAt
+		} else {
+			info.created = oldest
+		}
+	}
+	return info, nil
+}
+
+// removeEntryDir removes a scanned entry unless it changed after the scan, and
+// reports whether the entry is gone.
+func (s *DiskStore) removeEntryDir(victim diskEntryInfo) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	current, err := scanEntry(victim.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
 	}
-	return nil
+	if err != nil {
+		return false, err
+	}
+	if !current.created.Equal(victim.created) {
+		return false, nil
+	}
+	if err := removeAll(victim.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *DiskStore) entryDir(key string) string {
@@ -357,10 +417,42 @@ func writeFileAtomic(dir, name string, data []byte) error {
 		_ = os.Remove(path)
 		return closeErr
 	}
-	return os.Rename(path, filepath.Join(dir, name))
+	if err := renameReplacing(path, filepath.Join(dir, name)); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+// renameRetryDelays bound how long publication waits for a reader on Windows.
+// Go opens files there without delete sharing, so replacing a file that a Get
+// or a prune scan has open fails with "Access is denied" until the reader
+// closes it, which takes milliseconds.
+var renameRetryDelays = []time.Duration{
+	2 * time.Millisecond, 10 * time.Millisecond, 50 * time.Millisecond, 200 * time.Millisecond,
+}
+
+func renameReplacing(from, to string) error {
+	err := os.Rename(from, to)
+	if runtime.GOOS != "windows" {
+		return err
+	}
+	for _, delay := range renameRetryDelays {
+		if err == nil || !errors.Is(err, os.ErrPermission) {
+			return err
+		}
+		time.Sleep(delay)
+		err = os.Rename(from, to)
+	}
+	return err
 }
 
 var nowUTC = func() time.Time { return time.Now().UTC() }
 
-// beforePruneScan lets tests hold a prune at the start of its directory scan.
-var beforePruneScan = func() {}
+// Test seams: pruneScanHook runs after the scan reads each entry, outside the
+// store lock; walkDir and removeAll let tests inject file system failures.
+var (
+	pruneScanHook = func(string) {}
+	walkDir       = filepath.WalkDir
+	removeAll     = os.RemoveAll
+)
