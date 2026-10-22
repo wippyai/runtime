@@ -372,6 +372,23 @@ func TestDiskStorePruneSkipsEntryItCannotScan(t *testing.T) {
 	assert.True(t, entryExists(t, store, "c"))
 }
 
+func TestDiskStorePruneEvictsEntryWithUnreadableMetadata(t *testing.T) {
+	store := NewBoundedDiskStore(t.TempDir(), 512, 10, 1000)
+	require.NoError(t, store.Put("big", &Entry{
+		Meta:  Meta{EntryID: "big", SourceHash: "big", CreatedAt: time.Unix(1, 0)},
+		Proto: make([]byte, 1024),
+	}))
+	// A directory in place of meta.json makes reading it fail with an error
+	// other than "not found" on every platform.
+	metaPath := filepath.Join(store.entryDir("big"), metaFile)
+	require.NoError(t, os.Remove(metaPath))
+	require.NoError(t, os.Mkdir(metaPath, 0o755))
+
+	require.NoError(t, store.Prune(), "the entry's bytes still count, so it is evicted")
+
+	assert.NoDirExists(t, store.entryDir("big"))
+}
+
 func TestDiskStorePruneReportsUnreadableEntriesThatKeepItOverLimits(t *testing.T) {
 	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 1, 1000)
 	putTestEntry(t, store, "a", time.Unix(1, 0))

@@ -396,7 +396,10 @@ func scanEntry(path string) (diskEntryInfo, error) {
 		info.created = latest
 		info.stamp = fmt.Sprintf("activity:%d:%d:%d", latest.UnixNano(), files, filesBytes)
 	case err != nil:
-		return info, err
+		// Unreadable metadata: date the entry by its files, as for corrupt
+		// metadata, so it still counts and can be evicted.
+		info.created = oldest
+		info.stamp = fmt.Sprintf("activity:%d:%d:%d", latest.UnixNano(), files, filesBytes)
 	default:
 		info.stamp = "meta:" + hashBytes(data)
 		var meta Meta
