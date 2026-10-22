@@ -274,7 +274,8 @@ func TestDiskStorePruneKeepsEntryBeingWritten(t *testing.T) {
 	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 2, 1000)
 	putTestEntry(t, store, "old", time.Unix(1, 0))
 	putTestEntry(t, store, "middle", time.Unix(2, 0))
-	// A concurrent Put has created this entry and written only a temp file.
+	// A Put in another process sharing the directory has created this entry
+	// and written only a temp file.
 	writing := store.entryDir("new")
 	require.NoError(t, os.MkdirAll(writing, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(writing, protoFile+".tmp-1"), []byte("new"), 0o644))
@@ -311,8 +312,48 @@ func TestDiskStorePruneKeepsEntryRewrittenAfterScan(t *testing.T) {
 	assert.False(t, entryExists(t, store, "middle"))
 }
 
-func TestDiskStorePruneSkipsEntryItCannotScan(t *testing.T) {
+func TestDiskStorePruneKeepsEntryRewrittenWithSameCreatedAt(t *testing.T) {
 	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 1, 1000)
+	putTestEntry(t, store, "middle", time.Unix(2, 0))
+	putTestEntry(t, store, "old", time.Unix(1, 0))
+	oldDir := store.entryDir("old")
+	replaceSeam(t, &pruneScanHook, func(path string) {
+		if path != oldDir {
+			return
+		}
+		// New content, but the caller keeps the original creation time.
+		require.NoError(t, store.Put("old", &Entry{
+			Meta:  Meta{EntryID: "old", SourceHash: "rewritten", CreatedAt: time.Unix(1, 0)},
+			Proto: []byte("rewritten"),
+		}))
+	})
+
+	require.NoError(t, store.Prune())
+
+	got, ok, err := store.Get("old")
+	require.NoError(t, err)
+	require.True(t, ok, "the rewritten entry is kept")
+	assert.Equal(t, []byte("rewritten"), got.Proto)
+	assert.False(t, entryExists(t, store, "middle"))
+}
+
+func TestDiskStorePruneReportsOverLimitsWhenEveryVictimChanged(t *testing.T) {
+	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 1, 1000)
+	putTestEntry(t, store, "a", time.Unix(1, 0))
+	putTestEntry(t, store, "b", time.Unix(2, 0))
+	replaceSeam(t, &pruneScanHook, func(path string) {
+		key := filepath.Base(path)
+		require.NoError(t, store.Put(key, &Entry{Meta: Meta{EntryID: key, SourceHash: "rewritten"}, Proto: []byte("rewritten")}))
+	})
+
+	require.ErrorIs(t, store.Prune(), errOverLimits)
+
+	assert.True(t, entryExists(t, store, "a"))
+	assert.True(t, entryExists(t, store, "b"))
+}
+
+func TestDiskStorePruneSkipsEntryItCannotScan(t *testing.T) {
+	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 2, 1000)
 	putTestEntry(t, store, "a", time.Unix(1, 0))
 	putTestEntry(t, store, "b", time.Unix(2, 0))
 	putTestEntry(t, store, "c", time.Unix(3, 0))
@@ -324,11 +365,31 @@ func TestDiskStorePruneSkipsEntryItCannotScan(t *testing.T) {
 		return filepath.WalkDir(root, fn)
 	})
 
-	require.NoError(t, store.Prune(), "the limits are met without the unreadable entry")
+	require.NoError(t, store.Prune(), "the limits are met by removing the oldest readable entry")
 
-	assert.True(t, entryExists(t, store, "a"))
+	assert.True(t, entryExists(t, store, "a"), "the unreadable entry stays and still counts")
 	assert.False(t, entryExists(t, store, "b"))
 	assert.True(t, entryExists(t, store, "c"))
+}
+
+func TestDiskStorePruneReportsUnreadableEntriesThatKeepItOverLimits(t *testing.T) {
+	store := NewBoundedDiskStore(t.TempDir(), 1<<20, 1, 1000)
+	putTestEntry(t, store, "a", time.Unix(1, 0))
+	putTestEntry(t, store, "b", time.Unix(2, 0))
+	putTestEntry(t, store, "c", time.Unix(3, 0))
+	unreadable := map[string]bool{store.entryDir("a"): true, store.entryDir("b"): true}
+	replaceSeam(t, &walkDir, func(root string, fn fs.WalkDirFunc) error {
+		if unreadable[root] {
+			return fs.ErrPermission
+		}
+		return filepath.WalkDir(root, fn)
+	})
+
+	err := store.Prune()
+
+	require.ErrorIs(t, err, errOverLimits)
+	require.ErrorIs(t, err, fs.ErrPermission)
+	assert.False(t, entryExists(t, store, "c"), "the readable entry is still removed")
 }
 
 func TestDiskStorePruneSkipsEntryItCannotRemove(t *testing.T) {
@@ -358,7 +419,10 @@ func TestDiskStorePruneReportsErrorWhenLimitsAreStillExceeded(t *testing.T) {
 	injected := errors.New("injected removal failure")
 	replaceSeam(t, &removeAll, func(string) error { return injected })
 
-	require.ErrorIs(t, store.Prune(), injected)
+	err := store.Prune()
+
+	require.ErrorIs(t, err, errOverLimits)
+	require.ErrorIs(t, err, injected)
 
 	assert.True(t, entryExists(t, store, "a"))
 	assert.True(t, entryExists(t, store, "b"))
@@ -385,20 +449,30 @@ func TestDiskStoreBackgroundPruneErrorReachesHandler(t *testing.T) {
 }
 
 func TestDiskStorePutWaitsForReaderOfReplacedFile(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows refuses to replace a file that another handle has open")
+	}
 	store := NewDiskStore(t.TempDir())
 	putTestEntry(t, store, "k", time.Unix(1, 0))
 	reader, err := os.Open(filepath.Join(store.entryDir("k"), metaFile))
 	require.NoError(t, err)
-	closed := make(chan struct{})
-	go func() {
-		defer close(closed)
-		time.Sleep(20 * time.Millisecond)
-		_ = reader.Close()
-	}()
-	t.Cleanup(func() { <-closed })
+	var closeOnce sync.Once
+	closeReader := func() { closeOnce.Do(func() { _ = reader.Close() }) }
+	t.Cleanup(closeReader)
+	refused := 0
+	// Release the reader as soon as a rename has been refused because of it.
+	replaceSeam(t, &rename, func(from, to string) error {
+		err := os.Rename(from, to)
+		if err != nil {
+			refused++
+			closeReader()
+		}
+		return err
+	})
 
 	require.NoError(t, store.Put("k", &Entry{Meta: Meta{EntryID: "k", SourceHash: "rewritten"}, Proto: []byte("rewritten")}))
 
+	assert.Equal(t, 1, refused, "the open reader refused the first rename of meta.json")
 	got, ok, err := store.Get("k")
 	require.NoError(t, err)
 	require.True(t, ok)
