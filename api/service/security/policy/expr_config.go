@@ -34,7 +34,7 @@ type ExprConfig struct {
 	Policy ExprDefinition `json:"policy" yaml:"policy"`
 
 	// Groups is a list of group names this policy belongs to
-	// Groups are namespaced with the entry's namespace
+	// A bare group name takes the entry's namespace; a qualified one keeps its own
 	Groups []string `json:"groups,omitempty" yaml:"groups,omitempty"`
 }
 
@@ -83,9 +83,5 @@ func (c *ExprConfig) Validate() error {
 
 // GetGroupIDs converts group names to fully qualified registry IDs
 func (c *ExprConfig) GetGroupIDs(namespace registry.Namespace) []registry.ID {
-	ids := make([]registry.ID, len(c.Groups))
-	for i, group := range c.Groups {
-		ids[i] = registry.NewID(namespace, group)
-	}
-	return ids
+	return groupIDs(c.Groups, namespace)
 }
