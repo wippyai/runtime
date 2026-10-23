@@ -8,7 +8,7 @@ const DefaultDir = ".wippy/cache/lua"
 const (
 	DefaultMaxBytes      int64 = 1 << 30
 	DefaultMaxEntries          = 20_000
-	DefaultPruneInterval       = 256
+	DefaultPruneInterval       = 512
 )
 
 // Mode controls cache read/write behavior.
@@ -27,7 +27,7 @@ type Config struct {
 	ToolchainIdentity string
 	MaxBytes          int64
 	MaxEntries        int
-	PruneInterval     int
+	PruneInterval     int // Successful writes between background cleanup requests.
 	Enabled           bool
 	CompileEnabled    bool
 	TypecheckEnabled  bool

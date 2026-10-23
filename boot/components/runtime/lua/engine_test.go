@@ -330,6 +330,29 @@ func TestEngineSettings_CacheDefaults(t *testing.T) {
 	assert.True(t, settings.Cache.Enabled, "cache should be enabled by default")
 }
 
+func TestEngineSettingsCachePruneInterval(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		interval int
+		want     int
+	}{
+		{name: "default", want: 512},
+		{name: "custom", interval: 1000, want: 1000},
+		{name: "every write", interval: 1, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := map[string]any{"cache.dir": t.TempDir()}
+			if tc.interval != 0 {
+				values["cache.prune_interval"] = tc.interval
+			}
+			cfg := boot.NewConfig(boot.WithSection("lua", values))
+			settings := resolveEngineSettings(cfg, zap.NewNop())
+			require.True(t, settings.Cache.Enabled)
+			require.Equal(t, tc.want, settings.Cache.PruneInterval)
+		})
+	}
+}
+
 func TestEngineSettings_CacheExplicitlyDisabled(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
 	logger := zap.New(core)

@@ -24,6 +24,7 @@ func BenchmarkLuaSeed906(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+	store.WaitPrune()
 	benchmarkLuaSeedDirectory(b, root)
 }
 
