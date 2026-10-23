@@ -67,8 +67,8 @@ github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3 h1:NyeuyXkZL476uoAowNActm4XJO1Q
 github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3/go.mod h1:GfoBeKMDJecgRUsGf/0RGdx0NJAh81ObTd922h8pQys=
 github.com/aws/aws-sdk-go-v2/service/signin v1.10.4 h1:tvpDjuUvgKURf3Yk4hOaGbZ4QdY+070OWcA5d6LUv2A=
 github.com/aws/aws-sdk-go-v2/service/signin v1.10.4/go.mod h1:3ibVKg5Ng82Zby8++jELTD2nHxiPk2DJRLEeW/LKp8M=
-github.com/aws/aws-sdk-go-v2/service/sqs v1.52.4 h1:D+Zmdt3T3P770MrqTmZvalbj6ADO7xA7n+qnNakGvrI=
-github.com/aws/aws-sdk-go-v2/service/sqs v1.52.4/go.mod h1:dUYH3ia3qEO5ogaWDLp2tjtb4u4Y9xRbae7tOr1ClIA=
+github.com/aws/aws-sdk-go-v2/service/sqs v1.52.5 h1:DKlshGKQ/7Bkj2Yww/m2tWsWGjGZJ5vcNUA64fCbfjU=
+github.com/aws/aws-sdk-go-v2/service/sqs v1.52.5/go.mod h1:dUYH3ia3qEO5ogaWDLp2tjtb4u4Y9xRbae7tOr1ClIA=
 github.com/aws/aws-sdk-go-v2/service/ssm v1.77.0 h1:JqKSBJlS68F4nxoPLwD7tB3lJ3gWEK9p+7eOiBE/lsM=
 github.com/aws/aws-sdk-go-v2/service/ssm v1.77.0/go.mod h1:5TMMHmQGjCODMeIopSNfxkan11jG0SmFpyjcMvCLzHA=
 github.com/aws/aws-sdk-go-v2/service/sso v1.38.4 h1:ChCtagixSFOxltv0o6E3NT8F7ksvZtZGPwUBynO5Nmk=
@@ -512,8 +512,6 @@ github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701 h1:pyC9PaHYZFgEKFdlp3G8
 github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701/go.mod h1:P3a5rG4X7tI17Nn3aOIAYr5HbIMukwXG0urG0WuL8OA=
 github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zdEY=
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
-github.com/wippyai/go-lua v1.6.9 h1:Liy4hOUbtkRaZWtkYhCntrcjQgqlInYcEXkNYp4+YRk=
-github.com/wippyai/go-lua v1.6.9/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/go-lua v1.6.10 h1:9aeAu7o2Ud38w++73yyXKK4bn2uxHkp6Nq08LVQfYOc=
 github.com/wippyai/go-lua v1.6.10/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f h1:AoKS058roqnsHXaJ8Gww7ODz14qJqOK5QBeoALvcq6I=
