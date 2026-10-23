@@ -23,17 +23,20 @@ func TestLiveAuthorityPolicyIDs(t *testing.T) {
 		records, admin security.Result
 		wantError      bool
 	}{
-		{name: "selected policy", response: attrs.Bag{"scope_policy_ids": []string{"app:read"}}, records: security.Allow},
-		{name: "selection revoked", response: attrs.Bag{"scope_policy_ids": []string{}}},
+		{name: "selected policy", response: attrs.Bag{"policies": []string{"app:read"}}, records: security.Allow},
+		{name: "selection revoked", response: attrs.Bag{"policies": []string{}}},
 		{name: "field absent"},
-		{name: "group union", response: attrs.Bag{"groups": []string{"app:current"}, "scope_policy_ids": []string{"app:read"}}, records: security.Allow, admin: security.Allow},
-		{name: "ceiling", response: attrs.Bag{"scope_policy_ids": []string{"app:read", "app:write"}, "ceiling": attrs.Bag{"policies": []string{"app:read"}}}, records: security.Allow},
-		{name: "empty ceiling", response: attrs.Bag{"scope_policy_ids": []string{"app:read"}, "ceiling": attrs.Bag{}}},
-		{name: "unavailable policy", response: attrs.Bag{"scope_policy_ids": []string{"app:read", "app:missing"}}, wantError: true},
-		{name: "malformed selection", response: attrs.Bag{"scope_policy_ids": true}, wantError: true},
+		{name: "group union", response: attrs.Bag{"groups": []string{"app:current"}, "policies": []string{"app:read"}}, records: security.Allow, admin: security.Allow},
+		{name: "selected deny overrides group grants", response: attrs.Bag{"groups": []string{"app:current"}, "policies": []string{"app:deny"}}, records: security.Deny, admin: security.Deny},
+		{name: "ceiling", response: attrs.Bag{"policies": []string{"app:read", "app:write"}, "ceiling": attrs.Bag{"policies": []string{"app:read"}}}, records: security.Allow},
+		{name: "empty ceiling", response: attrs.Bag{"policies": []string{"app:read"}, "ceiling": attrs.Bag{}}},
+		{name: "unavailable policy", response: attrs.Bag{"policies": []string{"app:read", "app:missing"}}, wantError: true},
+		{name: "malformed selection", response: attrs.Bag{"policies": true}, wantError: true},
+		{name: "malformed member", response: attrs.Bag{"policies": []any{"app:read", true}}, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, store, token, _, _ := authorityBoundaryFixture(t, &jsonTranscoder{})
+			ctx, store, token, reg, _ := authorityBoundaryFixture(t, &jsonTranscoder{})
+			reg.AddPolicy(registry.NewID("app", "deny"), security.Deny)
 			response := attrs.Bag{"subject_id": "member", "groups": []string{}}
 			for key, value := range tc.response {
 				response[key] = value
@@ -65,7 +68,7 @@ func BenchmarkValidateLivePolicyIDs(b *testing.B) {
 			}
 			response := attrs.Bag{"subject_id": "member", "groups": []string{"app:current"}}
 			if count > 0 {
-				response["scope_policy_ids"] = ids
+				response["policies"] = ids
 			}
 			ctx = function.WithRegistry(ctx, lookupFunc(func(context.Context, runtimeapi.Task) (*runtimeapi.Result, error) {
 				return &runtimeapi.Result{Value: payload.New(response)}, nil

@@ -23,20 +23,29 @@ It must check that the subject exists and is active, and return the union of the
 subject's current authority:
 
 ```lua
-{subject_id = "stored-actor-id", meta = {}, groups = {"app:current_group"}}
+{
+    subject_id = "stored-actor-id",
+    meta = {},
+    groups = {"app:current_group"},
+    policies = {"app:read"}
+}
 ```
 
-`scope_policy_ids` optionally lists additional current policy IDs selected by the
-host. Runtime resolves each ID directly from the policy registry and unions its
-policy with the group policies. Missing or malformed policy IDs fail validation
-without returning partial authority. Omitting this field preserves group-only
-authority. These are live selections, not the stored issuance policy list.
+`policies` optionally lists additional current policy IDs selected by the host.
+The `groups` and `policies` fields use the same names and registry-ID lists as
+Runtime's security configuration and the credential ceiling below. Runtime
+resolves each policy ID directly from the policy registry and unions its policy
+with the group policies. Unknown or malformed policy IDs fail validation without
+returning partial authority. Omitting `policies` preserves group-only authority.
+These are live selections, not the stored issuance policy list.
 
 `groups` lists current memberships in native Security groups. Issuance scope
 labels and default scopes do not supply membership authority. `authority_only`
-asks the host for membership authority without materializing a login scope. An
-empty array grants no access. Runtime obtains their current policies
-on every validation. The returned subject ID must match the stored actor ID.
+asks the host for current authority without materializing a login scope. `groups`
+must be present, but may be empty when authority comes from `policies` alone.
+When both lists are empty, the subject has no authority. Runtime obtains current
+policies on every validation. The returned subject ID must match the stored
+actor ID.
 Returned metadata replaces issuance metadata; stored groups and policy IDs do
 not supply authority. Native validation and HTTP header, query, cookie and
 websocket-upgrade admission use this same path.

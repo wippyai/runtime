@@ -67,9 +67,9 @@ func TestLiveAuthorityLuaObjectFields(t *testing.T) {
 	}{
 		{"nonempty_metadata", `{subject_id="member", meta={status="active"}, groups={"app:current"}}`, true, false},
 		{"empty_metadata", `{subject_id="member", meta={}, groups={"app:current"}}`, true, false},
-		{"selected_policies", `{subject_id="member", groups={}, scope_policy_ids={"app:read", "app:write"}}`, true, false},
-		{"empty_policy_selection", `{subject_id="member", groups={}, scope_policy_ids={}}`, false, false},
-		{"malformed_policy_selection", `{subject_id="member", groups={}, scope_policy_ids=true}`, false, true},
+		{"selected_policies", `{subject_id="member", groups={}, policies={"app:read", "app:write"}}`, true, false},
+		{"empty_policy_selection", `{subject_id="member", groups={}, policies={}}`, false, false},
+		{"malformed_policy_selection", `{subject_id="member", groups={}, policies=true}`, false, true},
 		{"empty_membership", `{subject_id="member", groups={}}`, false, false},
 		{"empty_ceiling", `{subject_id="member", groups={"app:current"}, ceiling={}}`, false, false},
 		{"empty_ceiling_arrays", `{subject_id="member", groups={"app:current"}, ceiling={groups={}, policies={}}}`, false, false},

@@ -24,7 +24,7 @@ type subjectAuthority struct {
 	Success   *bool             `json:"success"`
 	SubjectID string            `json:"subject_id"`
 	Groups    []registry.ID     `json:"groups"`
-	PolicyIDs []registry.ID     `json:"scope_policy_ids,omitempty"`
+	Policies  []registry.ID     `json:"policies,omitempty"`
 	Retriable bool              `json:"retriable"`
 }
 
@@ -104,7 +104,7 @@ func (s *TokenStore) resolveSubject(ctx context.Context, data *tokenData) (secur
 	if authority.Groups == nil {
 		return security.Actor{}, nil, invalidAuthority("subject lookup omits groups")
 	}
-	scope, err := s.authorityScope(authorityScope{Groups: authority.Groups, Policies: authority.PolicyIDs})
+	scope, err := s.authorityScope(authorityScope{Groups: authority.Groups, Policies: authority.Policies})
 	if err != nil {
 		return security.Actor{}, nil, err
 	}

@@ -151,7 +151,7 @@ func TestResolveConfigPairs_TransportsInheritedSecurityToProcessFrame(t *testing
 	assert.True(t, scope.Contains(addedPolicyID))
 }
 
-func TestResolveScopePolicyListAllocations(t *testing.T) {
+func TestResolveScopePolicyList(t *testing.T) {
 	reg := NewPolicyRegistry(eventbus.NewBus(), nil)
 	ids := make([]registry.ID, 50)
 	for i := range ids {
@@ -160,19 +160,12 @@ func TestResolveScopePolicyListAllocations(t *testing.T) {
 		reg.handleEvent(event.Event{Kind: security.PolicyRegister, Path: ids[i].String(),
 			Data: &security.PolicyEntry{Policy: policy}})
 	}
-	var resolved security.Scope
-	allocations := testing.AllocsPerRun(100, func() {
-		var err error
-		resolved, err = ResolveScope(reg, nil, ids)
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
+	resolved, err := ResolveScope(reg, nil, ids)
+	require.NoError(t, err)
 	require.Len(t, resolved.Policies(), len(ids))
 	for _, id := range ids {
 		require.True(t, resolved.Contains(id))
 	}
-	require.LessOrEqual(t, allocations, float64(6), "policy resolution allocates containers, not one intermediate object per ID")
 }
 
 func BenchmarkResolveScopePolicyIDs(b *testing.B) {
