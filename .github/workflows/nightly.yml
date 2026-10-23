@@ -77,7 +77,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux, goarch: amd64, runner: ubuntu-latest }
+          # Keep the Linux AMD64 glibc baseline independent of ubuntu-latest rollovers.
+          - { goos: linux, goarch: amd64, runner: ubuntu-22.04 }
           - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
           - { goos: darwin, goarch: amd64, runner: macos-26-intel }
           - { goos: darwin, goarch: arm64, runner: macos-26 }
@@ -134,6 +135,13 @@ jobs:
           bin="dist/wippy-${{ matrix.goos }}-${{ matrix.goarch }}"
           "./$bin" --help >/dev/null
           grep -a -- "$VERSION" "$bin" >/dev/null || { echo "version $VERSION not embedded in $bin"; exit 1; }
+
+      - name: Check Linux AMD64 compatibility
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        shell: bash
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: bash .github/scripts/check-linux-release.sh dist/wippy-linux-amd64 "$VERSION"
 
       - name: Smoke check (Windows)
         if: matrix.goos == 'windows'
