@@ -597,6 +597,16 @@ func TestExprConfig_GetGroupIDs(t *testing.T) {
 	assert.Equal(t, registry.NewID("test-ns", "group2"), ids[1])
 }
 
+func TestExprConfig_GetGroupIDsQualified(t *testing.T) {
+	config := ExprConfig{
+		Groups: []string{"other.ns:group1", "group2"},
+	}
+	ids := config.GetGroupIDs("test-ns")
+	require.Len(t, ids, 2)
+	assert.Equal(t, registry.NewID("other.ns", "group1"), ids[0])
+	assert.Equal(t, registry.NewID("test-ns", "group2"), ids[1])
+}
+
 func TestErrorFactories(t *testing.T) {
 	t.Run("NewInvalidPolicyEffectError", func(t *testing.T) {
 		err := NewInvalidPolicyEffectError("unknown")
