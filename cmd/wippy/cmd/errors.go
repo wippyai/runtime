@@ -196,6 +196,14 @@ func NewBuildDependencyGraphError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to build dependency graph").WithCause(cause).WithRetryable(apierror.False)
 }
 
+func NewWorkspaceInUseError(lockPath string) apierror.Error {
+	return apierror.New(apierror.Conflict, "a Wippy runtime is running from this workspace; stop it before install or update, or update modules through the running runtime (lock: "+lockPath+")").WithRetryable(apierror.True)
+}
+
+func NewWorkspaceLockError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to lock workspace").WithCause(cause).WithRetryable(apierror.False)
+}
+
 func NewInstallFailedError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "install failed").WithCause(cause).WithRetryable(apierror.False)
 }

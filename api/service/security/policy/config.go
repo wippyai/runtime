@@ -169,8 +169,14 @@ func (c *Config) GetResources() []string {
 
 // GetGroupIDs returns the groups as registry.ID slice
 func (c *Config) GetGroupIDs(defaultNS registry.Namespace) []registry.ID {
-	result := make([]registry.ID, 0, len(c.Groups))
-	for _, group := range c.Groups {
+	return groupIDs(c.Groups, defaultNS)
+}
+
+// groupIDs resolves policy group names to registry IDs: a qualified
+// "namespace:name" keeps its namespace, a bare name takes defaultNS.
+func groupIDs(groups []string, defaultNS registry.Namespace) []registry.ID {
+	result := make([]registry.ID, 0, len(groups))
+	for _, group := range groups {
 		id := registry.ParseID(group)
 		ns := id.NS
 		if ns == "" {

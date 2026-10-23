@@ -453,7 +453,7 @@ func Raft() boot.Component {
 			}
 			// Drain the status channel in background so it doesn't block senders.
 			go func() {
-				for range statusCh { //nolint:revive // intentionally empty: draining channel
+				for range statusCh { // Drain status updates until the channel closes.
 				}
 			}()
 

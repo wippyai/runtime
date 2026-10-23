@@ -76,6 +76,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	modulesDir, _ := cmd.Flags().GetString("modules-dir")
 	srcDirChanged := cmd.Flags().Changed("src-dir")
 	modulesDirChanged := cmd.Flags().Changed("modules-dir")
+	destination := ""
+	if modulesDirChanged {
+		destination = modulesDir
+	}
+	releaseWorkspace, err := holdWorkspaceForChange(lockFilePath, destination)
+	if err != nil {
+		return err
+	}
+	defer releaseWorkspace()
 
 	// Load existing lock file to get current directories
 	var existingDirs *lock.Directories

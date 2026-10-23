@@ -257,6 +257,12 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		logger.Error("dependency preparation failed", zap.Error(err))
 		return err
 	}
+	releaseWorkspace, err := holdWorkspaceForRuntime(cfg, logger)
+	if err != nil {
+		logger.Error("failed to lock workspace", zap.Error(err))
+		return err
+	}
+	defer releaseWorkspace()
 
 	// Create embed registry for fs.embed support with .wapp modules
 	embedReg := embedpkg.NewRegistry()
@@ -344,7 +350,9 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		}
 	}
 
-	waitForShutdown(ctx, sources, logger, nil)
+	if err := waitForShutdownOrBootFailure(ctx, sources, logger); err != nil {
+		return err
+	}
 	return ctx.Err()
 }
 
@@ -1046,17 +1054,20 @@ func launchExecUntilShutdown(ctx context.Context, sources *shutdownSources, logg
 		return false, nil
 	case sig := <-sources.signals:
 		stopExecSignals()
-		<-done
+		execErr := <-done
+		_ = execErr // Shutdown has already won; join the canceled launch.
 		startShutdown(ctx, sources, logger, shutdownCause{kind: causeSignal, signal: sig}, nil)
 		return true, nil
 	case <-sources.requests:
 		stopExecSignals()
-		<-done
+		execErr := <-done
+		_ = execErr // Shutdown has already won; join the canceled launch.
 		startShutdown(ctx, sources, logger, shutdownCause{kind: causeRequest}, nil)
 		return true, nil
 	case <-callerCancellation(ctx):
 		stopExecSignals()
-		<-done
+		execErr := <-done
+		_ = execErr // Shutdown has already won; join the canceled launch.
 		startShutdown(ctx, sources, logger, shutdownCause{kind: causeCallerCancellation}, nil)
 		return true, nil
 	}

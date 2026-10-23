@@ -4,8 +4,10 @@ package directory
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
@@ -15,6 +17,9 @@ import (
 	systemfs "github.com/wippyai/runtime/system/fs"
 	"go.uber.org/zap"
 )
+
+// fsReplyKinds matches the filesystem registry replies to a request.
+const fsReplyKinds = "fs.(accept|reject)"
 
 // Manager handles filesystem directory registration and lifecycle
 type Manager struct {
@@ -157,16 +162,18 @@ func (m *Manager) registerFSLocked(ctx context.Context, entry registry.Entry, cf
 		return systemfs.NewCreateFilesystemError(err)
 	}
 
-	// Store in directories map
-	m.directories[id] = fs
-
-	// Register with filesystem registry
-	m.bus.Send(ctx, event.Event{
+	if err := m.sendFS(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.FsRegister,
 		Path:   id.String(),
-		Data:   fs,
-	})
+		Data:   fsapi.Request{FS: fs},
+	}); err != nil {
+		if closer, ok := fs.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+		return err
+	}
+	m.directories[id] = fs
 
 	m.log.Info("directory filesystem created",
 		zap.String("id", id.String()),
@@ -187,10 +194,48 @@ func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
 		zap.String("kind", fsapi.FsDelete),
 		zap.String("path", id.String()))
 
-	// Do regular registration
-	m.bus.Send(ctx, event.Event{
+	if err := m.sendFS(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.FsDelete,
 		Path:   id.String(),
-	})
+		Data:   fsapi.Request{},
+	}); err != nil {
+		m.log.Warn("filesystem deletion was not confirmed",
+			zap.String("id", id.String()),
+			zap.Error(err))
+	}
+}
+
+// sendFS sends a filesystem registry request and, when the runtime provides
+// request coordination, returns once the registry accepts it. The registry
+// stores handles on its own subscriber: without the confirmation, the next
+// listener in the same registry transition, such as an http.static entry,
+// can look up the filesystem before it is stored, and the transition fails
+// with "filesystem not found" once its retry pass makes no progress.
+func (m *Manager) sendFS(ctx context.Context, request event.Event) error {
+	awaitSvc := event.GetAwaitService(ctx)
+	if awaitSvc == nil || !m.bus.HasSubscribers(fsapi.System, request.Kind) {
+		m.bus.Send(ctx, request)
+		return nil
+	}
+	opID := "fs.op/" + uuid.NewString()
+	data := request.Data.(fsapi.Request)
+	data.OpID = opID
+	request.Data = data
+	waiter, err := awaitSvc.Prepare(ctx, fsapi.System, fsReplyKinds, opID, event.ContextBoundAwait)
+	if err != nil {
+		return systemfs.NewFilesystemRegistrationError(request.Path, request.Kind, err)
+	}
+	defer waiter.Close()
+
+	m.bus.Send(ctx, request)
+
+	result := waiter.Wait()
+	if result.Error != nil {
+		return systemfs.NewFilesystemRegistrationError(request.Path, request.Kind, result.Error)
+	}
+	if !result.Accepted {
+		return systemfs.NewFilesystemRegistrationError(request.Path, request.Kind, fmt.Errorf("rejected: %v", result.Event.Data))
+	}
+	return nil
 }

@@ -742,7 +742,9 @@ func runPackEntriesWithShutdown(
 		}
 	}
 
-	waitForShutdown(appCtx, sources, logger, nil)
+	if err := waitForShutdownOrBootFailure(appCtx, sources, logger); err != nil {
+		return err
+	}
 	return appCtx.Err()
 }
 

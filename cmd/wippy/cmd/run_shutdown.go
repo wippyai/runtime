@@ -136,3 +136,42 @@ func armForceExit(ctx context.Context, sources *shutdownSources, logger *zap.Log
 		logger.Info("shutting down (press Ctrl+C again to force exit)")
 	}
 }
+
+// waitForShutdownOrBootFailure waits for the shutdown like waitForShutdown. It
+// also starts the graceful shutdown when a required boot gate fails, because
+// a runtime whose boot failed serves nothing and must not look alive to a
+// supervisor. It returns that boot failure, so the command exits non-zero.
+func waitForShutdownOrBootFailure(ctx context.Context, sources *shutdownSources, logger *zap.Logger) error {
+	readiness := bootpkg.GetReadiness(ctx)
+	if readiness == nil {
+		waitForShutdown(ctx, sources, logger, nil)
+		return nil
+	}
+
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+
+	failed := make(chan error, 1)
+	go func() {
+		err := readiness.Wait(watchCtx)
+		if err == nil || watchCtx.Err() != nil {
+			return
+		}
+		failed <- err
+		logger.Error("boot readiness failed, shutting down", zap.Error(err))
+		select {
+		case sources.requests <- struct{}{}:
+		case <-watchCtx.Done():
+		}
+	}()
+
+	waitForShutdown(ctx, sources, logger, nil)
+	stopWatch()
+
+	select {
+	case err := <-failed:
+		return fmt.Errorf("boot readiness failed: %w", err)
+	default:
+		return nil
+	}
+}

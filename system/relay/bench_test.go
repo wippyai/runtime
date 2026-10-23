@@ -113,7 +113,7 @@ func BenchmarkMailbox_Send(b *testing.B) {
 
 	// Drain receiver in background
 	go func() {
-		for range receiverCh { //nolint:revive
+		for range receiverCh {
 		}
 	}()
 
@@ -147,7 +147,7 @@ func BenchmarkMailbox_SendParallel(b *testing.B) {
 
 	// Drain receiver in background
 	go func() {
-		for range receiverCh { //nolint:revive
+		for range receiverCh {
 		}
 	}()
 
@@ -189,7 +189,7 @@ func BenchmarkRouter_Send(b *testing.B) {
 
 	// Drain receiver in background
 	go func() {
-		for range receiverCh { //nolint:revive
+		for range receiverCh {
 		}
 	}()
 
@@ -262,7 +262,7 @@ func BenchmarkBaseline_SendDirect(b *testing.B) {
 
 	// Drain in background
 	go func() {
-		for range ch { //nolint:revive
+		for range ch {
 		}
 	}()
 
@@ -295,7 +295,7 @@ func BenchmarkBaseline_SelectSend(b *testing.B) {
 
 	// Drain in background
 	go func() {
-		for range ch { //nolint:revive
+		for range ch {
 		}
 	}()
 

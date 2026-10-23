@@ -129,7 +129,7 @@ func policy(l *lua.LState) int {
 	pol, err := security.GetPolicy(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get policy").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "get policy"))
 		return 2
 	}
 
@@ -158,7 +158,7 @@ func namedScope(l *lua.LState) int {
 	sc, err := security.GetPolicyGroup(ctx, id)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get policy group").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "get policy group"))
 		return 2
 	}
 
