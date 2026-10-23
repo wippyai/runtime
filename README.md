@@ -203,7 +203,7 @@ lua:
     mode: readwrite # off | readonly | readwrite
     max_bytes: 1073741824
     max_entries: 20000
-    prune_interval: 256
+    prune_interval: 512 # successful writes between background cleanup requests; e.g. 1000
     compile:
       enabled: true
     typecheck:
