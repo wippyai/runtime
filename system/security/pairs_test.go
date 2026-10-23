@@ -3,6 +3,7 @@
 package security
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -148,4 +149,44 @@ func TestResolveConfigPairs_TransportsInheritedSecurityToProcessFrame(t *testing
 	require.True(t, ok)
 	assert.True(t, scope.Contains(existingPolicy.ID()))
 	assert.True(t, scope.Contains(addedPolicyID))
+}
+
+func TestResolveScopePolicyList(t *testing.T) {
+	reg := NewPolicyRegistry(eventbus.NewBus(), nil)
+	ids := make([]registry.ID, 50)
+	for i := range ids {
+		policy := newMockPolicy(fmt.Sprintf("selected_%d", i), security.Allow)
+		ids[i] = policy.ID()
+		reg.handleEvent(event.Event{Kind: security.PolicyRegister, Path: ids[i].String(),
+			Data: &security.PolicyEntry{Policy: policy}})
+	}
+	resolved, err := ResolveScope(reg, nil, ids)
+	require.NoError(t, err)
+	require.Len(t, resolved.Policies(), len(ids))
+	for _, id := range ids {
+		require.True(t, resolved.Contains(id))
+	}
+}
+
+func BenchmarkResolveScopePolicyIDs(b *testing.B) {
+	for _, count := range []int{0, 5, 50} {
+		b.Run(fmt.Sprintf("policies_%d", count), func(b *testing.B) {
+			reg := NewPolicyRegistry(eventbus.NewBus(), nil)
+			ids := make([]registry.ID, count)
+			for i := range ids {
+				policy := newMockPolicy(fmt.Sprintf("selected_%d", i), security.Allow)
+				ids[i] = policy.ID()
+				reg.handleEvent(event.Event{Kind: security.PolicyRegister, Path: ids[i].String(),
+					Data: &security.PolicyEntry{Policy: policy}})
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				_, err := ResolveScope(reg, nil, ids)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

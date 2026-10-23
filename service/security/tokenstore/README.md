@@ -20,17 +20,32 @@ The actor ID comes from the authenticated stored token. Metadata comes from that
 same entry and lets the host identify explicit credential restrictions. The
 function runs through the function registry with its declared security identity.
 It must check that the subject exists and is active, and return the union of the
-subject's current group authority:
+subject's current authority:
 
 ```lua
-{subject_id = "stored-actor-id", meta = {}, groups = {"app:current_group"}}
+{
+    subject_id = "stored-actor-id",
+    meta = {},
+    groups = {"app:current_group"},
+    policies = {"app:read"}
+}
 ```
+
+`policies` optionally lists additional current policy IDs selected by the host.
+The `groups` and `policies` fields use the same names and registry-ID lists as
+Runtime's security configuration and the credential ceiling below. Runtime
+resolves each policy ID directly from the policy registry and unions its policy
+with the group policies. Unknown or malformed policy IDs fail validation without
+returning partial authority. Omitting `policies` preserves group-only authority.
+These are live selections, not the stored issuance policy list.
 
 `groups` lists current memberships in native Security groups. Issuance scope
 labels and default scopes do not supply membership authority. `authority_only`
-asks the host for membership authority without materializing a login scope. An
-empty array grants no access. Runtime obtains their current policies
-on every validation. The returned subject ID must match the stored actor ID.
+asks the host for current authority without materializing a login scope. `groups`
+must be present, but may be empty when authority comes from `policies` alone.
+When both lists are empty, the subject has no authority. Runtime obtains current
+policies on every validation. The returned subject ID must match the stored
+actor ID.
 Returned metadata replaces issuance metadata; stored groups and policy IDs do
 not supply authority. Native validation and HTTP header, query, cookie and
 websocket-upgrade admission use this same path.
@@ -38,7 +53,7 @@ websocket-upgrade admission use this same path.
 When a credential carries explicit narrowing, the host resolves that stored
 restriction and returns an optional `ceiling = {groups = {}, policies = {}}`.
 Authority and ceiling must both allow a request; either deny takes precedence.
-An absent ceiling leaves current group authority unchanged. An empty ceiling
+An absent ceiling leaves current authority unchanged. An empty ceiling
 grants no access. The host must return an error when a stored restriction cannot
 be resolved, rather than omit the ceiling. Issuance-time `scope_policies` is an
 access snapshot, not an explicit credential ceiling.
