@@ -123,8 +123,7 @@ func storeGet(l *lua.LState) int {
 	}
 
 	if !security.IsAllowed(ctx, "store.get", id, nil) {
-		l.RaiseError("not allowed to access store: %s", id)
-		return 0
+		return permissionDeniedError(l, "not allowed to access store: "+id)
 	}
 
 	reg := resource.GetRegistry(ctx)

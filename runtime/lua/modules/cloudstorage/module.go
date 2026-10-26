@@ -104,8 +104,9 @@ func apiGet(l *lua.LState) int {
 	resID := registry.ParseID(id)
 
 	if !security.IsAllowed(ctx, "cloudstorage.get", resID.String(), nil) {
-		l.RaiseError("not allowed to access cloud storage resource: %s", resID.String())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "not allowed to access cloud storage resource: "+resID.String()).WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
 	}
 
 	res, storageRes, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)

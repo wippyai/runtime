@@ -32,7 +32,7 @@ Acquires a cloud storage resource by ID.
 | resource not found | errors.NOT_FOUND | no |
 | resource is not cloud storage | errors.INVALID | no |
 | resource store/registry not found | errors.INTERNAL | no |
-| permission denied | - | no (raises error) |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 **Notes:**
 - Resource is automatically released when script completes
