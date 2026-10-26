@@ -39,7 +39,7 @@ func TestDeploymentLockVersionChangeBootsOfflineWithoutRecordedArtifact(t *testi
 					root, err := history.Head()
 					require.NoError(t, err)
 					require.NoError(t, reg.LoadState(ctx, fixture.baseline, root))
-					head := root
+					var head regapi.Version
 					switch {
 					case overlay && checkout:
 						worker, err := reg.GetEntry(regapi.NewID("app.deps", "worker"))
