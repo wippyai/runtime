@@ -202,6 +202,9 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 		// it must not turn that development shape into a persisted Hub root.
 		if h.lock != nil {
 			h.deployment = nil
+			if offlineStartup(ctx) {
+				effective = withoutRepinnedModules(effective, resolution.Modules, lockPins(h.lock))
+			}
 			return h.prepareRecordedArtifacts(ctx, effective)
 		}
 		return NewDeploymentBaselineError("persisted deployment baseline is unavailable", "start once with its lock file")
@@ -216,6 +219,9 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 	}
 	if err := h.prepareRestoreSources(ctx, baseline); err != nil {
 		return err
+	}
+	if offlineStartup(ctx) && resolution.Deployment != nil {
+		effective = withoutRepinnedModules(effective, resolution.Deployment.Modules, deployment.Modules)
 	}
 	return h.prepareRecordedArtifacts(ctx, effective)
 }
