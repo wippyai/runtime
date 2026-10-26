@@ -956,3 +956,28 @@ func TestErrorPropagation(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "template render failed")
 }
+
+// A set without development mode caches compiled templates. An update or a
+// removal must not leave the old compiled template in that cache.
+func TestSet_UpdateWithoutDevelopmentModeRendersNewSource(t *testing.T) {
+	transcoder := payloadSystem.GlobalTranscoder()
+	json.Register(transcoder)
+	set, err := NewSet(registry.NewID("", "cached-set"), &template.SetConfig{}, transcoder)
+	require.NoError(t, err)
+
+	require.NoError(t, set.AddTemplate("index", "{{ title }} shell"))
+	html, err := set.RenderTemplate("index", map[string]any{"title": "New"})
+	require.NoError(t, err)
+	require.Equal(t, "New shell", html)
+
+	require.NoError(t, set.UpdateTemplate("index", "plain shell"))
+	html, err = set.RenderTemplate("index", map[string]any{})
+	require.NoError(t, err, "the updated template must not need the old variable")
+	require.Equal(t, "plain shell", html)
+
+	require.NoError(t, set.RemoveTemplate("index"))
+	require.NoError(t, set.AddTemplate("index", "{{ title }} again"))
+	html, err = set.RenderTemplate("index", map[string]any{"title": "Back"})
+	require.NoError(t, err)
+	require.Equal(t, "Back again", html)
+}

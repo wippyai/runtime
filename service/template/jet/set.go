@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/CloudyKit/jet/v6"
 	"github.com/wippyai/runtime/api/payload"
@@ -21,6 +22,7 @@ type Set struct {
 	dtt     payload.Transcoder
 	jetSet  *jet.Set
 	loader  *jet.InMemLoader
+	cache   *compiledCache
 	config  *templateapi.SetConfig
 	sources map[string]string
 	id      registry.ID
@@ -35,8 +37,8 @@ func NewSet(id registry.ID, config *templateapi.SetConfig, dtt payload.Transcode
 	// Create a loader for in-memory templates
 	loader := jet.NewInMemLoader()
 
-	// Prepare options for the Jet set
-	var options []jet.Option
+	cache := newCompiledCache()
+	options := []jet.Option{jet.WithCache(cache)}
 
 	engine := config.Engine
 	if engine.DevelopmentMode {
@@ -62,6 +64,7 @@ func NewSet(id registry.ID, config *templateapi.SetConfig, dtt payload.Transcode
 		id:      id,
 		jetSet:  jetSet,
 		loader:  loader,
+		cache:   cache,
 		config:  config,
 		dtt:     dtt,
 		sources: make(map[string]string),
@@ -95,6 +98,7 @@ func (s *Set) AddTemplate(name string, source string) error {
 
 	// Register the template with Jet's InMemLoader
 	s.loader.Set(name, source)
+	s.cache.reset()
 
 	// Store the source
 	s.sources[name] = source
@@ -113,6 +117,7 @@ func (s *Set) UpdateTemplate(name string, source string) error {
 
 	// Update the template in Jet's loader
 	s.loader.Set(name, source)
+	s.cache.reset()
 
 	// Update the source
 	s.sources[name] = source
@@ -131,6 +136,7 @@ func (s *Set) RemoveTemplate(name string) error {
 
 	// Delete the template from Jet's loader
 	s.loader.Delete(name)
+	s.cache.reset()
 
 	// Remove the source
 	delete(s.sources, name)
@@ -168,14 +174,15 @@ func (s *Set) GetAllTemplates() map[string]string {
 func (s *Set) RenderTemplate(name string, vars map[string]any) (string, error) {
 	s.mu.RLock()
 	_, exists := s.sources[name]
-	s.mu.RUnlock()
-
 	if !exists {
+		s.mu.RUnlock()
 		return "", servicetemplate.ErrTemplateNotFound
 	}
 
-	// Get the Jet template
+	// A source change takes the write lock, so a compile under the read lock
+	// never stores a template of a replaced source.
 	jetTemplate, err := s.jetSet.GetTemplate(name)
+	s.mu.RUnlock()
 	if err != nil {
 		return "", servicetemplate.NewGetCompiledTemplateError(err)
 	}
@@ -263,4 +270,34 @@ func (r *setResource) Release() {
 	defer r.mu.Unlock()
 
 	r.closed = true
+}
+
+// compiledCache holds the compiled templates of one set. A compiled template
+// embeds the templates it includes or extends, so any source change drops the
+// whole cache.
+type compiledCache struct {
+	m atomic.Pointer[sync.Map]
+}
+
+var _ jet.Cache = (*compiledCache)(nil)
+
+func newCompiledCache() *compiledCache {
+	c := &compiledCache{}
+	c.m.Store(&sync.Map{})
+	return c
+}
+
+func (c *compiledCache) Get(path string) *jet.Template {
+	if t, ok := c.m.Load().Load(path); ok {
+		return t.(*jet.Template)
+	}
+	return nil
+}
+
+func (c *compiledCache) Put(path string, t *jet.Template) {
+	c.m.Load().Store(path, t)
+}
+
+func (c *compiledCache) reset() {
+	c.m.Store(&sync.Map{})
 }
