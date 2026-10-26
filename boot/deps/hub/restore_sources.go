@@ -5,8 +5,11 @@ package hub
 import (
 	"context"
 	"path/filepath"
+	"strings"
 
 	moduleapi "github.com/wippyai/runtime/api/modules"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/deps/lock"
 )
 
 // prepareRestoreSources materializes the stored graph and publishes the same
@@ -61,4 +64,44 @@ func (h *DependencyHandler) prepareRecordedArtifacts(ctx context.Context, module
 		}
 	}
 	return nil
+}
+
+// withoutRepinnedModules drops recorded modules that the current pins select at
+// another version or digest. A new image ships only its own pins, and the
+// baseline transition selects them, so offline startup does not need the
+// recorded artifact.
+func withoutRepinnedModules(modules []ResolvedModule, recorded, current []regapi.ResolvedModule) []ResolvedModule {
+	pins := make(map[string]regapi.ResolvedModule, len(recorded))
+	for _, module := range recorded {
+		pins[module.Name] = module
+	}
+	repinned := make(map[string]struct{})
+	for _, module := range current {
+		if pin, ok := pins[module.Name]; ok && (pin.Version != module.Version || !sameDigest(pin.Digest, module.Digest)) {
+			repinned[module.Name] = struct{}{}
+		}
+	}
+	if len(repinned) == 0 {
+		return modules
+	}
+	kept := make([]ResolvedModule, 0, len(modules)-len(repinned))
+	for _, module := range modules {
+		if _, ok := repinned[module.Org+"/"+module.Name]; !ok {
+			kept = append(kept, module)
+		}
+	}
+	return kept
+}
+
+func lockPins(l *lock.Lock) []regapi.ResolvedModule {
+	modules := l.GetModules()
+	pins := make([]regapi.ResolvedModule, 0, len(modules))
+	for _, module := range modules {
+		pins = append(pins, regapi.ResolvedModule{Name: module.Name, Version: module.Version, Digest: module.Hash})
+	}
+	return pins
+}
+
+func sameDigest(a, b string) bool {
+	return strings.EqualFold(strings.TrimPrefix(a, "sha256:"), strings.TrimPrefix(b, "sha256:"))
 }
