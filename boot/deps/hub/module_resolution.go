@@ -65,9 +65,15 @@ func (h *DependencyHandler) resolveModules(
 		provider = newLockedManifestProvider(h, h.offlineModules(resolution))
 	} else {
 		// Only a durable deployment-bound selection proves that the resident
-		// declarations describe the selected release.
-		if current := h.currentResolution(ctx); current != nil && current.Valid() && current.Deployment != nil && len(resident) > 0 {
-			provider = newResidentManifestProvider(provider, current.Modules, resident)
+		// declarations describe the selected release. Without a deployment, the
+		// lock digest proves it for the modules the lock pins, but only when the
+		// registry does not serve that release.
+		if current := h.currentResolution(ctx); current != nil && current.Valid() && len(resident) > 0 {
+			if current.Deployment != nil {
+				provider = newResidentManifestProvider(provider, current.Modules, resident)
+			} else if pinned := lockPinnedModules(current.Modules, baselineDigests); len(pinned) > 0 {
+				provider = newResidentFallbackProvider(provider, pinned, resident)
+			}
 		}
 	}
 	provider = &replacementManifestProvider{
