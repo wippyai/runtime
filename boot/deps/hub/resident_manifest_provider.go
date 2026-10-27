@@ -4,6 +4,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/wippyai/runtime/api/payload"
@@ -12,8 +13,9 @@ import (
 
 type residentManifestProvider struct {
 	ManifestProvider
-	modules map[string]regapi.ResolvedModule
-	entries map[string]regapi.State
+	modules  map[string]regapi.ResolvedModule
+	entries  map[string]regapi.State
+	fallback bool
 }
 
 func newResidentManifestProvider(base ManifestProvider, selections []regapi.ResolvedModule, state regapi.State) ManifestProvider {
@@ -33,10 +35,37 @@ func newResidentManifestProvider(base ManifestProvider, selections []regapi.Reso
 	return provider
 }
 
+// newResidentFallbackProvider serves resident declarations only for a release
+// the registry does not hold. A registry that serves the release keeps the
+// last word, so a different digest still fails the lock pin.
+func newResidentFallbackProvider(base ManifestProvider, selections []regapi.ResolvedModule, state regapi.State) ManifestProvider {
+	provider := newResidentManifestProvider(base, selections, state).(*residentManifestProvider)
+	provider.fallback = true
+	return provider
+}
+
+// lockPinnedModules keeps the recorded modules whose release and digest equal
+// a lock pin.
+func lockPinnedModules(modules []regapi.ResolvedModule, pins map[string]string) []regapi.ResolvedModule {
+	var pinned []regapi.ResolvedModule
+	for _, module := range modules {
+		if pin := pins[module.Name+"@"+module.Version]; pin != "" && module.Digest != "" && artifactDigestsEqual(module.Digest, pin) {
+			pinned = append(pinned, module)
+		}
+	}
+	return pinned
+}
+
 func (p *residentManifestProvider) GetManifest(ctx context.Context, org, name, version string) (*ModuleManifest, error) {
 	module, present := p.modules[org+"/"+name]
 	if !present || strings.TrimPrefix(module.Version, "v") != strings.TrimPrefix(version, "v") {
 		return p.ManifestProvider.GetManifest(ctx, org, name, version)
+	}
+	if p.fallback {
+		manifest, err := p.ManifestProvider.GetManifest(ctx, org, name, version)
+		if !errors.Is(err, ErrModuleNotFound) {
+			return manifest, err
+		}
 	}
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
