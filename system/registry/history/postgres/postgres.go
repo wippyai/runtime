@@ -163,9 +163,11 @@ func MigrateEntryMetadata(ctx context.Context, h *History, baseline registry.Sta
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return migrationstorage.RewriteEntryMetadata(ctx, h.db, h.handle, migrationstorage.Tables{
-		ChangeSets:    h.tables.changesets,
-		SchemaVersion: h.tables.schemaVersion,
-		UpdateHistory: h.tables.schemaUpdateHistory,
+		Versions:          h.tables.versions,
+		ReplayCheckpoints: h.checkpoints().Checkpoints,
+		ChangeSets:        h.tables.changesets,
+		SchemaVersion:     h.tables.schemaVersion,
+		UpdateHistory:     h.tables.schemaUpdateHistory,
 	}, func(index int) string {
 		return "$" + strconv.Itoa(index)
 	}, func(ctx context.Context, tx *sql.Tx) error {
@@ -593,56 +595,12 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		return NewInsertVersionError(err)
 	}
 
-	encodedOps := make([]encodedOperation, len(cs))
-
-	for i, op := range cs {
-		var encPayload *encodedPayload
-		if op.Entry.Data != nil {
-			encPayload = &encodedPayload{
-				Format: op.Entry.Data.Format(),
-				Data:   op.Entry.Data.Data(),
-			}
-		}
-
-		var encOriginal *encodedEntry
-		if op.OriginalEntry != nil {
-			var encOrigPayload *encodedPayload
-			if op.OriginalEntry.Data != nil {
-				encOrigPayload = &encodedPayload{
-					Format: op.OriginalEntry.Data.Format(),
-					Data:   op.OriginalEntry.Data.Data(),
-				}
-			}
-
-			encOriginal = &encodedEntry{
-				ID:       op.OriginalEntry.ID,
-				Kind:     op.OriginalEntry.Kind,
-				Meta:     op.OriginalEntry.Meta,
-				Data:     encOrigPayload,
-				Registry: op.OriginalEntry.Registry,
-			}
-		}
-
-		encodedOps[i] = encodedOperation{
-			Kind: op.Kind,
-			Entry: encodedEntry{
-				ID:       op.Entry.ID,
-				Kind:     op.Entry.Kind,
-				Meta:     op.Entry.Meta,
-				Data:     encPayload,
-				Registry: op.Entry.Registry,
-			},
-			OriginalEntry: encOriginal,
-		}
+	encoded, err := h.encodeChangeSet(cs)
+	if err != nil {
+		return err
 	}
 
-	var buf bytes.Buffer
-	encoder := codec.NewEncoder(&buf, h.handle)
-	if err := encoder.Encode(encodedOps); err != nil {
-		return NewEncodeChangesetError(err)
-	}
-
-	_, err = tx.ExecContext(ctx, h.queries.insertChangeset, v.ID(), buf.Bytes())
+	_, err = tx.ExecContext(ctx, h.queries.insertChangeset, v.ID(), encoded)
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
@@ -664,6 +622,10 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		if _, err = tx.ExecContext(ctx, h.queries.inheritResolution, v.ID(), v.Previous().ID()); err != nil {
 			return NewInsertChangesetError(err)
 		}
+	}
+
+	if err := h.checkpoints().MaybeWrite(ctx, tx, v.ID()); err != nil {
+		return err
 	}
 
 	if head {
@@ -812,7 +774,12 @@ func (h *History) CompareAndSetHead(expected, target registry.Version) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	ctx := context.Background()
-	result, err := h.db.ExecContext(ctx, h.queries.updateHeadCAS,
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return NewBeginTransactionError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, h.queries.updateHeadCAS,
 		strconv.FormatUint(uint64(target.ID()), 10), strconv.FormatUint(uint64(expected.ID()), 10), target.ID())
 	if err != nil {
 		return NewSetHeadError(err)
@@ -823,6 +790,12 @@ func (h *History) CompareAndSetHead(expected, target registry.Version) error {
 	}
 	if updated != 1 {
 		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
+	}
+	if err := h.checkpoints().MaybeWrite(ctx, tx, target.ID()); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return NewCommitTransactionError(err)
 	}
 	return nil
 }
@@ -868,6 +841,10 @@ func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if updated != 1 {
 		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
 	}
+	if err := h.checkpoints().MaybeWrite(ctx, tx, target.ID()); err != nil {
+		return err
+	}
+
 	if err = tx.Commit(); err != nil {
 		return NewCommitTransactionError(err)
 	}
@@ -985,4 +962,57 @@ func (h *History) Close() error {
 
 	h.log.Debug("PostgreSQL history close skipped, database not initialized")
 	return nil
+}
+
+func (h *History) encodeChangeSet(cs registry.ChangeSet) ([]byte, error) {
+	encodedOps := make([]encodedOperation, len(cs))
+
+	for i, op := range cs {
+		var encPayload *encodedPayload
+		if op.Entry.Data != nil {
+			encPayload = &encodedPayload{
+				Format: op.Entry.Data.Format(),
+				Data:   op.Entry.Data.Data(),
+			}
+		}
+
+		var encOriginal *encodedEntry
+		if op.OriginalEntry != nil {
+			var encOrigPayload *encodedPayload
+			if op.OriginalEntry.Data != nil {
+				encOrigPayload = &encodedPayload{
+					Format: op.OriginalEntry.Data.Format(),
+					Data:   op.OriginalEntry.Data.Data(),
+				}
+			}
+
+			encOriginal = &encodedEntry{
+				ID:       op.OriginalEntry.ID,
+				Kind:     op.OriginalEntry.Kind,
+				Meta:     op.OriginalEntry.Meta,
+				Data:     encOrigPayload,
+				Registry: op.OriginalEntry.Registry,
+			}
+		}
+
+		encodedOps[i] = encodedOperation{
+			Kind: op.Kind,
+			Entry: encodedEntry{
+				ID:       op.Entry.ID,
+				Kind:     op.Entry.Kind,
+				Meta:     op.Entry.Meta,
+				Data:     encPayload,
+				Registry: op.Entry.Registry,
+			},
+			OriginalEntry: encOriginal,
+		}
+	}
+
+	var buf bytes.Buffer
+	encoder := codec.NewEncoder(&buf, h.handle)
+	if err := encoder.Encode(encodedOps); err != nil {
+		return nil, NewEncodeChangesetError(err)
+	}
+
+	return buf.Bytes(), nil
 }

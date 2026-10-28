@@ -209,7 +209,7 @@ func TestPostgresHistory_SaveAndGet(t *testing.T) {
 		fmt.Sprintf(`SELECT curr_version FROM %q.schema_version WHERE name = 'registry_history'`, schemaName),
 	).Scan(&schemaVersion)
 	require.NoError(t, err)
-	assert.Equal(t, "1.1", schemaVersion)
+	assert.Equal(t, "1.2", schemaVersion)
 }
 
 func TestPostgresHistoryReplayReadsEachChangesetAfterEarlierCallback(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/sqliteconn"
 	"github.com/wippyai/runtime/internal/version"
+	"github.com/wippyai/runtime/system/registry/history/checkpoint"
 	"github.com/wippyai/runtime/system/registry/history/postgres"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/topology"
@@ -27,6 +29,7 @@ import (
 // BenchmarkPersistedLoadState measures authored history independently of module
 // expansion and application startup. Setup and fixture writes are untimed.
 // lineage-data-B counts encoded changeset bytes, excluding protocol/page overhead.
+// replay-data-B counts the nearest supported checkpoint and its replay tail.
 // peak-heap-B samples live Go heap every millisecond during LoadState; B/op is
 // total allocation. Set WIPPY_POSTGRES_HISTORY_TEST_DSN to a disposable database.
 func BenchmarkPersistedLoadState(b *testing.B) {
@@ -44,6 +47,16 @@ func BenchmarkPersistedLoadState(b *testing.B) {
 func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count int) {
 	b.StopTimer()
 	ctx := context.Background()
+	entryAt := func(revision int) registry.Entry {
+		entry := registry.Entry{ID: registry.NewID("bench", "setting"), Kind: "config"}
+		if profile == "lua50k" {
+			entry.Kind = "function.lua"
+			entry.Data = payload.NewString(fmt.Sprintf("-- edit %d\n", revision%2) + strings.Repeat("-", 50*1024) + "\nreturn 1")
+			return entry
+		}
+		entry.Data = payload.New(map[string]any{"enabled": true, "revision": revision % 2})
+		return entry
+	}
 	var hist registry.History
 	var db *sql.DB
 	b.Cleanup(func() {
@@ -53,7 +66,7 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 			}
 		}
 	})
-	var byteQuery, versionsTable, changesetsTable, parameter string
+	var byteQuery, replayByteQuery, versionsTable, changesetsTable, checkpointsTable, parameter string
 	if backend == "sqlite" {
 		path := filepath.Join(b.TempDir(), "history.db")
 		h, err := sqlite.NewSQLite(path, zap.NewNop())
@@ -68,6 +81,7 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 		hist = h
 		db = sqliteconn.Open("file:" + path)
 		versionsTable, changesetsTable, parameter = "versions", "changesets", "?"
+		checkpointsTable = "replay_checkpoints"
 		byteQuery = "SELECT COALESCE(SUM(length(data)), 0) FROM changesets"
 	} else {
 		dsn := os.Getenv("WIPPY_POSTGRES_HISTORY_TEST_DSN")
@@ -93,7 +107,7 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 				b.Error(err)
 			}
 		})
-		versionsTable, changesetsTable, parameter = fmt.Sprintf("%q.versions", schema), fmt.Sprintf("%q.changesets", schema), "$1"
+		versionsTable, changesetsTable, checkpointsTable, parameter = fmt.Sprintf("%q.versions", schema), fmt.Sprintf("%q.changesets", schema), fmt.Sprintf("%q.replay_checkpoints", schema), "$1"
 		byteQuery = fmt.Sprintf("SELECT COALESCE(SUM(octet_length(data)), 0) FROM %q.changesets", schema)
 	}
 
@@ -105,13 +119,7 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 	// Three real saves provide create and alternating update encodings. Bulk
 	// insertion copies those immutable wire records in one fixture transaction.
 	for i := 1; i <= 3; i++ {
-		entry := registry.Entry{ID: registry.NewID("bench", "setting"), Kind: "config"}
-		if profile == "lua50k" {
-			entry.Kind = "function.lua"
-			entry.Data = payload.NewString(fmt.Sprintf("-- edit %d\n", i%2) + strings.Repeat("-", 50*1024) + "\nreturn 1")
-		} else {
-			entry.Data = payload.New(map[string]any{"enabled": true, "revision": i % 2})
-		}
+		entry := entryAt(i)
 		op := registry.Operation{Kind: registry.EntryCreate, Entry: entry}
 		if i > 1 {
 			op.Kind = registry.EntryUpdate
@@ -154,7 +162,7 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 			b.Error(err)
 		}
 	}()
-	for i := 4; i <= count; i++ {
+	for i := 4; i < count; i++ {
 		if _, err := insertVersion.ExecContext(ctx, i, i-1); err != nil {
 			b.Fatal(err)
 		}
@@ -165,11 +173,17 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 	if err := tx.Commit(); err != nil {
 		b.Fatal(err)
 	}
-	head, err = hist.(registry.VersionLookup).GetVersion(uint(count))
+	parent, err := hist.(registry.VersionLookup).GetVersion(uint(count - 1))
 	if err != nil {
 		b.Fatal(err)
 	}
-	if err := hist.SetHead(head); err != nil {
+	if err := hist.SetHead(parent); err != nil {
+		b.Fatal(err)
+	}
+	entry := entryAt(count)
+	previousEntry := entryAt(count - 1)
+	head = version.FromParent(parent, uint(count))
+	if err := hist.Save(head, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry, OriginalEntry: &previousEntry}}, true); err != nil {
 		b.Fatal(err)
 	}
 	expected, err := hist.Get(head)
@@ -178,6 +192,22 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 	}
 	var dataBytes int64
 	if err := db.QueryRowContext(ctx, byteQuery).Scan(&dataBytes); err != nil {
+		b.Fatal(err)
+	}
+	replayByteQuery = `WITH RECURSIVE lineage(id,parent_id,depth) AS (
+		SELECT id,parent_id,0 FROM ` + versionsTable + ` WHERE id = ` + parameter + `
+		UNION
+		SELECT v.id,v.parent_id,lineage.depth+1 FROM ` + versionsTable + ` v JOIN lineage ON v.id = lineage.parent_id
+	), checkpoint AS (
+		SELECT lineage.depth,length(p.data) AS bytes FROM lineage JOIN ` + checkpointsTable + ` p ON p.version_id = lineage.id
+		WHERE p.format_version = ` + strconv.Itoa(checkpoint.FormatVersion) + ` ORDER BY lineage.depth LIMIT 1
+	)
+	SELECT COALESCE((SELECT bytes FROM checkpoint),0) + COALESCE((
+		SELECT SUM(length(c.data)) FROM lineage JOIN ` + changesetsTable + ` c ON c.version_id = lineage.id
+		WHERE lineage.id != 0 AND lineage.depth < COALESCE((SELECT depth FROM checkpoint), 9223372036854775807)
+	),0)`
+	var replayBytes int64
+	if err := db.QueryRowContext(ctx, replayByteQuery, head.ID()).Scan(&replayBytes); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
@@ -219,5 +249,6 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 		}
 	}
 	b.ReportMetric(float64(dataBytes), "lineage-data-B")
+	b.ReportMetric(float64(replayBytes), "replay-data-B")
 	b.ReportMetric(float64(peak), "peak-heap-B")
 }

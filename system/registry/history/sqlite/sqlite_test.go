@@ -689,7 +689,7 @@ func TestHistory_UsesManagedSchemaVersionTable(t *testing.T) {
 		"SELECT curr_version FROM schema_version WHERE name = 'registry_history'",
 	).Scan(&version)
 	require.NoError(t, err)
-	assert.Equal(t, "1.1", version)
+	assert.Equal(t, "1.2", version)
 }
 
 func TestHistory_MigratesV10WithoutChangingExistingHistory(t *testing.T) {
@@ -732,7 +732,7 @@ func TestHistory_MigratesV10WithoutChangingExistingHistory(t *testing.T) {
 	var schemaVersion string
 	require.NoError(t, hist.db.QueryRowContext(context.Background(),
 		"SELECT curr_version FROM schema_version WHERE name = 'registry_history'").Scan(&schemaVersion))
-	require.Equal(t, "1.1", schemaVersion)
+	require.Equal(t, "1.2", schemaVersion)
 }
 
 func TestSQLitePersistence_OriginalEntry(t *testing.T) {

@@ -128,9 +128,11 @@ func MigrateEntryMetadata(ctx context.Context, h *History, baseline registry.Sta
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return migrationstorage.RewriteEntryMetadata(ctx, h.db, h.handle, migrationstorage.Tables{
-		ChangeSets:    "changesets",
-		SchemaVersion: "schema_version",
-		UpdateHistory: "schema_update_history",
+		Versions:          "versions",
+		ReplayCheckpoints: "replay_checkpoints",
+		ChangeSets:        "changesets",
+		SchemaVersion:     "schema_version",
+		UpdateHistory:     "schema_update_history",
 	}, func(int) string { return "?" }, func(ctx context.Context, tx *sql.Tx) error {
 		// BeginTx is deferred in SQLite. This no-op write acquires the writer
 		// reservation before history rows are read, so an existing writer
@@ -363,8 +365,9 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	return cs, nil
 }
 
-// ReplayChanges loads one target lineage in a single query. Encoded rows are
-// buffered so callbacks run after the query and history lock are released.
+// ReplayChanges validates the target lineage, then reads and applies each
+// changeset in ancestry order. Database rows and the history lock are released
+// before every callback so callbacks may use history methods safely.
 func (h *History) ReplayChanges(ctx context.Context, target registry.Version, apply func(registry.ChangeSet) error) error {
 	h.mu.RLock()
 	lineage, err := h.replayLineage(ctx, target)
@@ -500,56 +503,12 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		return NewInsertVersionError(err)
 	}
 
-	encodedOps := make([]encodedOperation, len(cs))
-
-	for i, op := range cs {
-		var encPayload *encodedPayload
-		if op.Entry.Data != nil {
-			encPayload = &encodedPayload{
-				Format: op.Entry.Data.Format(),
-				Data:   op.Entry.Data.Data(),
-			}
-		}
-
-		var encOriginal *encodedEntry
-		if op.OriginalEntry != nil {
-			var encOrigPayload *encodedPayload
-			if op.OriginalEntry.Data != nil {
-				encOrigPayload = &encodedPayload{
-					Format: op.OriginalEntry.Data.Format(),
-					Data:   op.OriginalEntry.Data.Data(),
-				}
-			}
-
-			encOriginal = &encodedEntry{
-				ID:       op.OriginalEntry.ID,
-				Kind:     op.OriginalEntry.Kind,
-				Meta:     op.OriginalEntry.Meta,
-				Data:     encOrigPayload,
-				Registry: op.OriginalEntry.Registry,
-			}
-		}
-
-		encodedOps[i] = encodedOperation{
-			Kind: op.Kind,
-			Entry: encodedEntry{
-				ID:       op.Entry.ID,
-				Kind:     op.Entry.Kind,
-				Meta:     op.Entry.Meta,
-				Data:     encPayload,
-				Registry: op.Entry.Registry,
-			},
-			OriginalEntry: encOriginal,
-		}
+	encoded, err := h.encodeChangeSet(cs)
+	if err != nil {
+		return err
 	}
 
-	var buf bytes.Buffer
-	encoder := codec.NewEncoder(&buf, h.handle)
-	if err := encoder.Encode(encodedOps); err != nil {
-		return NewEncodeChangesetError(err)
-	}
-
-	_, err = tx.ExecContext(ctx, "INSERT INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
+	_, err = tx.ExecContext(ctx, "INSERT INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), encoded)
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
@@ -572,6 +531,10 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			SELECT ?, resolution_digest FROM version_resolutions WHERE version_id = ?`, v.ID(), v.Previous().ID()); err != nil {
 			return NewInsertChangesetError(err)
 		}
+	}
+
+	if err := h.checkpoints().MaybeWrite(ctx, tx, v.ID()); err != nil {
+		return err
 	}
 
 	if head {
@@ -720,7 +683,12 @@ func (h *History) CompareAndSetHead(expected, target registry.Version) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	ctx := context.Background()
-	result, err := h.db.ExecContext(ctx, `UPDATE metadata SET value = ?
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return NewBeginTransactionError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE metadata SET value = ?
 		WHERE key = 'head' AND value = ? AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`,
 		target.ID(), expected.ID(), target.ID())
 	if err != nil {
@@ -732,6 +700,12 @@ func (h *History) CompareAndSetHead(expected, target registry.Version) error {
 	}
 	if updated != 1 {
 		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
+	}
+	if err := h.checkpoints().MaybeWrite(ctx, tx, target.ID()); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return NewCommitTransactionError(err)
 	}
 	return nil
 }
@@ -778,6 +752,10 @@ func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if updated != 1 {
 		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
 	}
+	if err := h.checkpoints().MaybeWrite(ctx, tx, target.ID()); err != nil {
+		return err
+	}
+
 	if err = tx.Commit(); err != nil {
 		return NewCommitTransactionError(err)
 	}
@@ -896,4 +874,57 @@ func (h *History) Close() error {
 
 	h.log.Debug("SQLite history close skipped, database not initialized")
 	return nil
+}
+
+func (h *History) encodeChangeSet(cs registry.ChangeSet) ([]byte, error) {
+	encodedOps := make([]encodedOperation, len(cs))
+
+	for i, op := range cs {
+		var encPayload *encodedPayload
+		if op.Entry.Data != nil {
+			encPayload = &encodedPayload{
+				Format: op.Entry.Data.Format(),
+				Data:   op.Entry.Data.Data(),
+			}
+		}
+
+		var encOriginal *encodedEntry
+		if op.OriginalEntry != nil {
+			var encOrigPayload *encodedPayload
+			if op.OriginalEntry.Data != nil {
+				encOrigPayload = &encodedPayload{
+					Format: op.OriginalEntry.Data.Format(),
+					Data:   op.OriginalEntry.Data.Data(),
+				}
+			}
+
+			encOriginal = &encodedEntry{
+				ID:       op.OriginalEntry.ID,
+				Kind:     op.OriginalEntry.Kind,
+				Meta:     op.OriginalEntry.Meta,
+				Data:     encOrigPayload,
+				Registry: op.OriginalEntry.Registry,
+			}
+		}
+
+		encodedOps[i] = encodedOperation{
+			Kind: op.Kind,
+			Entry: encodedEntry{
+				ID:       op.Entry.ID,
+				Kind:     op.Entry.Kind,
+				Meta:     op.Entry.Meta,
+				Data:     encPayload,
+				Registry: op.Entry.Registry,
+			},
+			OriginalEntry: encOriginal,
+		}
+	}
+
+	var buf bytes.Buffer
+	encoder := codec.NewEncoder(&buf, h.handle)
+	if err := encoder.Encode(encodedOps); err != nil {
+		return nil, NewEncodeChangesetError(err)
+	}
+
+	return buf.Bytes(), nil
 }
