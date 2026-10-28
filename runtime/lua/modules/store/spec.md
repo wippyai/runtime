@@ -29,6 +29,7 @@ Acquires a store resource by ID.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | id is empty string | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 | registry not found | errors.NOT_FOUND | no |
 | resource not found | errors.INTERNAL | no |
 | resource not a store | errors.INVALID | no |

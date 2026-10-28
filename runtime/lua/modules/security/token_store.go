@@ -72,8 +72,9 @@ func tokenStoreGet(l *lua.LState) int {
 	}
 
 	if !luasec.IsAllowed(ctx, "security.token_store.get", idStr, nil) {
-		l.RaiseError("not allowed to access token store: %s", idStr)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "not allowed to access token store: "+idStr).WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
 	}
 
 	reg := resource.GetRegistry(ctx)
