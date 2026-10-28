@@ -237,31 +237,49 @@ func (s Store) Load(ctx context.Context, q Queryer, target uint) (*registry.Repl
 	return s.project(ctx, q, path, index)
 }
 
-// MaybeWrite participates in Save/head-CAS; it never commits independently.
-func (s Store) MaybeWrite(ctx context.Context, tx *sql.Tx, target uint) error {
-	path, err := s.lineage(ctx, tx, target)
-	if err != nil {
-		return err
-	}
-	index, incompatible := nearest(path)
+// Prepared holds an encoded checkpoint produced by the same pass as projection.
+// Its bytes stay private so later projection consumers cannot change the cache.
+type Prepared struct {
+	data    []byte
+	lineage string
+	last    ancestor
+}
+
+func checkpointDue(path []ancestor, index int, incompatible bool) bool {
 	var bytes int64
 	start := max(index+1, 1)
 	for _, a := range path[start:] {
 		bytes += a.size.Int64
 	}
-	if !incompatible && len(path)-start < policy.Versions && bytes < policy.Bytes {
-		return nil
-	}
-	state, err := s.readState(ctx, tx, path, index)
+	return incompatible || len(path)-start >= policy.Versions || bytes >= policy.Bytes
+}
+
+// Prepare reduces the tail once, hashing only when the cache policy requires a
+// checkpoint. It performs no writes and retains no changeset payloads.
+func (s Store) Prepare(ctx context.Context, q Queryer, target uint) (*registry.ReplayState, *Prepared, error) {
+	path, err := s.lineage(ctx, q, target)
 	if err != nil {
-		return err
+		return nil, nil, err
+	}
+	index, incompatible := nearest(path)
+	if !checkpointDue(path, index, incompatible) {
+		state, err := s.project(ctx, q, path, index)
+		return state, &Prepared{}, err
+	}
+	return s.prepare(ctx, q, path, index)
+}
+
+func (s Store) prepare(ctx context.Context, q Queryer, path []ancestor, index int) (*registry.ReplayState, *Prepared, error) {
+	state, err := s.readState(ctx, q, path, index)
+	if err != nil {
+		return nil, nil, err
 	}
 	previous := ""
 	if index >= 0 {
 		previous = path[index].chain.String
 	}
 	reduce := s.stateReducer(state)
-	if err := s.replay(ctx, tx, path, index, func(a *ancestor, data []byte) error {
+	if err := s.replay(ctx, q, path, index, func(a *ancestor, data []byte) error {
 		h := sha256.New()
 		_, _ = h.Write([]byte("registry-history-content-v1"))
 		_, _ = h.Write([]byte(previous))
@@ -277,25 +295,51 @@ func (s Store) MaybeWrite(ctx context.Context, tx *sql.Tx, target uint) error {
 		a.chain = sql.NullString{String: previous, Valid: true}
 		return reduce(a, data)
 	}); err != nil {
-		return err
+		return nil, nil, err
 	}
-	last := path[len(path)-1]
+	data, err := s.EncodeState(state)
+	if err != nil {
+		return nil, nil, err
+	}
+	lineage, err := binding(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return state, &Prepared{last: path[len(path)-1], lineage: lineage, data: data}, nil
+}
+
+// WritePrepared participates in the caller's head-CAS transaction without
+// reading or reducing history a second time.
+func (s Store) WritePrepared(ctx context.Context, tx *sql.Tx, prepared *Prepared) error {
+	if prepared.data == nil {
+		return nil
+	}
+	last := prepared.last
 	// #nosec G202 -- backend constructors supply fixed or validated, quoted table names.
 	if _, err := tx.ExecContext(ctx, "UPDATE "+s.Versions+" SET lineage_digest="+s.Parameter(1)+" WHERE id="+s.Parameter(2), last.chain.String, last.id); err != nil {
 		return err
 	}
-	data, err := s.EncodeState(state)
-	if err != nil {
-		return err
-	}
-	lineage, err := binding(path)
-	if err != nil {
-		return err
-	}
 	// #nosec G202 -- backend constructors supply fixed or validated, quoted table names.
 	query := "INSERT INTO " + s.Checkpoints + " (version_id,format_version,digest,lineage_digest,data) VALUES (" + s.Parameter(1) + "," + s.Parameter(2) + "," + s.Parameter(3) + "," + s.Parameter(4) + "," + s.Parameter(5) + ") ON CONFLICT(version_id) DO UPDATE SET format_version=excluded.format_version,digest=excluded.digest,lineage_digest=excluded.lineage_digest,data=excluded.data"
-	if _, err := tx.ExecContext(ctx, query, target, FormatVersion, digest(lineage, data), lineage, data); err != nil {
+	if _, err := tx.ExecContext(ctx, query, last.id, FormatVersion, digest(prepared.lineage, prepared.data), prepared.lineage, prepared.data); err != nil {
 		return fmt.Errorf("write replay checkpoint: %w", err)
 	}
 	return nil
+}
+
+// MaybeWrite participates in Save/head-CAS; it never commits independently.
+func (s Store) MaybeWrite(ctx context.Context, tx *sql.Tx, target uint) error {
+	path, err := s.lineage(ctx, tx, target)
+	if err != nil {
+		return err
+	}
+	index, incompatible := nearest(path)
+	if !checkpointDue(path, index, incompatible) {
+		return nil
+	}
+	_, prepared, err := s.prepare(ctx, tx, path, index)
+	if err != nil {
+		return err
+	}
+	return s.WritePrepared(ctx, tx, prepared)
 }

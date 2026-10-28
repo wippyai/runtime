@@ -271,7 +271,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	if err != nil {
 		return err
 	}
-	targetState, replayState, err := r.stateAtVersion(ctx, targetVersion)
+	targetState, replayState, activate, err := r.stateAtVersion(ctx, targetVersion)
 	if err != nil {
 		return err
 	}
@@ -419,7 +419,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 
 	resolutionHeadCAS, supportsAtomicResolutionHead := r.history.(registry.ResolutionHeadCASHistory)
-	if targetResolution != nil && !supportsAtomicResolutionHead {
+	if targetResolution != nil && !supportsAtomicResolutionHead && activate == nil {
 		if planner != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 		}
@@ -474,7 +474,9 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 
 	var headUpdateErr error
-	if targetResolution != nil {
+	if activate != nil {
+		headUpdateErr = activate(baseVersion, targetResolution)
+	} else if targetResolution != nil {
 		headUpdateErr = resolutionHeadCAS.CompareAndSetHeadWithDependencyResolution(baseVersion, targetVersion, targetResolution)
 	} else {
 		headUpdateErr = compareAndSetHistoryHead(r.history, baseVersion, targetVersion)
@@ -508,12 +510,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 // history at target. Live version selection must use the same authority model
 // as cold boot; reversing operations against the expanded resident state can
 // otherwise delete baseline entries hidden by an overlay.
-func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, *registry.ReplayState, error) {
-	projection, err := replayHistoryState(ctx, r.history, target)
+func (r *Reg) stateAtVersion(ctx context.Context, target registry.Version) (registry.State, *registry.ReplayState, registry.ReplayActivation, error) {
+	projection, activate, err := replayHistoryState(ctx, r.history, target)
 	if err != nil {
-		return nil, nil, NewGetChangesetError(target.ID(), err)
+		return nil, nil, nil, NewGetChangesetError(target.ID(), err)
 	}
-	return topology.StateMapToSlice(composeReplayState(r.baseline, projection)), projection, nil
+	return topology.StateMapToSlice(composeReplayState(r.baseline, projection)), projection, activate, nil
 }
 
 func compareAndSetHistoryHead(history registry.History, expected, target registry.Version) error {
@@ -640,7 +642,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 	}
 
-	projection, err := replayHistoryState(ctx, r.history, targetVersion)
+	projection, activate, err := replayHistoryState(ctx, r.history, targetVersion)
 	if err != nil {
 		return NewGetChangesetError(targetVersion.ID(), err)
 	}
@@ -745,7 +747,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	if resolution != nil {
-		if _, ok := r.history.(registry.ResolutionHeadCASHistory); !ok {
+		if _, ok := r.history.(registry.ResolutionHeadCASHistory); !ok && activate == nil {
 			if planner != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 			}
@@ -773,7 +775,9 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	var headCheckErr error
-	if resolution != nil {
+	if activate != nil {
+		headCheckErr = activate(targetVersion, resolution)
+	} else if resolution != nil {
 		headCheckErr = r.history.(registry.ResolutionHeadCASHistory).
 			CompareAndSetHeadWithDependencyResolution(targetVersion, targetVersion, resolution)
 	} else if cas, ok := r.history.(registry.HeadCASHistory); ok {

@@ -22,3 +22,16 @@ func (h *History) ReplayState(ctx context.Context, target registry.Version) (*re
 	defer h.mu.RUnlock()
 	return h.checkpoints().Load(ctx, h.db, target.ID())
 }
+
+// PrepareReplayState shares the projection read with checkpoint construction.
+func (h *History) PrepareReplayState(ctx context.Context, target registry.Version) (*registry.ReplayState, registry.ReplayActivation, error) {
+	h.mu.RLock()
+	state, prepared, err := h.checkpoints().Prepare(ctx, h.db, target.ID())
+	h.mu.RUnlock()
+	if err != nil {
+		return nil, nil, err
+	}
+	return state, func(expected registry.Version, resolution *registry.DependencyResolution) error {
+		return h.compareAndSetHead(ctx, expected, target, resolution, prepared)
+	}, nil
+}

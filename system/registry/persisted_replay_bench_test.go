@@ -32,7 +32,7 @@ import (
 // replay-data-B counts encoded cache and non-root changeset payload bytes read.
 // The one-byte root record, metadata and protocol/page overhead are excluded.
 // Modes separate raw streaming, uncached projection, first checkpoint construction,
-// first boot (projection plus construction), and boot with an available checkpoint.
+// first boot (shared projection and construction), and boot with an available checkpoint.
 // peak-heap-B samples live Go heap every millisecond during LoadState; B/op is
 // total allocation. Set WIPPY_POSTGRES_HISTORY_TEST_DSN to a disposable database.
 func BenchmarkPersistedLoadState(b *testing.B) {
@@ -297,9 +297,6 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 					fmt.Sprint(entry.Data.Data()) != fmt.Sprint(expected[0].Entry.Data.Data()) {
 					b.Fatalf("restored entry does not match fixture head: %v", err)
 				}
-			}
-			if mode == "first-boot" {
-				replayBytes *= 2 // Uncached projection and its transactional checkpoint construction.
 			}
 			b.ReportMetric(float64(dataBytes), "lineage-data-B")
 			b.ReportMetric(float64(replayBytes), "replay-data-B")

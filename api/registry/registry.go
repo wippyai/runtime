@@ -262,6 +262,18 @@ type (
 		ReplayState(context.Context, Version) (*ReplayState, error)
 	}
 
+	// ReplayActivation commits a prepared projection's checkpoint together with
+	// the head CAS and optional dependency resolution. A nil resolution leaves
+	// the version's existing dependency graph unchanged.
+	ReplayActivation func(expected Version, resolution *DependencyResolution) error
+
+	// ReplayActivationHistory prepares projection and checkpoint construction in
+	// one read. Activation writes only after the caller accepts the transition.
+	// The returned function binds the target and prepared cache to this history.
+	ReplayActivationHistory interface {
+		PrepareReplayState(context.Context, Version) (*ReplayState, ReplayActivation, error)
+	}
+
 	// VersionIDBounds avoids enumerating an entire long history merely to seed
 	// the monotonic version allocator during boot.
 	VersionIDBounds interface {

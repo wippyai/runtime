@@ -184,8 +184,7 @@ func TestPersistedCheckpointProjectionMatchesRandomBranchedLineages(t *testing.T
 			for index := 1; index < len(versions); index += 29 {
 				target := versions[index]
 				want := reduceFullReplay(t, history, target)
-				got, err := history.ReplayState(t.Context(), target)
-				require.NoError(t, err, "target version %d", target.ID())
+				got := replayCheckpointState(t, history, target)
 				requireReplayStatesEqual(t, want, got)
 			}
 		})
@@ -296,6 +295,104 @@ func TestPersistedCheckpointTailPreservesOwnedDependencyOrdering(t *testing.T) {
 	}
 }
 
+func TestPersistedReplayPreparesActivation(t *testing.T) {
+	for _, factory := range persistedHistoryFactories() {
+		for _, mode := range []string{"uncached", "unsupported", "cached", "short_tail", "stale_head", "write_failure", "resolution", "resolution_write_failure", "checkpoint_tail", "cancelled"} {
+			t.Run(factory.name+"/"+mode, func(t *testing.T) {
+				fixture := factory.open(t)
+				count := uint(256)
+				switch mode {
+				case "short_tail":
+					count = 3
+				case "checkpoint_tail":
+					count = 512
+				}
+				target := seedCheckpointTail(t, fixture.history, count)
+				if mode != "cached" && mode != "checkpoint_tail" {
+					_, err := fixture.db.ExecContext(t.Context(), "UPDATE "+fixture.checkpointsTable+" SET format_version=999")
+					require.NoError(t, err)
+					if mode != "unsupported" {
+						_, err = fixture.db.ExecContext(t.Context(), "DELETE FROM "+fixture.checkpointsTable)
+						require.NoError(t, err)
+					}
+				}
+				if mode != "cached" && mode != "checkpoint_tail" {
+					_, err := fixture.db.ExecContext(t.Context(), "UPDATE "+fixture.versionsTable+" SET lineage_digest=NULL")
+					require.NoError(t, err)
+				}
+				if mode == "checkpoint_tail" {
+					_, err := fixture.db.ExecContext(t.Context(), "DELETE FROM "+fixture.checkpointsTable+" WHERE version_id="+fixture.placeholder(1), target.ID())
+					require.NoError(t, err)
+				}
+				preparer, ok := fixture.history.(registry.ReplayActivationHistory)
+				require.True(t, ok, "durable history prepares projection and activation in one replay")
+				want := reduceFullReplay(t, fixture.history, target)
+				root, err := fixture.history.GetVersion(0)
+				require.NoError(t, err)
+				expected := target
+				if mode != "stale_head" {
+					require.NoError(t, fixture.history.SetHead(root))
+					expected = root
+				}
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				state, activate, err := preparer.PrepareReplayState(ctx, target)
+				require.NoError(t, err)
+				requireReplayStatesEqual(t, want, state)
+				switch mode {
+				case "stale_head":
+					require.NoError(t, fixture.history.SetHead(root))
+				case "write_failure", "resolution_write_failure":
+					fixture.installWriteFailure(t)
+				}
+				var resolution *registry.DependencyResolution
+				if mode == "resolution" || mode == "resolution_write_failure" {
+					resolution = (&registry.DependencyResolution{InputDigest: "roots"}).Canonical()
+				}
+				if mode == "cancelled" {
+					cancel()
+				}
+				err = activate(expected, resolution)
+				head, headErr := fixture.history.Head()
+				require.NoError(t, headErr)
+				if mode == "stale_head" || mode == "write_failure" || mode == "resolution_write_failure" || mode == "cancelled" {
+					require.Equal(t, root.ID(), head.ID())
+					require.Error(t, err)
+					var checkpoints int
+					require.NoError(t, fixture.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+fixture.checkpointsTable).Scan(&checkpoints))
+					require.Zero(t, checkpoints)
+					var chain sql.NullString
+					require.NoError(t, fixture.db.QueryRowContext(t.Context(), "SELECT lineage_digest FROM "+fixture.versionsTable+" WHERE id="+fixture.placeholder(1), target.ID()).Scan(&chain))
+					require.False(t, chain.Valid, "failed activation does not publish a lineage binding")
+					if resolution != nil {
+						_, err := fixture.history.(registry.ResolutionHistory).GetDependencyResolution(target)
+						require.ErrorIs(t, err, registry.ErrDependencyResolutionNotFound)
+					}
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, target.ID(), head.ID())
+				if resolution != nil {
+					stored, err := fixture.history.(registry.ResolutionHistory).GetDependencyResolution(target)
+					require.NoError(t, err)
+					require.Equal(t, resolution, stored)
+				}
+				requireReplayStatesEqual(t, want, replayCheckpointState(t, fixture.history, target))
+				var checkpoints int
+				require.NoError(t, fixture.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+fixture.checkpointsTable+" WHERE format_version=1").Scan(&checkpoints))
+				switch mode {
+				case "short_tail":
+					require.Zero(t, checkpoints)
+				case "checkpoint_tail":
+					require.Equal(t, 2, checkpoints)
+				default:
+					require.Equal(t, 1, checkpoints)
+				}
+			})
+		}
+	}
+}
+
 func TestPersistedCheckpointWritesAtReplayBudget(t *testing.T) {
 	for _, factory := range persistedHistoryFactories() {
 		t.Run(factory.name, func(t *testing.T) {
@@ -320,6 +417,8 @@ func TestPersistedCheckpointRejectsCorruptSupportedCache(t *testing.T) {
 				require.NoError(t, err)
 				_, err = fixture.history.ReplayState(t.Context(), head)
 				require.Error(t, err)
+				require.ErrorContains(t, err, expectedError)
+				_, _, err = fixture.history.(registry.ReplayActivationHistory).PrepareReplayState(t.Context(), head)
 				require.ErrorContains(t, err, expectedError)
 			})
 		}
@@ -499,6 +598,9 @@ func replayCheckpointState(t *testing.T, history projectionHistory, target regis
 	t.Helper()
 	state, err := history.ReplayState(t.Context(), target)
 	require.NoError(t, err)
+	prepared, _, err := history.(registry.ReplayActivationHistory).PrepareReplayState(t.Context(), target)
+	require.NoError(t, err)
+	requireReplayStatesEqual(t, state, prepared)
 	return state
 }
 

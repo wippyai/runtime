@@ -697,64 +697,47 @@ func (h *History) SetHead(v registry.Version) error {
 }
 
 func (h *History) CompareAndSetHead(expected, target registry.Version) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	ctx := context.Background()
-	tx, err := h.db.BeginTx(ctx, nil)
-	if err != nil {
-		return NewBeginTransactionError(err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	result, err := tx.ExecContext(ctx, `UPDATE metadata SET value = ?
-		WHERE key = 'head' AND value = ? AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`,
-		target.ID(), expected.ID(), target.ID())
-	if err != nil {
-		return NewSetHeadError(err)
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return NewSetHeadError(err)
-	}
-	if updated != 1 {
-		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
-	}
-	if err := h.checkpoints().MaybeWrite(ctx, tx, target.ID()); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return NewCommitTransactionError(err)
-	}
-	return nil
+	return h.compareAndSetHead(context.Background(), expected, target, nil, nil)
 }
 
 func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target registry.Version, resolution *registry.DependencyResolution) error {
 	if resolution == nil {
 		return registry.ErrDependencyResolutionNotFound
 	}
-	canonical := resolution.Canonical()
-	if !canonical.Valid() {
-		return registry.ErrInvalidDependencyResolution
-	}
+	return h.compareAndSetHead(context.Background(), expected, target, resolution, nil)
+}
+
+func (h *History) compareAndSetHead(ctx context.Context, expected, target registry.Version, resolution *registry.DependencyResolution, prepared *checkpoint.Prepared) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	data, err := json.Marshal(canonical)
-	if err != nil {
-		return NewEncodeChangesetError(err)
+	var canonical *registry.DependencyResolution
+	var data []byte
+	var err error
+	if resolution != nil {
+		canonical = resolution.Canonical()
+		if !canonical.Valid() {
+			return registry.ErrInvalidDependencyResolution
+		}
+		data, err = json.Marshal(canonical)
+		if err != nil {
+			return NewEncodeChangesetError(err)
+		}
 	}
-	ctx := context.Background()
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return NewBeginTransactionError(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
-		return NewInsertChangesetError(err)
-	}
-	if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
-		return NewDecodeChangesetError(err)
-	}
-	if err = rebindVersionResolution(ctx, tx, target.ID(), canonical); err != nil {
-		return NewInsertChangesetError(err)
+	if canonical != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
+			return NewInsertChangesetError(err)
+		}
+		if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
+			return NewDecodeChangesetError(err)
+		}
+		if err = rebindVersionResolution(ctx, tx, target.ID(), canonical); err != nil {
+			return NewInsertChangesetError(err)
+		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE metadata SET value = ?
 		WHERE key = 'head' AND value = ? AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`,
@@ -769,7 +752,12 @@ func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if updated != 1 {
 		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
 	}
-	if err := h.checkpoints().MaybeWrite(ctx, tx, target.ID()); err != nil {
+	if prepared != nil {
+		err = h.checkpoints().WritePrepared(ctx, tx, prepared)
+	} else {
+		err = h.checkpoints().MaybeWrite(ctx, tx, target.ID())
+	}
+	if err != nil {
 		return err
 	}
 
