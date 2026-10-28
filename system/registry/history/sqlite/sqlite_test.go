@@ -151,6 +151,31 @@ func TestHistoryReplayClosesRowsBeforeCallback(t *testing.T) {
 	}))
 }
 
+func TestHistoryReplayReadsEachChangesetAfterEarlierCallback(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "streaming.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, hist.Close()) }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.Save(v1, nil, true))
+	require.NoError(t, hist.Save(v2, nil, true))
+
+	callbackCount := 0
+	err = hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error {
+		callbackCount++
+		if callbackCount == 1 {
+			_, deleteErr := hist.db.ExecContext(context.Background(), "DELETE FROM changesets WHERE version_id = ?", v2.ID())
+			return deleteErr
+		}
+		return nil
+	})
+	require.ErrorContains(t, err, "changeset not found for version")
+	require.Equal(t, 1, callbackCount)
+}
+
 func TestHistoryGetVersionIgnoresUnrelatedBranchCycle(t *testing.T) {
 	hist, err := NewSQLite(filepath.Join(t.TempDir(), "lookup.db"), zap.NewNop())
 	require.NoError(t, err)

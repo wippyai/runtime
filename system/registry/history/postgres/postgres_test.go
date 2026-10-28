@@ -212,6 +212,46 @@ func TestPostgresHistory_SaveAndGet(t *testing.T) {
 	assert.Equal(t, "1.1", schemaVersion)
 }
 
+func TestPostgresHistoryReplayReadsEachChangesetAfterEarlierCallback(t *testing.T) {
+	dsn := os.Getenv("WIPPY_POSTGRES_HISTORY_TEST_DSN")
+	if strings.TrimSpace(dsn) == "" {
+		t.Skip("WIPPY_POSTGRES_HISTORY_TEST_DSN is not set")
+	}
+
+	schemaName := fmt.Sprintf("wippy_registry_replay_streaming_%d", os.Getpid())
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	_, err = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	require.NoError(t, err)
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	}()
+
+	hist, err := NewPostgres(dsn, schemaName, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.Save(v1, nil, true))
+	require.NoError(t, hist.Save(v2, nil, true))
+
+	callbackCount := 0
+	err = hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error {
+		callbackCount++
+		if callbackCount == 1 {
+			_, deleteErr := db.ExecContext(context.Background(), fmt.Sprintf("DELETE FROM %q.changesets WHERE version_id = $1", schemaName), v2.ID())
+			return deleteErr
+		}
+		return nil
+	})
+	require.ErrorContains(t, err, "changeset not found for version")
+	require.Equal(t, 1, callbackCount)
+}
+
 func TestMigrateEntryMetadata_RewritesPostgresBranches(t *testing.T) {
 	dsn := os.Getenv("WIPPY_POSTGRES_HISTORY_TEST_DSN")
 	if strings.TrimSpace(dsn) == "" {

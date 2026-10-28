@@ -300,11 +300,14 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	ctx := context.Background()
+	return h.readChangeSet(context.Background(), v.ID())
+}
+
+func (h *History) readChangeSet(ctx context.Context, versionID uint) (registry.ChangeSet, error) {
 	var data []byte
-	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", v.ID()).Scan(&data)
+	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", versionID).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, NewChangesetNotFoundError(v.ID())
+		return nil, NewChangesetNotFoundError(versionID)
 	}
 	if err != nil {
 		return nil, NewQueryChangesetError(err)
@@ -364,16 +367,18 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 // buffered so callbacks run after the query and history lock are released.
 func (h *History) ReplayChanges(ctx context.Context, target registry.Version, apply func(registry.ChangeSet) error) error {
 	h.mu.RLock()
-	encoded, err := h.replayLineage(ctx, target)
+	lineage, err := h.replayLineage(ctx, target)
 	h.mu.RUnlock()
 	if err != nil {
 		return err
 	}
-	for _, item := range encoded {
+	for _, versionID := range lineage {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		changes, err := h.decodeChangeSet(item)
+		h.mu.RLock()
+		changes, err := h.readChangeSet(ctx, versionID)
+		h.mu.RUnlock()
 		if err != nil {
 			return err
 		}
@@ -385,11 +390,11 @@ func (h *History) ReplayChanges(ctx context.Context, target registry.Version, ap
 }
 
 type replayLineageRow struct {
-	data     []byte
-	parentID sql.NullInt64
+	parentID     sql.NullInt64
+	hasChangeset bool
 }
 
-func (h *History) replayLineage(ctx context.Context, target registry.Version) ([][]byte, error) {
+func (h *History) replayLineage(ctx context.Context, target registry.Version) ([]uint, error) {
 	var exists int
 	if err := h.db.QueryRowContext(ctx, "SELECT 1 FROM versions WHERE id = ?", target.ID()).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -403,8 +408,8 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 		SELECT v.id, v.parent_id
 		FROM versions v JOIN lineage ON v.id = lineage.parent_id
 	)
-	SELECT lineage.id, lineage.parent_id, c.data
-	FROM lineage LEFT JOIN changesets c ON c.version_id = lineage.id`, target.ID())
+	SELECT lineage.id, lineage.parent_id, c.version_id IS NOT NULL
+ FROM lineage LEFT JOIN changesets c ON c.version_id=lineage.id`, target.ID())
 	if err != nil {
 		return nil, NewQueryChangesetError(err)
 	}
@@ -412,12 +417,12 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 	for rows.Next() {
 		var versionID uint
 		var parentID sql.NullInt64
-		var data []byte
-		if err := rows.Scan(&versionID, &parentID, &data); err != nil {
+		var hasChangeset bool
+		if err := rows.Scan(&versionID, &parentID, &hasChangeset); err != nil {
 			_ = rows.Close()
 			return nil, NewQueryChangesetError(err)
 		}
-		lineage[versionID] = replayLineageRow{parentID: parentID, data: data}
+		lineage[versionID] = replayLineageRow{parentID: parentID, hasChangeset: hasChangeset}
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
@@ -427,7 +432,7 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 		return nil, NewIterateVersionsError(err)
 	}
 
-	encoded := make([][]byte, 0, len(lineage))
+	versionIDs := make([]uint, 0, len(lineage))
 	seen := make(map[uint]struct{}, len(lineage))
 	currentID := target.ID()
 	for currentID != registry.RootVersion {
@@ -439,20 +444,20 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 		if !ok || !row.parentID.Valid || row.parentID.Int64 < 0 {
 			return nil, NewQueryChangesetError(fmt.Errorf("version %d lineage does not terminate at root", target.ID()))
 		}
-		if row.data == nil {
+		if !row.hasChangeset {
 			return nil, NewChangesetNotFoundError(currentID)
 		}
-		encoded = append(encoded, row.data)
+		versionIDs = append(versionIDs, currentID)
 		currentID = uint(row.parentID.Int64)
 	}
 	root, ok := lineage[registry.RootVersion]
 	if !ok || root.parentID.Valid {
 		return nil, NewQueryChangesetError(fmt.Errorf("version %d lineage does not terminate at root", target.ID()))
 	}
-	for left, right := 0, len(encoded)-1; left < right; left, right = left+1, right-1 {
-		encoded[left], encoded[right] = encoded[right], encoded[left]
+	for left, right := 0, len(versionIDs)-1; left < right; left, right = left+1, right-1 {
+		versionIDs[left], versionIDs[right] = versionIDs[right], versionIDs[left]
 	}
-	return encoded, nil
+	return versionIDs, nil
 }
 
 func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
