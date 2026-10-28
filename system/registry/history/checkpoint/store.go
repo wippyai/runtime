@@ -177,28 +177,53 @@ func (s Store) readState(ctx context.Context, q Queryer, path []ancestor, index 
 	return state, nil
 }
 
+func (s Store) stateReducer(state *registry.ReplayState) func(*ancestor, []byte) error {
+	transcoder := NewReplayTranscoder()
+	return func(a *ancestor, data []byte) error {
+		if a.id == registry.RootVersion {
+			return nil
+		}
+		changes, err := s.Decode(data)
+		if err != nil {
+			return err
+		}
+		return state.ApplyWithTranscoder(changes, transcoder)
+	}
+}
+
+func (s Store) replay(ctx context.Context, q Queryer, path []ancestor, index int, reduce func(*ancestor, []byte) error) error {
+	start := index + 1
+	versions := make([]ReplayVersion, len(path)-start)
+	for i, a := range path[start:] {
+		versions[i] = ReplayVersion{ID: a.id, Size: a.size.Int64}
+	}
+	for len(versions) > 0 {
+		page, err := s.ReadPage(ctx, q, versions)
+		if err != nil {
+			return err
+		}
+		for i, data := range page {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := reduce(&path[start+i], data); err != nil {
+				return err
+			}
+			page[i] = nil
+		}
+		start += len(page)
+		versions = versions[len(page):]
+	}
+	return nil
+}
+
 func (s Store) project(ctx context.Context, q Queryer, path []ancestor, index int) (*registry.ReplayState, error) {
 	state, err := s.readState(ctx, q, path, index)
 	if err != nil {
 		return nil, err
 	}
-	transcoder := NewReplayTranscoder()
-	for i := max(index+1, 1); i < len(path); i++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		var data []byte
-		err := q.QueryRowContext(ctx, "SELECT data FROM "+s.Changesets+" WHERE version_id="+s.Parameter(1), path[i].id).Scan(&data)
-		if err != nil {
-			return nil, fmt.Errorf("read replay changeset %d: %w", path[i].id, err)
-		}
-		changes, err := s.Decode(data)
-		if err != nil {
-			return nil, err
-		}
-		if err := state.ApplyWithTranscoder(changes, transcoder); err != nil {
-			return nil, err
-		}
+	if err := s.replay(ctx, q, path, index, s.stateReducer(state)); err != nil {
+		return nil, err
 	}
 	return state, nil
 }
@@ -210,47 +235,6 @@ func (s Store) Load(ctx context.Context, q Queryer, target uint) (*registry.Repl
 	}
 	index, _ := nearest(path)
 	return s.project(ctx, q, path, index)
-}
-
-// bindMissing extends the content chain from the nearest checkpoint and binds
-// the new checkpoint version. Intermediate versions need no persisted digest.
-func (s Store) bindMissing(ctx context.Context, tx *sql.Tx, path []ancestor) error {
-	previous := ""
-	for i := range path {
-		a := &path[i]
-		if a.chain.Valid {
-			decoded, err := hex.DecodeString(a.chain.String)
-			if err != nil || len(decoded) != sha256.Size {
-				return fmt.Errorf("version %d has invalid replay lineage digest", a.id)
-			}
-			previous = a.chain.String
-			continue
-		}
-		var data []byte
-		if err := tx.QueryRowContext(ctx, "SELECT data FROM "+s.Changesets+" WHERE version_id="+s.Parameter(1), a.id).Scan(&data); err != nil {
-			return err
-		}
-		h := sha256.New()
-		_, _ = h.Write([]byte("registry-history-content-v1"))
-		_, _ = h.Write([]byte(previous))
-		number(h, uint64(a.id))
-		if a.parent.Valid {
-			number(h, uint64(a.parent.Int64))
-		} else {
-			number(h, ^uint64(0))
-		}
-		content := sha256.Sum256(data)
-		_, _ = h.Write(content[:])
-		previous = hex.EncodeToString(h.Sum(nil))
-		a.chain = sql.NullString{String: previous, Valid: true}
-	}
-	last := path[len(path)-1]
-	// #nosec G202 -- backend constructors supply fixed or validated, quoted table names.
-	if _, err := tx.ExecContext(ctx, "UPDATE "+s.Versions+" SET lineage_digest="+s.Parameter(1)+" WHERE id="+s.Parameter(2), last.chain.String, last.id); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // MaybeWrite participates in Save/head-CAS; it never commits independently.
@@ -268,11 +252,36 @@ func (s Store) MaybeWrite(ctx context.Context, tx *sql.Tx, target uint) error {
 	if !incompatible && len(path)-start < policy.Versions && bytes < policy.Bytes {
 		return nil
 	}
-	if err := s.bindMissing(ctx, tx, path); err != nil {
+	state, err := s.readState(ctx, tx, path, index)
+	if err != nil {
 		return err
 	}
-	state, err := s.project(ctx, tx, path, index)
-	if err != nil {
+	previous := ""
+	if index >= 0 {
+		previous = path[index].chain.String
+	}
+	reduce := s.stateReducer(state)
+	if err := s.replay(ctx, tx, path, index, func(a *ancestor, data []byte) error {
+		h := sha256.New()
+		_, _ = h.Write([]byte("registry-history-content-v1"))
+		_, _ = h.Write([]byte(previous))
+		number(h, uint64(a.id))
+		if a.parent.Valid {
+			number(h, uint64(a.parent.Int64))
+		} else {
+			number(h, ^uint64(0))
+		}
+		content := sha256.Sum256(data)
+		_, _ = h.Write(content[:])
+		previous = hex.EncodeToString(h.Sum(nil))
+		a.chain = sql.NullString{String: previous, Valid: true}
+		return reduce(a, data)
+	}); err != nil {
+		return err
+	}
+	last := path[len(path)-1]
+	// #nosec G202 -- backend constructors supply fixed or validated, quoted table names.
+	if _, err := tx.ExecContext(ctx, "UPDATE "+s.Versions+" SET lineage_digest="+s.Parameter(1)+" WHERE id="+s.Parameter(2), last.chain.String, last.id); err != nil {
 		return err
 	}
 	data, err := s.EncodeState(state)

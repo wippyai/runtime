@@ -714,3 +714,71 @@ func TestPersistedReplayValidatesMissingChangesetsBeforeCallbacks(t *testing.T) 
 		})
 	}
 }
+
+func TestPersistedReplayReadsBoundedPagesBeforeCallbacks(t *testing.T) {
+	for _, factory := range persistedHistoryFactories() {
+		t.Run(factory.name, func(t *testing.T) {
+			fixture := factory.open(t)
+			const count = 3000
+			tx, err := fixture.db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback() }()
+			for id := 1; id <= count; id++ {
+				_, err = tx.ExecContext(t.Context(), "INSERT INTO "+fixture.versionsTable+" (id,parent_id) VALUES ("+fixture.placeholder(1)+","+fixture.placeholder(2)+")", id, id-1)
+				require.NoError(t, err)
+				_, err = tx.ExecContext(t.Context(), "INSERT INTO "+fixture.table("changesets")+" (version_id,data) VALUES ("+fixture.placeholder(1)+","+fixture.placeholder(2)+")", id, []byte{0x90})
+				require.NoError(t, err)
+			}
+			require.NoError(t, tx.Commit())
+			target, err := fixture.history.GetVersion(count)
+			require.NoError(t, err)
+			callbacks := 0
+			err = fixture.history.ReplayChanges(t.Context(), target, func(cs registry.ChangeSet) error {
+				require.Empty(t, cs)
+				callbacks++
+				// Both reads and writes must be safe with SQLite's single connection.
+				if _, err := fixture.history.Head(); err != nil {
+					return err
+				}
+				if callbacks == 1 {
+					_, err := fixture.db.ExecContext(t.Context(), "DELETE FROM "+fixture.table("changesets")+" WHERE version_id IN (2,"+fixture.placeholder(1)+")", count)
+					return err
+				}
+				return nil
+			})
+			require.ErrorContains(t, err, "changeset not found for version")
+			require.Greater(t, callbacks, 1, "the first page includes the next transaction")
+			require.Less(t, callbacks, count-1, "the missing tail fails when its page is read")
+		})
+	}
+}
+
+func TestPersistedReplayCallbackCanSaveBranch(t *testing.T) {
+	for _, factory := range persistedHistoryFactories() {
+		t.Run(factory.name, func(t *testing.T) {
+			fixture := factory.open(t)
+			target := seedCheckpointTail(t, fixture.history, 3)
+			root, err := fixture.history.GetVersion(registry.RootVersion)
+			require.NoError(t, err)
+			branch := version.FromParent(root, 1000)
+			var retained []registry.ChangeSet
+			err = fixture.history.ReplayChanges(t.Context(), target, func(cs registry.ChangeSet) error {
+				retained = append(retained, cs)
+				if len(retained) == 1 {
+					return fixture.history.Save(branch, cs, false)
+				}
+				return nil
+			})
+			require.NoError(t, err)
+			require.Len(t, retained, 3)
+			for i, changes := range retained {
+				original, err := fixture.history.Get(version.New(uint(i + 1)))
+				require.NoError(t, err)
+				require.Equal(t, original, changes, "callbacks retain independent original transactions")
+			}
+			head, err := fixture.history.Head()
+			require.NoError(t, err)
+			require.Equal(t, target.ID(), head.ID())
+		})
+	}
+}

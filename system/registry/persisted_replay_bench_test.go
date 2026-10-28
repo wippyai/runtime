@@ -29,7 +29,10 @@ import (
 // BenchmarkPersistedLoadState measures authored history independently of module
 // expansion and application startup. Setup and fixture writes are untimed.
 // lineage-data-B counts encoded changeset bytes, excluding protocol/page overhead.
-// replay-data-B counts the nearest supported checkpoint and its replay tail.
+// replay-data-B counts encoded cache and non-root changeset payload bytes read.
+// The one-byte root record, metadata and protocol/page overhead are excluded.
+// Modes separate raw streaming, uncached projection, first checkpoint construction,
+// first boot (projection plus construction), and boot with an available checkpoint.
 // peak-heap-B samples live Go heap every millisecond during LoadState; B/op is
 // total allocation. Set WIPPY_POSTGRES_HISTORY_TEST_DSN to a disposable database.
 func BenchmarkPersistedLoadState(b *testing.B) {
@@ -162,7 +165,7 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 			b.Error(err)
 		}
 	}()
-	for i := 4; i < count; i++ {
+	for i := 4; i <= count; i++ {
 		if _, err := insertVersion.ExecContext(ctx, i, i-1); err != nil {
 			b.Fatal(err)
 		}
@@ -173,17 +176,11 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 	if err := tx.Commit(); err != nil {
 		b.Fatal(err)
 	}
-	parent, err := hist.(registry.VersionLookup).GetVersion(uint(count - 1))
+	head, err = hist.(registry.VersionLookup).GetVersion(uint(count))
 	if err != nil {
 		b.Fatal(err)
 	}
-	if err := hist.SetHead(parent); err != nil {
-		b.Fatal(err)
-	}
-	entry := entryAt(count)
-	previousEntry := entryAt(count - 1)
-	head = version.FromParent(parent, uint(count))
-	if err := hist.Save(head, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry, OriginalEntry: &previousEntry}}, true); err != nil {
+	if err := hist.SetHead(head); err != nil {
 		b.Fatal(err)
 	}
 	expected, err := hist.Get(head)
@@ -206,49 +203,107 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 		SELECT SUM(length(c.data)) FROM lineage JOIN ` + changesetsTable + ` c ON c.version_id = lineage.id
 		WHERE lineage.id != 0 AND lineage.depth < COALESCE((SELECT depth FROM checkpoint), 9223372036854775807)
 	),0)`
-	var replayBytes int64
-	if err := db.QueryRowContext(ctx, replayByteQuery, head.ID()).Scan(&replayBytes); err != nil {
-		b.Fatal(err)
-	}
-	b.ReportAllocs()
-	var peak uint64
-	for i := 0; i < b.N; i++ {
-		runtime.GC()
-		done := make(chan struct{})
-		sampled := make(chan uint64, 1)
-		go func() {
-			ticker := time.NewTicker(time.Millisecond)
-			defer ticker.Stop()
-			var maximum uint64
-			for {
-				var mem runtime.MemStats
-				runtime.ReadMemStats(&mem)
-				maximum = max(maximum, mem.HeapAlloc)
-				select {
-				case <-done:
-					sampled <- maximum
-					return
-				case <-ticker.C:
-				}
-			}
-		}()
-		builder := topology.NewStateBuilder(zap.NewNop(), nil)
-		reg := NewRegistry(hist, newApplyingMockRunner(builder), builder, nil, zap.NewNop())
-		b.StartTimer()
-		err := reg.LoadState(ctx, nil, head)
-		b.StopTimer()
-		close(done)
-		peak = max(peak, <-sampled)
+	reset := func(b *testing.B) {
+		b.Helper()
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			b.Fatal(err)
 		}
-		entry, err := reg.GetEntry(previous.ID)
-		if err != nil || entry.Kind != expected[0].Entry.Kind || entry.Data == nil ||
-			fmt.Sprint(entry.Data.Data()) != fmt.Sprint(expected[0].Entry.Data.Data()) {
-			b.Fatalf("restored entry does not match fixture head: %v", err)
+		defer func() { _ = tx.Rollback() }()
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+checkpointsTable); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE "+versionsTable+" SET lineage_digest=NULL"); err != nil {
+			b.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			b.Fatal(err)
 		}
 	}
-	b.ReportMetric(float64(dataBytes), "lineage-data-B")
-	b.ReportMetric(float64(replayBytes), "replay-data-B")
-	b.ReportMetric(float64(peak), "peak-heap-B")
+	for _, mode := range []string{"streaming", "uncached", "construct", "first-boot", "cached"} {
+		b.Run(mode, func(b *testing.B) {
+			b.StopTimer()
+			if mode == "cached" {
+				if err := hist.(registry.HeadCASHistory).CompareAndSetHead(head, head); err != nil {
+					b.Fatal(err)
+				}
+			}
+			var peak uint64
+			var replayBytes int64
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if mode != "cached" {
+					reset(b)
+				}
+				if err := db.QueryRowContext(ctx, replayByteQuery, head.ID()).Scan(&replayBytes); err != nil {
+					b.Fatal(err)
+				}
+				runtime.GC()
+				done := make(chan struct{})
+				sampled := make(chan uint64, 1)
+				go func() {
+					ticker := time.NewTicker(time.Millisecond)
+					defer ticker.Stop()
+					var maximum uint64
+					for {
+						var mem runtime.MemStats
+						runtime.ReadMemStats(&mem)
+						maximum = max(maximum, mem.HeapAlloc)
+						select {
+						case <-done:
+							sampled <- maximum
+							return
+						case <-ticker.C:
+						}
+					}
+				}()
+				builder := topology.NewStateBuilder(zap.NewNop(), nil)
+				reg := NewRegistry(hist, newApplyingMockRunner(builder), builder, nil, zap.NewNop())
+				var state *registry.ReplayState
+				b.StartTimer()
+				switch mode {
+				case "streaming":
+					state = registry.NewReplayState()
+					transcoder := checkpoint.NewReplayTranscoder()
+					err = hist.(registry.ChangeSetReplayer).ReplayChanges(ctx, head, func(cs registry.ChangeSet) error {
+						return state.ApplyWithTranscoder(cs, transcoder)
+					})
+				case "uncached":
+					state, err = hist.(registry.ProjectionHistory).ReplayState(ctx, head)
+				case "construct":
+					err = hist.(registry.HeadCASHistory).CompareAndSetHead(head, head)
+				default:
+					err = reg.LoadState(ctx, nil, head)
+				}
+				b.StopTimer()
+				close(done)
+				peak = max(peak, <-sampled)
+				if err != nil {
+					b.Fatal(err)
+				}
+				var entry registry.Entry
+				switch mode {
+				case "first-boot", "cached":
+					entry, err = reg.GetEntry(previous.ID)
+				case "construct":
+					state, err = hist.(registry.ProjectionHistory).ReplayState(ctx, head)
+					if err == nil {
+						entry = state.Entries[previous.ID]
+					}
+				default:
+					entry = state.Entries[previous.ID]
+				}
+				if err != nil || entry.Kind != expected[0].Entry.Kind || entry.Data == nil ||
+					fmt.Sprint(entry.Data.Data()) != fmt.Sprint(expected[0].Entry.Data.Data()) {
+					b.Fatalf("restored entry does not match fixture head: %v", err)
+				}
+			}
+			if mode == "first-boot" {
+				replayBytes *= 2 // Uncached projection and its transactional checkpoint construction.
+			}
+			b.ReportMetric(float64(dataBytes), "lineage-data-B")
+			b.ReportMetric(float64(replayBytes), "replay-data-B")
+			b.ReportMetric(float64(peak), "peak-heap-B")
+		})
+	}
 }

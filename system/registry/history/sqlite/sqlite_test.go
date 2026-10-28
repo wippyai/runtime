@@ -151,7 +151,7 @@ func TestHistoryReplayClosesRowsBeforeCallback(t *testing.T) {
 	}))
 }
 
-func TestHistoryReplayReadsEachChangesetAfterEarlierCallback(t *testing.T) {
+func TestHistoryReplayReadsLaterPagesAfterEarlierCallback(t *testing.T) {
 	hist, err := NewSQLite(filepath.Join(t.TempDir(), "streaming.db"), zap.NewNop())
 	require.NoError(t, err)
 	defer func() { require.NoError(t, hist.Close()) }()
@@ -162,18 +162,26 @@ func TestHistoryReplayReadsEachChangesetAfterEarlierCallback(t *testing.T) {
 	v2 := version.FromParent(v1, 2)
 	require.NoError(t, hist.Save(v1, nil, true))
 	require.NoError(t, hist.Save(v2, nil, true))
+	_, err = hist.db.ExecContext(t.Context(), `WITH RECURSIVE ids(id) AS (SELECT 3 UNION ALL SELECT id+1 FROM ids WHERE id<3000)
+		INSERT INTO versions(id,parent_id) SELECT id,id-1 FROM ids`)
+	require.NoError(t, err)
+	_, err = hist.db.ExecContext(t.Context(), "INSERT INTO changesets(version_id,data) SELECT id,? FROM versions WHERE id>2", []byte{0x90})
+	require.NoError(t, err)
+	target, err := hist.GetVersion(3000)
+	require.NoError(t, err)
 
 	callbackCount := 0
-	err = hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error {
+	err = hist.ReplayChanges(context.Background(), target, func(registry.ChangeSet) error {
 		callbackCount++
 		if callbackCount == 1 {
-			_, deleteErr := hist.db.ExecContext(context.Background(), "DELETE FROM changesets WHERE version_id = ?", v2.ID())
+			_, deleteErr := hist.db.ExecContext(context.Background(), "DELETE FROM changesets WHERE version_id = ?", target.ID())
 			return deleteErr
 		}
 		return nil
 	})
 	require.ErrorContains(t, err, "changeset not found for version")
-	require.Equal(t, 1, callbackCount)
+	require.Greater(t, callbackCount, 1)
+	require.Less(t, callbackCount, 2999)
 }
 
 func TestHistoryGetVersionIgnoresUnrelatedBranchCycle(t *testing.T) {
