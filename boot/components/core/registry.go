@@ -128,9 +128,9 @@ func Registry() boot.Component {
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
-				// Startup restores installed artifacts locally. Downloads belong
-				// to explicit install/update operations, never implicit recovery.
-				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+				// Materialize exact recorded artifacts before baseline reconciliation.
+				// Verified local artifacts require no Hub access.
+				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
 				if err := depHandler.PrepareRestore(restoreCtx, hist); err != nil {
 					// Startup stops here, so the shutdown hook that owns the history
 					// never runs; release it now or the store stays open.

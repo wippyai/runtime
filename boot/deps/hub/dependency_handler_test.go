@@ -286,7 +286,7 @@ func TestDependencyHandler_RetriesDownloadWithFreshURLWhenPresignedExpired(t *te
 	assert.GreaterOrEqual(t, freshFetched.Load(), int32(1), "a fresh download URL should be fetched for the retry")
 }
 
-func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
+func TestDependencyHandler_RefusesCorruptCachedArtifact(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
@@ -335,8 +335,11 @@ func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
 	}
 
 	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
-	require.NoError(t, err)
-	assert.Equal(t, int32(1), downloadCalls.Load())
+	require.ErrorContains(t, err, "digest mismatch")
+	assert.Zero(t, downloadCalls.Load())
+	stored, readErr := os.ReadFile(wappPath)
+	require.NoError(t, readErr)
+	require.Equal(t, []byte("corrupt"), stored)
 }
 
 func TestDependencyHandler_Expand_DoesNotExtractUntouchedSiblingCache(t *testing.T) {

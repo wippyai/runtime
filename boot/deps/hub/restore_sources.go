@@ -68,7 +68,7 @@ func (h *DependencyHandler) prepareRecordedArtifacts(ctx context.Context, module
 
 // withoutRepinnedModules drops recorded modules that the current pins select at
 // another version or digest. A new image ships only its own pins, and the
-// baseline transition selects them, so offline startup does not need the
+// baseline transition selects them, so startup does not need the
 // recorded artifact.
 func withoutRepinnedModules(modules []ResolvedModule, recorded, current []regapi.ResolvedModule) []ResolvedModule {
 	pins := make(map[string]regapi.ResolvedModule, len(recorded))
