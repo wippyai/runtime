@@ -163,18 +163,27 @@ func TestPrepareRestoreOnlineAlteredArtifactContrast(t *testing.T) {
 		require.Equal(t, []byte("tampered artifact"), stored, "a refused restore must leave the cache untouched")
 	})
 
-	t.Run("version addressed cache entry stays refused", func(t *testing.T) {
+	t.Run("version addressed cache entry is refetched", func(t *testing.T) {
 		fixture := newAlteredArtifactRestore(t)
 		legacyPath := fixture.legacyPath()
 		fixture.writeAltered(t, legacyPath)
+
 		online := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessOnline)
-		err := fixture.handler.PrepareRestore(online, fixture.history)
-		require.ErrorContains(t, err, "integrity verification")
-		require.Zero(t, fixture.downloadURLs)
-		require.Zero(t, fixture.downloads)
+		require.NoError(t, fixture.handler.PrepareRestore(online, fixture.history))
+		require.Equal(t, 1, fixture.downloadURLs)
+		require.Equal(t, 1, fixture.downloads)
+
+		stored, err := os.ReadFile(fixture.immutablePath(t))
+		require.NoError(t, err)
+		require.Equal(t, fixture.published, stored)
+
+		require.NoError(t, fixture.handler.PrepareRestore(online, fixture.history))
+		require.Equal(t, 1, fixture.downloadURLs)
+		require.Equal(t, 1, fixture.downloads)
+
 		legacy, err := os.ReadFile(legacyPath)
 		require.NoError(t, err)
-		require.Equal(t, []byte("tampered artifact"), legacy)
+		require.Equal(t, []byte("tampered artifact"), legacy, "migration input is never rewritten in place")
 	})
 }
 

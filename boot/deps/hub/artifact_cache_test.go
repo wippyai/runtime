@@ -220,7 +220,7 @@ func TestEnsureModuleAvailableMigratesLegacyArtifactThroughPrivateCopy(t *testin
 	}
 }
 
-func TestEnsureModuleAvailableRefusesNonRegularLegacyPath(t *testing.T) {
+func TestEnsureModuleAvailableIgnoresNonRegularLegacyPath(t *testing.T) {
 	t.Parallel()
 
 	vendorDir := t.TempDir()
@@ -234,7 +234,6 @@ func TestEnsureModuleAvailableRefusesNonRegularLegacyPath(t *testing.T) {
 	digest := fmt.Sprintf("sha256:%x", sum)
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{downloadFile: func(_ context.Context, _ string, destination string) error {
-			t.Error("invalid cache must not trigger a download")
 			return os.WriteFile(destination, content, 0o600)
 		}},
 		Logger:    zap.NewNop(),
@@ -244,12 +243,15 @@ func TestEnsureModuleAvailableRefusesNonRegularLegacyPath(t *testing.T) {
 		t.Fatalf("new handler: %v", err)
 	}
 
-	_, err = handler.ensureModuleAvailable(onlineContext(), ResolvedModule{
+	gotPath, err := handler.ensureModuleAvailable(onlineContext(), ResolvedModule{
 		Org: "acme", Name: "widget", Version: "1.2.3", URL: "memory://widget",
 		Digest: digest, SizeBytes: uint64(len(content)),
 	})
-	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Fatalf("expected nonregular cache refusal, got %v", err)
+	if err != nil {
+		t.Fatalf("ensure module: %v", err)
+	}
+	if err := verifyDownloadedArtifact(gotPath, digest, uint64(len(content))); err != nil {
+		t.Fatalf("verify immutable artifact: %v", err)
 	}
 	if info, err := os.Stat(legacyPath); err != nil || !info.IsDir() {
 		t.Fatalf("nonregular legacy path was mutated: info=%v err=%v", info, err)

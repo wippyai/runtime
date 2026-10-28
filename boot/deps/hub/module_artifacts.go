@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/wappextract"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -178,9 +179,18 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 				err = copyErr
 			}
 		}
-		return "", NewDependencyIntegrityError(modKey(mod), err, expectedDigest, expectedSize)
+		if h.logger != nil {
+			h.logger.Warn("legacy dependency artifact failed integrity check; ignoring migration input",
+				zap.String("module", modKey(mod)),
+				zap.String("path", legacyPath),
+				zap.Error(err))
+		}
 	} else if statErr == nil {
-		return "", NewDependencyIntegrityError(modKey(mod), NewArtifactContentError("legacy dependency artifact is not a regular file", nil), expectedDigest, expectedSize)
+		if h.logger != nil {
+			h.logger.Warn("legacy dependency artifact is not a regular file; ignoring migration input",
+				zap.String("module", modKey(mod)),
+				zap.String("path", legacyPath))
+		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return "", NewDependencyDownloadError(modKey(mod), statErr)
 	}
