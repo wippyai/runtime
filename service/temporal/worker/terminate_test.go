@@ -15,8 +15,8 @@ import (
 
 type systemActivityWorker struct {
 	sdkworker.Worker
-	name    string
 	handler any
+	name    string
 }
 
 func (w *systemActivityWorker) RegisterActivityWithOptions(handler any, options activity.RegisterOptions) {

@@ -3,6 +3,7 @@
 package workflow
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -98,8 +99,8 @@ func TestContinueAsNewPreservesUnreadLuaMailbox(t *testing.T) {
 			require.NoError(t, old.handleSignal("upgrade", nil, gateHeader))
 			old.OnWorkflowTaskStarted(0)
 			require.Len(t, oldEnv.completions, 1)
-			continuation, ok := oldEnv.completions[0].err.(*bindings.ContinueAsNewError)
-			require.True(t, ok)
+			var continuation *bindings.ContinueAsNewError
+			require.True(t, errors.As(oldEnv.completions[0].err, &continuation))
 			require.NotNil(t, continuation.Header, "continue-as-new must carry the unread mailbox")
 			require.Empty(t, oldEnv.versions)
 			next, nextEnv := luaMailboxDefinition(t, `
@@ -135,8 +136,8 @@ func TestContinueAsNewCarriesSignalsBeforeFirstStep(t *testing.T) {
 	d.signals = []incomingSignal{{Name: "data", Payloads: payload.Payloads{payload.NewString("unread")}}}
 	d.output.SetUpgrade(&process.UpgradeRequest{Input: payload.Payloads{payload.NewString("next-input")}})
 	d.executeContinueAsNew()
-	continuation, ok := env.completions[0].err.(*bindings.ContinueAsNewError)
-	require.True(t, ok)
+	var continuation *bindings.ContinueAsNewError
+	require.True(t, errors.As(env.completions[0].err, &continuation))
 	messages, err := propagator.ExtractMailboxFromHeader(d.dc, continuation.Header)
 	require.NoError(t, err)
 	require.Len(t, messages, 1)

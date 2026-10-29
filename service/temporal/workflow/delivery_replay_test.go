@@ -32,10 +32,10 @@ func (f deliveryFactory) Create(registry.ID) (process.Process, *process.Meta, er
 }
 
 type deliveryHistory struct {
-	t      *testing.T
 	dc     converter.DataConverter
-	events []*historypb.HistoryEvent
+	t      *testing.T
 	queue  *taskqueuepb.TaskQueue
+	events []*historypb.HistoryEvent
 }
 
 func newDeliveryHistory(t *testing.T, dc converter.DataConverter, name string, header *commonpb.Header) *deliveryHistory {

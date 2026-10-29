@@ -3,6 +3,7 @@
 package workflow
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -59,10 +60,10 @@ func TestWorkflowTerminateSurfacesActivityFailure(t *testing.T) {
 
 func TestWorkflowCancelRetainsCancellation(t *testing.T) {
 	d, env := newRouterDefinition(t, nil)
-	cancelling := &terminationEnvironment{recordedEnvironment: env}
-	d.env = cancelling
+	canceling := &terminationEnvironment{recordedEnvironment: env}
+	d.env = canceling
 	require.NoError(t, d.executeProcessCancel(&process.CancelCmd{Target: pid.PID{UniqID: "target"}}, 1))
-	require.Equal(t, 1, cancelling.cancellations)
+	require.Equal(t, 1, canceling.cancellations)
 	require.Empty(t, env.activities)
 }
 
@@ -72,7 +73,8 @@ func TestTerminatedChildExitUsesExistingErrorKind(t *testing.T) {
 	require.NoError(t, d.executeProcessSpawn(&process.SpawnCmd{Start: &process.Start{Source: registry.NewID("test", "child")}}, 1))
 	recorded.childDone[0](nil, &temporal.TerminatedError{})
 	require.Len(t, d.childExits, 1)
-	rich := d.childExits[0].Error.(apierror.Rich)
+	var rich apierror.Rich
+	require.True(t, errors.As(d.childExits[0].Error, &rich))
 	require.Equal(t, apierror.Canceled, rich.Kind())
 	require.Equal(t, "workflow terminated", rich.Error())
 }
