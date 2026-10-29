@@ -239,6 +239,15 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		return
 	}
 
+	messages, err := propagator.ExtractMailboxFromHeader(d.dc, header)
+	if err != nil {
+		d.env.Complete(nil, fmt.Errorf("failed to restore continued mailbox: %w", err))
+		return
+	}
+	for _, message := range messages {
+		d.signals = append(d.signals, incomingSignal{From: message.Source, Name: message.Topic, Payloads: message.Payloads})
+	}
+
 	d.execCtx = execCtx
 	d.frameCtx = fc
 	keepFrame = true

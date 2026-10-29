@@ -274,3 +274,12 @@ func TestDataConverter_PayloadNewTranscoding(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestTerminalPayloadSurvivesContinuationEncoding(t *testing.T) {
+	dc := NewDataConverter(nil)
+	encoded, err := dc.ToPayload(payload.NewTerminal())
+	require.NoError(t, err)
+	var restored payload.Payload
+	require.NoError(t, dc.FromPayload(encoded, &restored))
+	require.True(t, payload.IsTerminal(restored))
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
+	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.uber.org/zap"
@@ -209,6 +210,20 @@ func (d *Definition) executeContinueAsNew() {
 	if err != nil {
 		d.env.Complete(nil, fmt.Errorf("upgrade: %w", err))
 		return
+	}
+	var messages []process.MailboxEnvelope
+	if mailbox, ok := d.proc.(process.UpgradeMailbox); ok {
+		messages = mailbox.ExportUpgradeMailbox()
+	}
+	for _, signal := range d.signals {
+		messages = append(messages, process.MailboxEnvelope{Source: signal.From, Topic: signal.Name, Payloads: signal.Payloads})
+	}
+	if len(messages) > 0 {
+		header, err = propagator.AddMailboxToHeader(d.dc, header, messages)
+		if err != nil {
+			d.env.Complete(nil, fmt.Errorf("upgrade: encode mailbox: %w", err))
+			return
+		}
 	}
 	continueErr := &bindings.ContinueAsNewError{
 		WorkflowType:  &bindings.WorkflowType{Name: workflowType},

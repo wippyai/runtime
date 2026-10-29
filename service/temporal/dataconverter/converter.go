@@ -189,6 +189,10 @@ func (c *DataConverter) toTemporalPayload(pValue payload.Payload) (*commonpb.Pay
 		return nil, fmt.Errorf("nil payload value")
 	}
 
+	if payload.IsTerminal(pValue) {
+		return &commonpb.Payload{Metadata: map[string][]byte{converter.MetadataEncoding: []byte(payload.Terminal)}}, nil
+	}
+
 	if pValue.Data() == nil {
 		return &commonpb.Payload{
 			Metadata: map[string][]byte{
@@ -252,6 +256,8 @@ func (c *DataConverter) fromTemporalPayload(p *commonpb.Payload) (payload.Payloa
 	}
 
 	switch enc {
+	case payload.Terminal:
+		return payload.NewTerminal(), nil
 	case converter.MetadataEncodingNil:
 		return payload.New(nil), nil
 	case converter.MetadataEncodingBinary:
