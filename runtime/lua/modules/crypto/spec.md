@@ -194,7 +194,7 @@ Creates and signs JWT token.
 
 **payload fields:**
 - Any claim fields (sub, iss, exp, iat, etc.)
-- `_header`: optional table for custom JWT header fields (e.g., {kid = "key-id"})
+- `_header`: optional table for custom JWT header fields (e.g., {kid = "key-id"}). `alg`, if set, must equal the `alg` argument
 
 **Returns:** `string, error` - JWT token string or nil + structured error
 
@@ -205,7 +205,9 @@ Creates and signs JWT token.
 | payload not table | errors.INVALID | no |
 | unsupported algorithm | errors.INVALID | no |
 | invalid RSA private key (RS256) | errors.INVALID | no |
-| invalid EC private key (ES256) | errors.INVALID | no |
+| invalid EC private key or not P-256 (ES256) | errors.INVALID | no |
+| `_header` not a table | errors.INVALID | no |
+| `_header.alg` differs from alg | errors.INVALID | no |
 | token signing fails | errors.INTERNAL | no |
 
 ### crypto.jwt.verify(token: string, key: string, alg?: string, require_exp?: boolean) → table, error
@@ -225,6 +227,7 @@ Verifies and decodes JWT token.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
+| unsupported algorithm | errors.INVALID | no |
 | token format invalid | errors.INTERNAL | no |
 | signature invalid | errors.INTERNAL | no |
 | algorithm mismatch | errors.INTERNAL | no |

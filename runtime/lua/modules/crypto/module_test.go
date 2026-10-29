@@ -858,6 +858,94 @@ func TestJWTEncodeUnknownAlgorithm(t *testing.T) {
 	}
 }
 
+func TestJWTES256WrongCurveKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.SetGlobal("P384", lua.LString(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})))
+
+	err = l.DoString(`
+		local _, err = crypto.jwt.encode({ exp = FUTURE_TIME }, P384, "ES256")
+		if err == nil then error("expected error for P-384 key") end
+		if err:kind() ~= "Invalid" then error("expected Invalid kind, got " .. tostring(err:kind())) end
+	`)
+	if err != nil {
+		t.Errorf("JWT ES256 wrong curve test failed: %v", err)
+	}
+}
+
+func TestJWTHeaderAlgMismatch(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local token, err = crypto.jwt.encode({ exp = FUTURE_TIME, _header = { alg = "none" } }, "secret")
+		if token ~= nil then error("expected no token for header alg mismatch") end
+		if err:kind() ~= "Invalid" then error("expected Invalid kind, got " .. tostring(err:kind())) end
+
+		local same, err = crypto.jwt.encode({ exp = FUTURE_TIME, _header = { alg = "HS256" } }, "secret")
+		if not same then error(err) end
+	`)
+	if err != nil {
+		t.Errorf("JWT header alg mismatch test failed: %v", err)
+	}
+}
+
+func TestJWTEmptyHeaderTable(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local token, err = crypto.jwt.encode({ sub = "u", exp = FUTURE_TIME, _header = {} }, "secret")
+		if not token then error(err) end
+		local claims, err = crypto.jwt.verify(token, "secret")
+		if not claims then error(err) end
+		if claims._header ~= nil then error("_header leaked into claims") end
+
+		local _, err = crypto.jwt.encode({ exp = FUTURE_TIME, _header = "kid" }, "secret")
+		if err == nil then error("expected error for non-table _header") end
+		if err:kind() ~= "Invalid" then error("expected Invalid kind, got " .. tostring(err:kind())) end
+	`)
+	if err != nil {
+		t.Errorf("JWT empty header test failed: %v", err)
+	}
+}
+
+func TestJWTVerifyUnknownAlgorithm(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local token, _ = crypto.jwt.encode({ exp = FUTURE_TIME }, "secret")
+		local _, err = crypto.jwt.verify(token, "secret", "none")
+		if err == nil then error("expected error for unknown algorithm") end
+		if err:kind() ~= "Invalid" then error("expected Invalid kind, got " .. tostring(err:kind())) end
+	`)
+	if err != nil {
+		t.Errorf("JWT verify unknown algorithm test failed: %v", err)
+	}
+}
+
 // Security hardening tests
 
 func TestRandomBytesMaxSizeLimit(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -482,12 +483,20 @@ func jwtEncode(l *lua.LState) int {
 	}
 
 	if headerValue, exists := payloadMap["_header"]; exists {
-		if headerMap, isMap := headerValue.(map[string]any); isMap {
-			for k, v := range headerMap {
-				token.Header[k] = v
+		headerMap, isMap := headerValue.(map[string]any)
+		if !isMap {
+			fields, isList := headerValue.([]any)
+			if !isList || len(fields) != 0 {
+				return invalidError(l, "_header must be a table")
 			}
-			delete(payloadMap, "_header")
 		}
+		if headerAlg, set := headerMap["alg"]; set && headerAlg != alg {
+			return invalidError(l, fmt.Sprintf("_header.alg %v does not match algorithm %s", headerAlg, alg))
+		}
+		for k, v := range headerMap {
+			token.Header[k] = v
+		}
+		delete(payloadMap, "_header")
 	}
 
 	claims := token.Claims.(jwt.MapClaims)
@@ -512,6 +521,9 @@ func jwtEncode(l *lua.LState) int {
 		if err != nil {
 			return invalidError(l, fmt.Sprintf("invalid EC private key: %v", err))
 		}
+		if privateKey.Curve != elliptic.P256() {
+			return invalidError(l, "invalid EC private key: ES256 requires a P-256 key")
+		}
 		tokenString, err = token.SignedString(privateKey)
 	default:
 		tokenString, err = token.SignedString([]byte(key))
@@ -531,6 +543,10 @@ func jwtVerify(l *lua.LState) int {
 	key := l.CheckString(2)
 	alg := l.OptString(3, "HS256")
 	requireExp := l.OptBool(4, true)
+
+	if getSigningMethod(alg) == nil {
+		return invalidError(l, fmt.Sprintf("unsupported algorithm: %s", alg))
+	}
 
 	parserOpts := []jwt.ParserOption{
 		jwt.WithValidMethods([]string{alg}),
