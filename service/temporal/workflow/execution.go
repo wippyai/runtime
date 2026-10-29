@@ -47,6 +47,7 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 					Data: pkg,
 				})
 			}
+			clear(d.signals)
 			d.signals = d.signals[:0]
 		}
 
@@ -71,6 +72,7 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 					},
 				})
 			}
+			clear(d.childExits)
 			d.childExits = d.childExits[:0]
 		}
 

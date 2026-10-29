@@ -239,11 +239,6 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			convertedErr = temporalerrors.FromTemporalError(err)
 		}
 
-		if len(d.childExits) >= maxChildExitQueueSize {
-			d.replayLog.Warn("child exit queue full, dropping event",
-				zap.String("child_pid", childPID.String()))
-			return
-		}
 		d.childExits = append(d.childExits, childExitEvent{
 			ChildPID: childPID,
 			Result:   resultPayload,

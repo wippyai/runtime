@@ -28,11 +28,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	maxSignalQueueSize    = 10000
-	maxChildExitQueueSize = 1000
-)
-
 // workflowTimeRef implements clock.TimeReference using Temporal's deterministic time.
 type workflowTimeRef struct {
 	env bindings.WorkflowEnvironment
