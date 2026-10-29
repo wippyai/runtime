@@ -3,6 +3,13 @@
 package crypto
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
+	"strings"
 	"testing"
 	"time"
 
@@ -747,6 +754,107 @@ func TestJWTAlgorithms(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("JWT algorithms test failed: %v", err)
+	}
+}
+
+func generateECKeyPEM(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+	pub := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+	return string(priv), string(pub)
+}
+
+func TestJWTES256(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	priv, pub := generateECKeyPEM(t)
+	_, otherPub := generateECKeyPEM(t)
+	l.SetGlobal("PRIV", lua.LString(priv))
+	l.SetGlobal("PUB", lua.LString(pub))
+	l.SetGlobal("OTHER_PUB", lua.LString(otherPub))
+
+	err := l.DoString(`
+		local payload = { sub = "client", exp = FUTURE_TIME, _header = { kid = "KEY123" } }
+		local token, err = crypto.jwt.encode(payload, PRIV, "ES256")
+		if not token then error(err) end
+
+		local claims, err = crypto.jwt.verify(token, PUB, "ES256")
+		if not claims then error(err) end
+		if claims.sub ~= "client" then error("unexpected sub") end
+
+		local _, err = crypto.jwt.verify(token, OTHER_PUB, "ES256")
+		if err == nil then error("expected error for wrong public key") end
+
+		TOKEN = token
+	`)
+	if err != nil {
+		t.Fatalf("JWT ES256 test failed: %v", err)
+	}
+
+	parts := strings.Split(string(l.GetGlobal("TOKEN").(lua.LString)), ".")
+	header, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(header), `"alg":"ES256"`) || !strings.Contains(string(header), `"kid":"KEY123"`) {
+		t.Errorf("unexpected header: %s", header)
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sig) != 64 {
+		t.Errorf("expected 64-byte R||S signature, got %d bytes", len(sig))
+	}
+}
+
+func TestJWTES256InvalidKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.jwt.encode({ exp = FUTURE_TIME }, "not a pem", "ES256")
+		if err == nil then error("expected error for invalid EC key") end
+		if err:kind() ~= "Invalid" then error("expected Invalid kind, got " .. tostring(err:kind())) end
+	`)
+	if err != nil {
+		t.Errorf("JWT ES256 invalid key test failed: %v", err)
+	}
+}
+
+func TestJWTEncodeUnknownAlgorithm(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local token, err = crypto.jwt.encode({ exp = FUTURE_TIME }, "secret", "ES999")
+		if token ~= nil then error("expected no token for unknown algorithm") end
+		if err == nil then error("expected error for unknown algorithm") end
+	`)
+	if err != nil {
+		t.Errorf("JWT unknown algorithm test failed: %v", err)
 	}
 }
 

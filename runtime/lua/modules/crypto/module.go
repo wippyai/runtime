@@ -5,6 +5,7 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -461,7 +462,11 @@ func jwtEncode(l *lua.LState) int {
 	key := l.CheckString(2)
 	alg := l.OptString(3, "HS256")
 
-	token := jwt.New(getSigningMethod(alg))
+	method := getSigningMethod(alg)
+	if method == nil {
+		return invalidError(l, fmt.Sprintf("unsupported algorithm: %s", alg))
+	}
+	token := jwt.New(method)
 
 	// A claim set is an object. An empty payload table may reach here as an
 	// empty list (an unhinted {} encodes as []), which is the empty claim set,
@@ -493,14 +498,22 @@ func jwtEncode(l *lua.LState) int {
 	var tokenString string
 	var err error
 
-	if alg == "RS256" {
+	switch alg {
+	case "RS256":
 		var privateKey *rsa.PrivateKey
 		privateKey, err = parsePrivateKey(key)
 		if err != nil {
 			return invalidError(l, fmt.Sprintf("invalid RSA private key: %v", err))
 		}
 		tokenString, err = token.SignedString(privateKey)
-	} else {
+	case "ES256":
+		var privateKey *ecdsa.PrivateKey
+		privateKey, err = jwt.ParseECPrivateKeyFromPEM([]byte(key))
+		if err != nil {
+			return invalidError(l, fmt.Sprintf("invalid EC private key: %v", err))
+		}
+		tokenString, err = token.SignedString(privateKey)
+	default:
 		tokenString, err = token.SignedString([]byte(key))
 	}
 
@@ -527,11 +540,14 @@ func jwtVerify(l *lua.LState) int {
 	}
 
 	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (any, error) {
-		if alg == "RS256" {
+		switch alg {
+		case "RS256":
 			return parsePublicKey(key)
+		case "ES256":
+			return jwt.ParseECPublicKeyFromPEM([]byte(key))
+		default:
+			return []byte(key), nil
 		}
-
-		return []byte(key), nil
 	}, parserOpts...)
 
 	if err != nil {
@@ -567,8 +583,10 @@ func getSigningMethod(alg string) jwt.SigningMethod {
 		return jwt.SigningMethodHS512
 	case "RS256":
 		return jwt.SigningMethodRS256
+	case "ES256":
+		return jwt.SigningMethodES256
 	default:
-		return jwt.SigningMethodHS256
+		return nil
 	}
 }
 

@@ -189,8 +189,8 @@ Creates and signs JWT token.
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | payload | table | yes | - | JWT claims |
-| key | string | yes | - | Signing key (secret for HMAC, PEM private key for RS256) |
-| alg | string | no | "HS256" | Algorithm: "HS256", "HS384", "HS512", "RS256" |
+| key | string | yes | - | Signing key (secret for HMAC, PEM private key for RS256 and ES256) |
+| alg | string | no | "HS256" | Algorithm: "HS256", "HS384", "HS512", "RS256", "ES256" |
 
 **payload fields:**
 - Any claim fields (sub, iss, exp, iat, etc.)
@@ -203,7 +203,9 @@ Creates and signs JWT token.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | payload not table | errors.INVALID | no |
+| unsupported algorithm | errors.INVALID | no |
 | invalid RSA private key (RS256) | errors.INVALID | no |
+| invalid EC private key (ES256) | errors.INVALID | no |
 | token signing fails | errors.INTERNAL | no |
 
 ### crypto.jwt.verify(token: string, key: string, alg?: string, require_exp?: boolean) → table, error
@@ -213,8 +215,8 @@ Verifies and decodes JWT token.
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | token | string | yes | - | JWT token to verify |
-| key | string | yes | - | Verification key (secret for HMAC, PEM public key for RS256) |
-| alg | string | no | "HS256" | Expected algorithm: "HS256", "HS384", "HS512", "RS256" |
+| key | string | yes | - | Verification key (secret for HMAC, PEM public key for RS256 and ES256) |
+| alg | string | no | "HS256" | Expected algorithm: "HS256", "HS384", "HS512", "RS256", "ES256" |
 | require_exp | boolean | no | true | Require exp claim and validate expiration |
 
 **Returns:** `table, error` - JWT claims as table or nil + structured error
@@ -229,6 +231,7 @@ Verifies and decodes JWT token.
 | token expired | errors.INTERNAL | no |
 | missing exp (when require_exp=true) | errors.INTERNAL | no |
 | invalid RSA public key (RS256) | errors.INTERNAL | no |
+| invalid EC public key (ES256) | errors.INTERNAL | no |
 
 ### crypto.pbkdf2(password: string, salt: string, iterations: integer, key_length: integer, hash?: string) → string, error
 
