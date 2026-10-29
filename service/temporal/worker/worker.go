@@ -280,6 +280,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 
 	// Register system activities
 	w.registerRelaySendActivity(runtimeState)
+	w.registerTerminateWorkflowActivity(runtimeState)
 
 	// Re-register all existing activities and workflows
 	for _, act := range w.activities {
@@ -543,6 +544,14 @@ func (w *Worker) registerRelaySendActivity(runtimeState *workerRuntime) {
 	runtimeState.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
 		Name: relaySendActivityName,
 	})
+}
+
+// registerTerminateWorkflowActivity keeps the client call outside deterministic
+// workflow execution. Temporal records its completion as an activity outcome.
+func (w *Worker) registerTerminateWorkflowActivity(runtimeState *workerRuntime) {
+	runtimeState.worker.RegisterActivityWithOptions(func(ctx context.Context, workflowID string) error {
+		return runtimeState.temporalClient.TerminateWorkflow(ctx, workflowID, "", "process.terminate")
+	}, activity.RegisterOptions{Name: api.TerminateWorkflowActivityName})
 }
 
 // createActivityHandler creates an activity handler that executes a function through the registry
