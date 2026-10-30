@@ -524,6 +524,12 @@ func jwtEncode(l *lua.LState) int {
 		if privateKey.Curve != elliptic.P256() {
 			return invalidError(l, "invalid EC private key: ES256 requires a P-256 key")
 		}
+		if workflow.IsDeterministic(l.Context()) {
+			l.Push(luaworkflow.NewYield(func() (any, error) {
+				return token.SignedString(privateKey)
+			}))
+			return -1
+		}
 		tokenString, err = token.SignedString(privateKey)
 	default:
 		tokenString, err = token.SignedString([]byte(key))

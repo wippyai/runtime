@@ -188,6 +188,8 @@ Creates and signs JWT token.
 
 ES256 requires a P-256 private key in SEC1 or PKCS#8 PEM format, including
 `.p8` keys. Its signature uses the JOSE 64-byte `R || S` encoding.
+In workflows, signing records the signature through the existing side-effect
+mechanism so replay reuses the original token.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
