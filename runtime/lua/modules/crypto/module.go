@@ -14,6 +14,7 @@ import (
 	"crypto/sha512"
 	"crypto/subtle"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -526,8 +527,16 @@ func jwtEncode(l *lua.LState) int {
 			return invalidError(l, "invalid EC private key: ES256 requires a P-256 key")
 		}
 		if workflow.IsDeterministic(l.Context()) {
+			signingString, err := token.SigningString()
+			if err != nil {
+				return internalError(l, err, "sign token")
+			}
 			l.Push(luaworkflow.NewYield(func() (any, error) {
-				return token.SignedString(privateKey)
+				signature, err := method.Sign(signingString, privateKey)
+				if err != nil {
+					return nil, err
+				}
+				return signingString + "." + base64.RawURLEncoding.EncodeToString(signature), nil
 			}))
 			return -1
 		}

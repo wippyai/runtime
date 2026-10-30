@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"math"
 	"testing"
 	"time"
 
@@ -107,6 +108,28 @@ func TestJWTES256WorkflowRecordsSignature(t *testing.T) {
 		if len(values) != 2 || values[0] != lua.LString(token) || values[1] != lua.LNil {
 			t.Fatalf("recorded signature changed when resumed: %v", values)
 		}
+	}
+}
+
+func TestJWTES256WorkflowRejectsInvalidClaimsBeforeYield(t *testing.T) {
+	l := newJWTTestState(t)
+	ctx, frame := ctxapi.OpenFrameContext(t.Context())
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(frame) })
+	if err := workflowapi.SetDeterministic(ctx); err != nil {
+		t.Fatal(err)
+	}
+	l.SetContext(ctx)
+	private, _ := generateECKeyPEM(t)
+	claims := l.NewTable()
+	claims.RawSetString("exp", lua.LNumber(math.Inf(1)))
+	l.Push(claims)
+	l.Push(lua.LString(private))
+	l.Push(lua.LString("ES256"))
+	if result := jwtEncode(l); result != 2 {
+		t.Fatalf("invalid claims must fail before recording a side effect, got %d", result)
+	}
+	if l.Get(-2) != lua.LNil || l.Get(-1) == lua.LNil {
+		t.Fatal("expected nil token and a structured signing error")
 	}
 }
 
