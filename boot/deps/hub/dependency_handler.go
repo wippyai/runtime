@@ -291,7 +291,7 @@ func (h *DependencyHandler) expand(
 	}
 	// Graph-less historical restoration does not prove the new batch policy.
 	// Only fresh authored applies (whose replay context is empty) record it.
-	if len(regapi.DependencyChangesFromContext(ctx)) > 0 {
+	if hasDependencyReplayChanges(ctx) {
 		authoredChanges = nil
 	}
 

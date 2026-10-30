@@ -29,9 +29,11 @@ const (
 // Tables names the already-managed history and schema-ledger tables for one
 // durable backend.
 type Tables struct {
-	ChangeSets    string
-	SchemaVersion string
-	UpdateHistory string
+	Versions          string
+	ReplayCheckpoints string
+	ChangeSets        string
+	SchemaVersion     string
+	UpdateHistory     string
 }
 
 // RewriteEntryMetadata rewrites every persisted changeset in one transaction.
@@ -104,6 +106,7 @@ func RewriteEntryMetadata(
 
 	// #nosec G202 -- table names are fixed by the backend constructor, not input.
 	updateQuery := "UPDATE " + tables.ChangeSets + " SET data = " + parameter(1) + " WHERE version_id = " + parameter(2)
+	changedHistory := false
 	for _, item := range stored {
 		data, changed, err := rewriteChangeSet(item.data, handle, baselineMetadata)
 		if err != nil {
@@ -112,10 +115,22 @@ func RewriteEntryMetadata(
 		if !changed {
 			continue
 		}
+		changedHistory = true
 		if _, err := tx.ExecContext(ctx, updateQuery, data, item.versionID); err != nil {
 			return fmt.Errorf("store registry changeset %d: %w", item.versionID, err)
 		}
 	}
+	if changedHistory {
+		// #nosec G202 -- table names are fixed by the validated backend constructor.
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+tables.ReplayCheckpoints); err != nil {
+			return fmt.Errorf("invalidate replay checkpoints: %w", err)
+		}
+		// #nosec G202 -- table names are fixed by the validated backend constructor.
+		if _, err := tx.ExecContext(ctx, "UPDATE "+tables.Versions+" SET lineage_digest = NULL"); err != nil {
+			return fmt.Errorf("invalidate replay bindings: %w", err)
+		}
+	}
+
 	if err := writeVersion(ctx, tx, tables, parameter, exists, current); err != nil {
 		return err
 	}

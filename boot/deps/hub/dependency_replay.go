@@ -83,68 +83,76 @@ type ownedDependencyChange struct {
 // ownedDependencyChanges returns the final effective authored edits, shared by
 // exact artifact restore and deployment refresh. It never scans history again.
 func (h *DependencyHandler) ownedDependencyChanges(ctx context.Context, resolution *regapi.DependencyResolution, transcoder payload.Transcoder) (map[regapi.ID]ownedDependencyChange, error) {
-	changes := regapi.DependencyChangesFromContext(ctx)
-	if len(changes) == 0 {
-		return nil, nil
+	replay, err := regapi.DependencyReplayState(ctx, transcoder)
+	if err != nil {
+		return nil, err
 	}
-	lastOwnerSelection := make(map[string]int)
-	for i, transaction := range changes {
-		for _, operation := range transaction {
-			if operation.Entry.Kind != regapi.NamespaceDependency {
-				continue
-			}
-			definition, err := decodeDependency(ctx, transcoder, operation.Entry)
-			if err != nil {
-				return nil, err
-			}
-			if h.isDeploymentRoot(definition.Component) {
-				lastOwnerSelection[definition.Component] = i
-			}
-		}
+	return h.ownedDependencyReplayState(ctx, replay, resolution, transcoder)
+}
+
+// ownedDependencyReplayState projects compact replay evidence into the owned
+// authored edits that survive the final selection of a deployment root.
+func (h *DependencyHandler) ownedDependencyReplayState(ctx context.Context, replay *regapi.ReplayState, resolution *regapi.DependencyResolution, transcoder payload.Transcoder) (map[regapi.ID]ownedDependencyChange, error) {
+	baseline, _ := regapi.DependencyBaselineFromContext(ctx)
+	selections, err := replay.DependencySelectionsWithBaseline(baseline, transcoder)
+	if err != nil {
+		return nil, err
 	}
 	overrides := make(map[regapi.ID]ownedDependencyChange)
-	for i, transaction := range changes {
-		for _, operation := range transaction {
-			owner := entryModule(operation.Entry)
-			if !h.isDeploymentRoot(owner) {
-				continue
-			}
-			last, selected := lastOwnerSelection[owner]
-			if selected && i < last {
-				continue
-			}
-			overrides[operation.Entry.ID] = ownedDependencyChange{Operation: operation, sameTransaction: selected && i == last}
+	for id, recorded := range replay.LastDependencyOperations(baseline) {
+		owner := entryModule(recorded.Entry)
+		if !h.isDeploymentRoot(owner) {
+			continue
+		}
+		selection, selected := selections[owner]
+		if selected && recorded.Transaction < selection.Transaction {
+			continue
+		}
+		overrides[id] = ownedDependencyChange{
+			Operation:       recorded.Operation,
+			sameTransaction: selected && recorded.Transaction == selection.Transaction,
 		}
 	}
+	return h.filterOwnedDependencyChanges(ctx, overrides, resolution, transcoder)
+}
+
+func (h *DependencyHandler) filterOwnedDependencyChanges(ctx context.Context, overrides map[regapi.ID]ownedDependencyChange, resolution *regapi.DependencyResolution, transcoder payload.Transcoder) (map[regapi.ID]ownedDependencyChange, error) {
 	if len(overrides) == 0 {
 		return nil, nil
 	}
-	// The saved partition also tells which edits survived an owner update in
-	// the same transaction. The journal is dependency-sorted, not request-ordered.
-	if resolution != nil {
-		roots := make(map[string]regapi.DependencyRoot, len(resolution.Roots)+len(resolution.References))
-		for _, root := range resolution.Roots {
-			roots[root.ID] = root
-		}
-		for _, reference := range resolution.References {
-			roots[reference.ID] = reference
-		}
-		for id, operation := range overrides {
-			root, recorded := roots[id.String()]
-			if operation.Kind == regapi.EntryDelete || operation.Entry.Kind != regapi.NamespaceDependency {
-				if recorded {
-					delete(overrides, id)
-				}
-				continue
-			}
-			definition, err := decodeDependency(ctx, transcoder, operation.Entry)
-			if err != nil {
-				return nil, err
-			}
-			if !recorded || definition.Component != root.Component || definition.Version != root.Version {
+	if resolution == nil {
+		return overrides, nil
+	}
+	roots := make(map[string]regapi.DependencyRoot, len(resolution.Roots)+len(resolution.References))
+	for _, root := range resolution.Roots {
+		roots[root.ID] = root
+	}
+	for _, reference := range resolution.References {
+		roots[reference.ID] = reference
+	}
+	for id, operation := range overrides {
+		root, recorded := roots[id.String()]
+		if operation.Kind == regapi.EntryDelete || operation.Entry.Kind != regapi.NamespaceDependency {
+			if recorded {
 				delete(overrides, id)
 			}
+			continue
+		}
+		definition, err := decodeDependency(ctx, transcoder, operation.Entry)
+		if err != nil {
+			return nil, err
+		}
+		if !recorded || definition.Component != root.Component || definition.Version != root.Version {
+			delete(overrides, id)
 		}
 	}
 	return overrides, nil
+}
+
+func hasDependencyReplayChanges(ctx context.Context) bool {
+	if replay, ok := regapi.DependencyReplayStateFromContext(ctx); ok {
+		baseline, _ := regapi.DependencyBaselineFromContext(ctx)
+		return len(replay.LastDependencyOperations(baseline)) > 0
+	}
+	return len(regapi.DependencyChangesFromContext(ctx)) > 0
 }
