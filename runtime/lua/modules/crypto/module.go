@@ -560,7 +560,14 @@ func jwtVerify(l *lua.LState) int {
 		case "RS256":
 			return parsePublicKey(key)
 		case "ES256":
-			return jwt.ParseECPublicKeyFromPEM([]byte(key))
+			publicKey, err := jwt.ParseECPublicKeyFromPEM([]byte(key))
+			if err != nil {
+				return nil, err
+			}
+			if publicKey.Curve != elliptic.P256() {
+				return nil, fmt.Errorf("%w: ES256 requires a P-256 public key", jwt.ErrInvalidKey)
+			}
+			return publicKey, nil
 		default:
 			return []byte(key), nil
 		}

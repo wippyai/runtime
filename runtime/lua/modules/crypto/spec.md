@@ -186,6 +186,9 @@ Decrypts ChaCha20-Poly1305 encrypted data.
 
 Creates and signs JWT token.
 
+ES256 requires a P-256 private key in SEC1 or PKCS#8 PEM format, including
+`.p8` keys. Its signature uses the JOSE 64-byte `R || S` encoding.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | payload | table | yes | - | JWT claims |
@@ -193,6 +196,7 @@ Creates and signs JWT token.
 | alg | string | no | "HS256" | Algorithm: "HS256", "HS384", "HS512", "RS256", "ES256" |
 
 **payload fields:**
+
 - Any claim fields (sub, iss, exp, iat, etc.)
 - `_header`: optional table for custom JWT header fields (e.g., {kid = "key-id"}). `alg`, if set, must equal the `alg` argument
 
@@ -214,12 +218,15 @@ Creates and signs JWT token.
 
 Verifies and decodes JWT token.
 
+ES256 requires a P-256 public key. The token's header algorithm must match the
+expected algorithm.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | token | string | yes | - | JWT token to verify |
 | key | string | yes | - | Verification key (secret for HMAC, PEM public key for RS256 and ES256) |
 | alg | string | no | "HS256" | Expected algorithm: "HS256", "HS384", "HS512", "RS256", "ES256" |
-| require_exp | boolean | no | true | Require exp claim and validate expiration |
+| require_exp | boolean | no | true | Require exp claim; any supplied expiration is always validated |
 
 **Returns:** `table, error` - JWT claims as table or nil + structured error
 
@@ -234,7 +241,7 @@ Verifies and decodes JWT token.
 | token expired | errors.INTERNAL | no |
 | missing exp (when require_exp=true) | errors.INTERNAL | no |
 | invalid RSA public key (RS256) | errors.INTERNAL | no |
-| invalid EC public key (ES256) | errors.INTERNAL | no |
+| invalid EC public key or not P-256 (ES256) | errors.INTERNAL | no |
 
 ### crypto.pbkdf2(password: string, salt: string, iterations: integer, key_length: integer, hash?: string) → string, error
 
