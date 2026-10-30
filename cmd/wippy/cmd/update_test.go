@@ -20,8 +20,8 @@ import (
 
 func TestLockCommandDirectoryPrecedence(t *testing.T) {
 	for _, command := range []struct {
-		name string
 		run  func(*cobra.Command, []string) error
+		name string
 	}{
 		{name: "update", run: runUpdate},
 		{name: "init", run: runInit},
@@ -128,6 +128,106 @@ func TestLockCommandDirectoryPrecedence(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestLockCommandsUseSelectedLockFile(t *testing.T) {
+	for _, command := range []struct {
+		run  func(*cobra.Command, []string) error
+		name string
+	}{
+		{run: runInit, name: "init"},
+		{run: runUpdate, name: "update"},
+	} {
+		t.Run(command.name, func(t *testing.T) {
+			for _, existing := range []bool{false, true} {
+				name := "new selected lock"
+				if existing {
+					name = "existing selected lock"
+				}
+				t.Run(name, func(t *testing.T) {
+					t.Chdir(t.TempDir())
+					setTestConfigFiles(t)
+					unselected, err := lock.New(lock.DefaultFilename)
+					require.NoError(t, err)
+					unselected.SetDirectories(lock.Directories{Modules: "unselected-modules", Src: "unselected-src"})
+					require.NoError(t, unselected.Write())
+					before, err := os.ReadFile(lock.DefaultFilename)
+					require.NoError(t, err)
+					want := lock.Directories{Modules: "manifest-modules", Src: "."}
+					manifest := "directories: {modules: manifest-modules, src: .}\n"
+					const selectedPath = "selected.lock"
+					if existing {
+						want = lock.Directories{Modules: "selected-modules", Src: "."}
+						selected, err := lock.New(selectedPath)
+						require.NoError(t, err)
+						selected.SetDirectories(want)
+						require.NoError(t, selected.Write())
+						manifest = "[invalid yaml"
+					}
+					require.NoError(t, os.WriteFile("wippy.yaml", []byte(manifest), 0o600))
+					cmd := hostWorkspaceUpdateCommand(t, "http://127.0.0.1:1")
+					require.NoError(t, cmd.Flags().Set("lock-file", selectedPath))
+					require.NoError(t, command.run(cmd, nil))
+					selected, err := lock.New(selectedPath)
+					require.NoError(t, err)
+					require.Equal(t, want, selected.GetDirectories())
+					after, err := os.ReadFile(lock.DefaultFilename)
+					require.NoError(t, err)
+					require.Equal(t, before, after, "the unselected lock must remain untouched")
+				})
+			}
+		})
+	}
+}
+
+func TestLockCommandsRejectMalformedManifestBeforeWriting(t *testing.T) {
+	for _, command := range []struct {
+		run  func(*cobra.Command, []string) error
+		name string
+	}{
+		{run: runInit, name: "init"},
+		{run: runUpdate, name: "update"},
+	} {
+		t.Run(command.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			setTestConfigFiles(t)
+			require.NoError(t, os.WriteFile("wippy.yaml", []byte("[invalid yaml"), 0o600))
+			cmd := hostWorkspaceUpdateCommand(t, "http://127.0.0.1:1")
+			require.ErrorContains(t, command.run(cmd, nil), "failed to parse wippy.yaml")
+			require.NoFileExists(t, lock.DefaultFilename)
+			// A corrected manifest must work immediately, including release of
+			// the workspace guards acquired by the failed update.
+			require.NoError(t, os.WriteFile("wippy.yaml", []byte("directories: {src: .}\n"), 0o600))
+			require.NoError(t, command.run(cmd, nil))
+			require.FileExists(t, lock.DefaultFilename)
+		})
+	}
+}
+
+func TestInitPreservesExistingLockContents(t *testing.T) {
+	t.Chdir(t.TempDir())
+	setTestConfigFiles(t)
+	require.NoError(t, os.MkdirAll("local/lib", 0o755))
+	require.NoError(t, os.Mkdir("app", 0o755))
+	existing, err := lock.New(lock.DefaultFilename)
+	require.NoError(t, err)
+	existing.SetDirectories(lock.Directories{Modules: "packages", Src: "app"})
+	existing.SetModule(lock.Module{Name: "acme/app", Version: "1.0.0", Root: true})
+	existing.SetModule(lock.Module{Name: "acme/lib", Version: "2.0.0", Hash: "test-digest"})
+	existing.SetReplacement(lock.Replacement{From: "acme/lib", To: "local/lib"})
+	existing.SetOptions(lock.Options{UnpackModules: true})
+	require.NoError(t, lock.Validate(existing))
+	require.NoError(t, existing.Write())
+	before, err := os.ReadFile(lock.DefaultFilename)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile("wippy.yaml", []byte("directories: {src: new-src, modules: new-modules}\n"), 0o600))
+	cmd := hostWorkspaceUpdateCommand(t, "http://127.0.0.1:1")
+	for range 2 {
+		require.NoError(t, runInit(cmd, nil))
+		after, err := os.ReadFile(lock.DefaultFilename)
+		require.NoError(t, err)
+		require.Equal(t, before, after, "init must retain the selected graph, options, replacements and directories")
 	}
 }
 
