@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 	bootapi "github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
@@ -16,6 +17,132 @@ import (
 	entryloader "github.com/wippyai/runtime/cmd/internal/entries"
 	"go.uber.org/zap"
 )
+
+func TestLockCommandDirectoryPrecedence(t *testing.T) {
+	for _, command := range []struct {
+		name string
+		run  func(*cobra.Command, []string) error
+	}{
+		{name: "update", run: runUpdate},
+		{name: "init", run: runInit},
+	} {
+		t.Run(command.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name     string
+				manifest string
+				locked   *lock.Directories
+				flags    map[string]string
+				want     lock.Directories
+			}{
+				{
+					name: "defaults without manifest",
+					want: lock.Directories{Modules: ".wippy", Src: "./src"},
+				},
+				{
+					name:     "manifest source root",
+					manifest: "directories: {modules: .wippy, src: .}\n",
+					want:     lock.Directories{Modules: ".wippy", Src: "."},
+				},
+				{
+					name:     "manifest modules directory",
+					manifest: "directories: {modules: packages}\n",
+					want:     lock.Directories{Modules: "packages", Src: "./src"},
+				},
+				{
+					name:     "manifest source directory",
+					manifest: "directories: {src: app}\n",
+					want:     lock.Directories{Modules: ".wippy", Src: "app"},
+				},
+				{
+					name:     "manifest without directories",
+					manifest: "organization: acme\nmodule: app\n",
+					want:     lock.Directories{Modules: ".wippy", Src: "./src"},
+				},
+				{
+					name:     "empty manifest directories",
+					manifest: "directories: {modules: '', src: ''}\n",
+					want:     lock.Directories{Modules: ".wippy", Src: "./src"},
+				},
+				{
+					name:     "lock overrides manifest",
+					manifest: "directories: {modules: packages, src: .}\n",
+					locked:   &lock.Directories{Modules: "locked-modules", Src: "locked-src"},
+					want:     lock.Directories{Modules: "locked-modules", Src: "locked-src"},
+				},
+				{
+					name:     "lock does not consult manifest",
+					manifest: "[invalid yaml",
+					locked:   &lock.Directories{Modules: "locked-modules", Src: "locked-src"},
+					want:     lock.Directories{Modules: "locked-modules", Src: "locked-src"},
+				},
+				{
+					name:     "flags override manifest",
+					manifest: "directories: {modules: packages, src: .}\n",
+					flags:    map[string]string{"src-dir": "./src", "modules-dir": ".wippy"},
+					want:     lock.Directories{Modules: ".wippy", Src: "./src"},
+				},
+				{
+					name:     "flags override lock and manifest",
+					manifest: "directories: {modules: packages, src: .}\n",
+					locked:   &lock.Directories{Modules: "locked-modules", Src: "locked-src"},
+					flags:    map[string]string{"src-dir": "flag-src", "modules-dir": "flag-modules"},
+					want:     lock.Directories{Modules: "flag-modules", Src: "flag-src"},
+				},
+				{
+					name:     "source flag preserves manifest modules",
+					manifest: "directories: {modules: packages, src: .}\n",
+					flags:    map[string]string{"src-dir": "flag-src"},
+					want:     lock.Directories{Modules: "packages", Src: "flag-src"},
+				},
+				{
+					name:     "modules flag preserves locked source",
+					manifest: "directories: {modules: packages, src: .}\n",
+					locked:   &lock.Directories{Modules: "locked-modules", Src: "locked-src"},
+					flags:    map[string]string{"modules-dir": "flag-modules"},
+					want:     lock.Directories{Modules: "flag-modules", Src: "locked-src"},
+				},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Chdir(t.TempDir())
+					setTestConfigFiles(t)
+					for _, dir := range []string{"src", "app", "locked-src", "flag-src"} {
+						require.NoError(t, os.Mkdir(dir, 0o755))
+					}
+					if tc.manifest != "" {
+						require.NoError(t, os.WriteFile("wippy.yaml", []byte(tc.manifest), 0o600))
+					}
+					if tc.locked != nil {
+						locked, err := lock.New(lock.DefaultFilename)
+						require.NoError(t, err)
+						locked.SetDirectories(*tc.locked)
+						require.NoError(t, locked.Write())
+					}
+					cmd := hostWorkspaceUpdateCommand(t, "http://127.0.0.1:1")
+					for name, value := range tc.flags {
+						require.NoError(t, cmd.Flags().Set(name, value))
+					}
+					require.NoError(t, command.run(cmd, nil))
+					locked, err := lock.New(lock.DefaultFilename)
+					require.NoError(t, err)
+					require.Equal(t, tc.want, locked.GetDirectories())
+				})
+			}
+		})
+	}
+}
+
+func TestUpdateManifestModulesDirectoryInUseLeavesLockAbsent(t *testing.T) {
+	t.Chdir(t.TempDir())
+	setTestConfigFiles(t)
+	require.NoError(t, os.WriteFile("wippy.yaml", []byte("directories: {modules: packages, src: .}\n"), 0o600))
+	held, err := lock.ShareWorkspace(lock.RuntimeLockPath(".", "packages"), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, held.Release()) })
+
+	err = runUpdate(hostWorkspaceUpdateCommand(t, "http://127.0.0.1:1"), nil)
+	require.ErrorContains(t, err, "a Wippy runtime is running from this workspace")
+	require.NoFileExists(t, lock.DefaultFilename)
+}
 
 func TestConvertResolvedToLock_UsesProvidedPath(t *testing.T) {
 	tmpDir := t.TempDir()
