@@ -23,6 +23,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	lua "github.com/wippyai/go-lua"
+	clockapi "github.com/wippyai/runtime/api/clock"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/workflow"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -559,6 +560,14 @@ func jwtVerify(l *lua.LState) int {
 	}
 	if requireExp {
 		parserOpts = append(parserOpts, jwt.WithExpirationRequired())
+	}
+	// Existing algorithms retain their workflow time semantics for replay compatibility.
+	if alg == "ES256" && workflow.IsDeterministic(l.Context()) {
+		reference := clockapi.GetTimeReference(l.Context())
+		if reference == nil {
+			return internalErrorMsg(l, "workflow time reference is unavailable")
+		}
+		parserOpts = append(parserOpts, jwt.WithTimeFunc(reference.Now))
 	}
 
 	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (any, error) {

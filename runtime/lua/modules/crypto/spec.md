@@ -222,6 +222,8 @@ Verifies and decodes JWT token.
 
 ES256 requires a P-256 public key. The token's header algorithm must match the
 expected algorithm.
+In workflows, ES256 time claims are checked against workflow time so replay
+preserves the original validation decision.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
