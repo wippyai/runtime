@@ -61,10 +61,6 @@ func (d *Definition) handleSignal(name string, input *commonpb.Payloads, header 
 	if err := d.verifyRelaySignal(name, header); err != nil {
 		return err
 	}
-	if len(d.signals) >= maxSignalQueueSize {
-		d.replayLog.Warn("signal queue full, dropping signal", zap.String("name", name))
-		return nil
-	}
 	var payloads payload.Payloads
 	if input != nil {
 		if err := d.dc.FromPayloads(input, &payloads); err != nil {
@@ -87,7 +83,7 @@ func (d *Definition) handleSignal(name string, input *commonpb.Payloads, header 
 		}
 	}
 
-	d.signals = append(d.signals, incomingSignal{Name: name, Payloads: payloads, From: from})
+	d.queueSignal(incomingSignal{Name: name, Payloads: payloads, From: from})
 	return nil
 }
 

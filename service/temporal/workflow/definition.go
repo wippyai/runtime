@@ -28,11 +28,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	maxSignalQueueSize    = 10000
-	maxChildExitQueueSize = 1000
-)
-
 // workflowTimeRef implements clock.TimeReference using Temporal's deterministic time.
 type workflowTimeRef struct {
 	env bindings.WorkflowEnvironment
@@ -109,6 +104,9 @@ type Definition struct {
 	workerID   string
 	signals    []incomingSignal
 	childExits []childExitEvent
+	// Indices of signals the previous runtime discarded. Retaining them until
+	// the task starts lets the SDK record the delivery decision in command order.
+	legacySignalDrops []int
 	// asyncActivities tracks in-flight funcs.async activity calls by future topic.
 	asyncActivities map[string]bindings.ActivityID
 	// pendingCompletions buffers async yield completions raised from Temporal callbacks.
@@ -239,9 +237,17 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		method = meta.Method
 	}
 
+	messages, err := propagator.ExtractMailboxFromHeader(d.dc, header, expectedAudience, workflowInfo.FirstRunID, securityKeys...)
+	if err != nil {
+		d.env.Complete(nil, fmt.Errorf("failed to restore continued mailbox: %w", err))
+		return
+	}
 	if err := d.proc.Init(execCtx, method, payloads); err != nil {
 		d.env.Complete(nil, fmt.Errorf("failed to start workflow: %w", err))
 		return
+	}
+	for _, message := range messages {
+		d.signals = append(d.signals, incomingSignal{From: message.Source, Name: message.Topic, Payloads: message.Payloads})
 	}
 
 	d.execCtx = execCtx
