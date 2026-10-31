@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/boot/components/service"
 	"github.com/wippyai/runtime/boot/components/store"
 	"github.com/wippyai/runtime/boot/components/system"
+	"github.com/wippyai/runtime/boot/deps/hub"
 )
 
 // StandardComponents returns the default component set for wippy runtime.
@@ -25,4 +26,22 @@ func StandardComponents() []boot.Component {
 	components = append(components, lua.All()...)
 	components = append(components, wasmcomponents.All()...)
 	return components
+}
+
+func selectedComponentsWithRegistry(registryURL string) ([]boot.Component, *hub.Client, error) {
+	components := selectedComponents()
+	if registryURL == "" {
+		return components, nil, nil
+	}
+	client, err := hub.NewClientFromAuth(registryURL)
+	if err != nil {
+		return nil, nil, NewCreateHubClientError(err)
+	}
+	for i, component := range components {
+		if component.Name() == core.RegistryName {
+			components[i] = core.RegistryWithClient(client)
+			break
+		}
+	}
+	return components, client, nil
 }

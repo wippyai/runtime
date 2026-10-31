@@ -5,6 +5,8 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -12,6 +14,7 @@ import (
 	"crypto/sha512"
 	"crypto/subtle"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -21,6 +24,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	lua "github.com/wippyai/go-lua"
+	clockapi "github.com/wippyai/runtime/api/clock"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/workflow"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -461,7 +465,11 @@ func jwtEncode(l *lua.LState) int {
 	key := l.CheckString(2)
 	alg := l.OptString(3, "HS256")
 
-	token := jwt.New(getSigningMethod(alg))
+	method := getSigningMethod(alg)
+	if method == nil {
+		return invalidError(l, fmt.Sprintf("unsupported algorithm: %s", alg))
+	}
+	token := jwt.New(method)
 
 	// A claim set is an object. An empty payload table may reach here as an
 	// empty list (an unhinted {} encodes as []), which is the empty claim set,
@@ -477,12 +485,20 @@ func jwtEncode(l *lua.LState) int {
 	}
 
 	if headerValue, exists := payloadMap["_header"]; exists {
-		if headerMap, isMap := headerValue.(map[string]any); isMap {
-			for k, v := range headerMap {
-				token.Header[k] = v
+		headerMap, isMap := headerValue.(map[string]any)
+		if !isMap {
+			fields, isList := headerValue.([]any)
+			if !isList || len(fields) != 0 {
+				return invalidError(l, "_header must be a table")
 			}
-			delete(payloadMap, "_header")
 		}
+		if headerAlg, set := headerMap["alg"]; set && headerAlg != alg {
+			return invalidError(l, fmt.Sprintf("_header.alg %v does not match algorithm %s", headerAlg, alg))
+		}
+		for k, v := range headerMap {
+			token.Header[k] = v
+		}
+		delete(payloadMap, "_header")
 	}
 
 	claims := token.Claims.(jwt.MapClaims)
@@ -493,14 +509,39 @@ func jwtEncode(l *lua.LState) int {
 	var tokenString string
 	var err error
 
-	if alg == "RS256" {
+	switch alg {
+	case "RS256":
 		var privateKey *rsa.PrivateKey
 		privateKey, err = parsePrivateKey(key)
 		if err != nil {
 			return invalidError(l, fmt.Sprintf("invalid RSA private key: %v", err))
 		}
 		tokenString, err = token.SignedString(privateKey)
-	} else {
+	case "ES256":
+		var privateKey *ecdsa.PrivateKey
+		privateKey, err = jwt.ParseECPrivateKeyFromPEM([]byte(key))
+		if err != nil {
+			return invalidError(l, fmt.Sprintf("invalid EC private key: %v", err))
+		}
+		if privateKey.Curve != elliptic.P256() {
+			return invalidError(l, "invalid EC private key: ES256 requires a P-256 key")
+		}
+		if workflow.IsDeterministic(l.Context()) {
+			signingString, err := token.SigningString()
+			if err != nil {
+				return internalError(l, err, "sign token")
+			}
+			l.Push(luaworkflow.NewYield(func() (any, error) {
+				signature, err := method.Sign(signingString, privateKey)
+				if err != nil {
+					return nil, err
+				}
+				return signingString + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+			}))
+			return -1
+		}
+		tokenString, err = token.SignedString(privateKey)
+	default:
 		tokenString, err = token.SignedString([]byte(key))
 	}
 
@@ -519,19 +560,41 @@ func jwtVerify(l *lua.LState) int {
 	alg := l.OptString(3, "HS256")
 	requireExp := l.OptBool(4, true)
 
+	if getSigningMethod(alg) == nil {
+		return invalidError(l, fmt.Sprintf("unsupported algorithm: %s", alg))
+	}
+
 	parserOpts := []jwt.ParserOption{
 		jwt.WithValidMethods([]string{alg}),
 	}
 	if requireExp {
 		parserOpts = append(parserOpts, jwt.WithExpirationRequired())
 	}
+	// Existing algorithms retain their workflow time semantics for replay compatibility.
+	if alg == "ES256" && workflow.IsDeterministic(l.Context()) {
+		reference := clockapi.GetTimeReference(l.Context())
+		if reference == nil {
+			return internalErrorMsg(l, "workflow time reference is unavailable")
+		}
+		parserOpts = append(parserOpts, jwt.WithTimeFunc(reference.Now))
+	}
 
 	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (any, error) {
-		if alg == "RS256" {
+		switch alg {
+		case "RS256":
 			return parsePublicKey(key)
+		case "ES256":
+			publicKey, err := jwt.ParseECPublicKeyFromPEM([]byte(key))
+			if err != nil {
+				return nil, err
+			}
+			if publicKey.Curve != elliptic.P256() {
+				return nil, fmt.Errorf("%w: ES256 requires a P-256 public key", jwt.ErrInvalidKey)
+			}
+			return publicKey, nil
+		default:
+			return []byte(key), nil
 		}
-
-		return []byte(key), nil
 	}, parserOpts...)
 
 	if err != nil {
@@ -567,8 +630,10 @@ func getSigningMethod(alg string) jwt.SigningMethod {
 		return jwt.SigningMethodHS512
 	case "RS256":
 		return jwt.SigningMethodRS256
+	case "ES256":
+		return jwt.SigningMethodES256
 	default:
-		return jwt.SigningMethodHS256
+		return nil
 	}
 }
 

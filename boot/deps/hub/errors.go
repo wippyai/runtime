@@ -231,7 +231,6 @@ func NewDependencyResolutionError(cause error) apierror.Error {
 func NewDependencyOfflineError(operation, module string) apierror.Error {
 	details := map[string]any{
 		"operation": operation,
-		"hint":      "run an explicit wippy update/install while online, then retry startup",
 	}
 	if module != "" {
 		details["module"] = module

@@ -89,7 +89,7 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 
 	client := opts.Hub
 	if client == nil {
-		hubClient, err := newHubClientFromAuth()
+		hubClient, err := NewClientFromAuth("")
 		if err != nil {
 			return nil, err
 		}
@@ -149,6 +149,14 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 	}, nil
 }
 
+// Close releases the handler's background cache resources after its operations
+// have stopped. It is safe to call more than once or on a nil handler.
+func (h *DependencyHandler) Close() {
+	if h != nil && h.manifestCache != nil {
+		h.manifestCache.Close()
+	}
+}
+
 // PrepareRestore loads the deployment baseline and prefetches immutable artifacts
 // recorded for the current registry version. Historical local replacements are
 // validated during reconciliation against the final declarations. Version
@@ -202,9 +210,7 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 		// it must not turn that development shape into a persisted Hub root.
 		if h.lock != nil {
 			h.deployment = nil
-			if offlineStartup(ctx) {
-				effective = withoutRepinnedModules(effective, resolution.Modules, lockPins(h.lock))
-			}
+			effective = withoutRepinnedModules(effective, resolution.Modules, lockPins(h.lock))
 			return h.prepareRecordedArtifacts(ctx, effective)
 		}
 		return NewDeploymentBaselineError("persisted deployment baseline is unavailable", "start once with its lock file")
@@ -220,7 +226,7 @@ func (h *DependencyHandler) PrepareRestore(ctx context.Context, history regapi.H
 	if err := h.prepareRestoreSources(ctx, baseline); err != nil {
 		return err
 	}
-	if offlineStartup(ctx) && resolution.Deployment != nil {
+	if resolution.Deployment != nil {
 		effective = withoutRepinnedModules(effective, resolution.Deployment.Modules, deployment.Modules)
 	}
 	return h.prepareRecordedArtifacts(ctx, effective)
@@ -1277,12 +1283,17 @@ func formatResolutionErrors(errs []ResolutionError) string {
 	}
 	return msg
 }
-func newHubClientFromAuth() (*Client, error) {
+
+// NewClientFromAuth creates a client that reads the selected registry's current
+// credential before each request. An empty URL selects the default registry.
+func NewClientFromAuth(registryURL string) (*Client, error) {
 	projectDir, _ := os.Getwd()
 	authCfg := auth.NewConfig(projectDir)
 	store := auth.NewStore(authCfg)
 
-	registryURL := store.DefaultRegistry()
+	if registryURL == "" {
+		registryURL = store.DefaultRegistry()
+	}
 
 	client, err := NewClient(Options{
 		BaseURL: registryURL,
