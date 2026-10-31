@@ -54,6 +54,7 @@ func newAlteredArtifactRestore(t *testing.T) *alteredArtifactRestore {
 			fixture.downloadURLs++
 			require.Equal(t, "wippy", params.Org)
 			require.Equal(t, "llm", params.Module)
+			require.Equal(t, "0.4.46", params.Version)
 			return &DownloadInfo{URL: "memory://llm", Digest: digest, Size: uint64(len(published))}, nil
 		},
 		downloadFile: func(_ context.Context, _ string, destination string) error {
@@ -133,7 +134,7 @@ func TestPrepareRestoreOfflineRefusesAlteredArtifactWithoutHub(t *testing.T) {
 		require.ErrorAs(t, err, &apiErr)
 		require.Equal(t, "wippy/llm@0.4.46", apiErr.Details().GetString("module", ""))
 		require.Contains(t, err.Error(), "wippy/llm")
-		require.Contains(t, apiErr.Details().GetString("hint", ""), "wippy update/install")
+		require.Empty(t, apiErr.Details().GetString("hint", ""))
 		require.Zero(t, fixture.downloadURLs, "an offline restore must not ask the Hub where to download")
 		require.Zero(t, fixture.downloads, "an offline restore must never replace a local artifact from the Hub")
 	})
@@ -176,8 +177,38 @@ func TestPrepareRestoreOnlineAlteredArtifactContrast(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fixture.published, stored)
 
+		require.NoError(t, fixture.handler.PrepareRestore(online, fixture.history))
+		require.Equal(t, 1, fixture.downloadURLs)
+		require.Equal(t, 1, fixture.downloads)
+
 		legacy, err := os.ReadFile(legacyPath)
 		require.NoError(t, err)
 		require.Equal(t, []byte("tampered artifact"), legacy, "migration input is never rewritten in place")
 	})
+}
+
+func TestPrepareRestoreDownloadsOnlyMissingRecordedArtifact(t *testing.T) {
+	fixture := newAlteredArtifactRestore(t)
+	online := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessOnline)
+	require.NoError(t, fixture.handler.PrepareRestore(online, fixture.history))
+	require.Equal(t, 1, fixture.downloadURLs)
+	require.Equal(t, 1, fixture.downloads)
+	stored, err := os.ReadFile(fixture.immutablePath(t))
+	require.NoError(t, err)
+	require.Equal(t, fixture.published, stored)
+	require.NoError(t, fixture.handler.PrepareRestore(online, fixture.history))
+	require.Equal(t, 1, fixture.downloadURLs)
+	require.Equal(t, 1, fixture.downloads)
+}
+func TestPrepareRestoreRefusesDownloadedDigestMismatch(t *testing.T) {
+	fixture := newAlteredArtifactRestore(t)
+	fixture.handler.hub.(*fakeHub).downloadFile = func(_ context.Context, _ string, destination string) error {
+		fixture.downloads++
+		return os.WriteFile(destination, []byte("different artifact"), 0o600)
+	}
+	online := regapi.WithDependencyAccess(newTestContext(), regapi.DependencyAccessOnline)
+	require.ErrorContains(t, fixture.handler.PrepareRestore(online, fixture.history), "digest mismatch")
+	require.NoFileExists(t, fixture.immutablePath(t))
+	require.Equal(t, 1, fixture.downloadURLs)
+	require.Equal(t, 1, fixture.downloads)
 }

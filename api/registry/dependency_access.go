@@ -7,9 +7,9 @@ import "context"
 // DependencyAccess controls whether a dependency operation may reach the Hub.
 //
 // The policy is per-operation: one long-lived DependencyHandler serves both
-// startup restore, which must stay local, and explicit install/update work,
-// which must reach the network. It therefore travels on the operation's
-// context rather than the AppContext, whose values are written once during
+// startup restore and explicit install/update work. Restore reuses verified
+// local artifacts and downloads missing recorded identities. The policy travels
+// on the operation's context rather than the AppContext, whose values are written once during
 // boot and sealed, or a FrameContext, which startup paths never open.
 type DependencyAccess uint8
 
@@ -18,7 +18,7 @@ const (
 	// the zero value, so an operation that states no policy stays local.
 	DependencyAccessVerifiedOffline DependencyAccess = iota
 	// DependencyAccessOnline permits external resolution and artifact download.
-	// Callers grant it explicitly for install, update and workspace completion.
+	// Callers grant it explicitly for restore, install, update and workspace completion.
 	DependencyAccessOnline
 )
 

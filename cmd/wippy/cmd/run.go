@@ -50,7 +50,8 @@ var runCmd = &cobra.Command{
 Without arguments, starts the full runtime from wippy.lock.
 With a command name, executes the matching process entry.
 With a .wapp file, runs directly from the pack file.
-With an org/module reference, bootstraps from hub when wippy.lock is absent.
+With an org/module reference, restores a recorded deployment when wippy.lock is
+absent, or bootstraps from hub when no deployment is recorded.
 When wippy.lock exists, the reference must match its selected deployment root
 and the runtime starts from the locked graph without resolving hub again.
 
@@ -159,6 +160,11 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		registryURL, _ = cmd.Flags().GetString("registry")
 	}
 
+	caller := context.Background()
+	if cmd != nil {
+		caller = cmd.Context()
+	}
+
 	// With an explicit entry, every positional token belongs to that process.
 	var commandName string
 	var commandArgs []string
@@ -167,32 +173,11 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		commandArgs = args[1:]
 	}
 
-	if commandName != "" {
-		if strings.HasSuffix(commandName, ".wapp") {
-			return runFromPackFile(cmd, commandName, commandArgs, useCase)
-		}
-
-		if isHubModuleRef(commandName) {
-			useLock, err := useLockedHubDeployment(commandName, defaultLockFile)
-			if err != nil {
-				return err
-			}
-			if useLock {
-				// A module reference identifies the established deployment; it is
-				// not an update instruction or a named process entrypoint.
-				commandName = ""
-				commandArgs = nil
-			} else {
-				packPaths, err := downloadHubModule(cmd.Context(), commandName, registryURL)
-				if err != nil {
-					return err
-				}
-				return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
-			}
-		}
+	if commandName != "" && strings.HasSuffix(commandName, ".wapp") {
+		return runFromPackFile(cmd, commandName, commandArgs, useCase)
 	}
 
-	if execSpec != "" || commandName != "" || useCase != defaultUseCase {
+	if execSpec != "" || (commandName != "" && !isHubModuleRef(commandName)) || useCase != defaultUseCase {
 		flagsChanged := cmd != nil && (cmd.Flags().Changed("silent") || cmd.Flags().Changed("verbose") || cmd.Flags().Changed("very-verbose") || cmd.Flags().Changed("console"))
 		if !flagsChanged {
 			silentLogs = true
@@ -211,31 +196,65 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 
 	logger.Info("initializing runtime", zap.String("memory_limit", formatBytes(memLimit)))
 
-	// A Hub deployment is restarted from wippy.lock, without resolving the Hub
-	// reference again. Its selected root pack is therefore the same authority
-	// for published runtime defaults as it was on the first run. The root is
-	// located through the local workspace replacements first: a root replaced
-	// by a source directory is not a pack and publishes no defaults.
+	// Host configuration locates the deployment before its root pack supplies
+	// published defaults. A lockless start reads that deployment from history.
 	workspaceCfg, err := loadWorkspaceConfig(cmd, logger)
 	if err != nil {
 		logger.Error("failed to resolve workspace config", zap.Error(err))
 		return err
 	}
-	runtimeDefaults, err := loadLockRootRuntimeDefaults(defaultLockFile, workspaceCfg, logger)
-	if err != nil {
-		logger.Error("failed to load deployment runtime defaults", zap.Error(err))
-		return err
+	var runtimeDefaults boot.Config
+	var recorded *registry.Deployment
+	_, lockErr := os.Stat(defaultLockFile)
+	useLock := lockErr == nil
+	if lockErr != nil && !os.IsNotExist(lockErr) {
+		return lockErr
 	}
+
+	if !useLock {
+		requestedRoot := ""
+		if isHubModuleRef(commandName) {
+			requestedRoot = commandName
+		}
+		runtimeDefaults, recorded, err = loadRecordedDeploymentDefaults(caller, workspaceCfg, requestedRoot, registryURL, logger)
+		if err != nil {
+			return err
+		}
+	}
+	if commandName != "" && isHubModuleRef(commandName) {
+		if useLock {
+			if _, err := useLockedHubDeployment(commandName, defaultLockFile); err != nil {
+				return err
+			}
+		} else if recorded == nil {
+			packPaths, err := downloadHubModule(caller, commandName, registryURL)
+			if err != nil {
+				return err
+			}
+			return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
+		}
+		commandName = ""
+		commandArgs = nil
+	}
+	if useLock {
+		runtimeDefaults, err = loadLockRootRuntimeDefaults(defaultLockFile, workspaceCfg, logger)
+		if err != nil {
+			logger.Error("failed to load deployment runtime defaults", zap.Error(err))
+			return err
+		}
+	}
+
 	cfg, err := loadRuntimeConfigWithPinnedWorkspace(cmd, logger, runtimeDefaults, workspaceCfg)
 	if err != nil {
 		logger.Error("failed to resolve runtime config", zap.Error(err))
 		return err
 	}
-
-	caller := context.Background()
-	if cmd != nil {
-		caller = cmd.Context()
+	if recorded != nil {
+		if err := validateRecordedHistoryConfig(workspaceCfg, cfg); err != nil {
+			return err
+		}
 	}
+
 	parent, err := detachFromCaller(caller)
 	if err != nil {
 		logger.Error("failed to initialize bootstrap context", zap.Error(err))
@@ -269,7 +288,10 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	ctx = embedapi.WithRegistry(ctx, embedReg)
 	defer embedReg.Close()
 
-	components := selectedComponents()
+	components, dependencyClient, err := selectedComponentsWithRegistry(registryURL)
+	if err != nil {
+		return err
+	}
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)
@@ -306,7 +328,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		return NewStartComponentsError(err)
 	}
 
-	if err := entries.LoadFromLockFile(ctx, logger); err != nil {
+	if err := entries.LoadFromLockFileWithClient(ctx, logger, dependencyClient); err != nil {
 		logger.Error("entry loading failed", zap.Error(err))
 		return err
 	}

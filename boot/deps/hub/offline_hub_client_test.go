@@ -89,9 +89,8 @@ func requireOfflineRefusal(t *testing.T, err error, operation, module string) {
 	require.True(t, ok)
 	require.Equal(t, operation, gotOperation)
 
-	hint, ok := details.Get("hint")
-	require.True(t, ok)
-	require.Contains(t, hint, "wippy update/install")
+	_, ok = details.Get("hint")
+	require.False(t, ok, "offline refusals do not suggest lock-only commands for recorded artifacts")
 
 	gotModule, ok := details.Get("module")
 	if module == "" {
