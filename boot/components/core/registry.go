@@ -31,7 +31,14 @@ import (
 )
 
 func Registry() boot.Component {
+	return RegistryWithClient(nil)
+}
+
+// RegistryWithClient uses an explicitly selected Hub client for dependency
+// operations. A nil client retains the default registry and live credentials.
+func RegistryWithClient(client hubdeps.HubClient) boot.Component {
 	var histCloser io.Closer
+	var depHandler *hubdeps.DependencyHandler
 
 	return boot.New(boot.P{
 		Name:      RegistryName,
@@ -78,7 +85,7 @@ func Registry() boot.Component {
 
 			registryOpts := []registry.Option{}
 
-			depHandler, err := NewDependencyHandler(ctx, cfg, logger.Named("dependency"), resolver)
+			depHandler, err = NewDependencyHandler(ctx, cfg, logger.Named("dependency"), resolver, client)
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
@@ -86,6 +93,7 @@ func Registry() boot.Component {
 				// Verified local artifacts require no Hub access.
 				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
 				if err := depHandler.PrepareRestore(restoreCtx, hist); err != nil {
+					depHandler.Close()
 					// Startup stops here, so the shutdown hook that owns the history
 					// never runs; release it now or the store stays open.
 					if histCloser != nil {
@@ -131,6 +139,7 @@ func Registry() boot.Component {
 			return ctx, nil
 		},
 		Stop: func(_ context.Context) error {
+			depHandler.Close()
 			if histCloser != nil {
 				return histCloser.Close()
 			}
@@ -252,12 +261,14 @@ func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
 	return kinds, true
 }
 
-// NewDependencyHandler configures the registry dependency handler from the host configuration.
+// NewDependencyHandler configures the registry dependency handler from the host
+// configuration. A nil client uses the default registry and live credentials.
 func NewDependencyHandler(
 	ctx context.Context,
 	cfg boot.Config,
 	logger *zap.Logger,
 	resolver regapi.DependencyResolver,
+	client hubdeps.HubClient,
 ) (*hubdeps.DependencyHandler, error) {
 	var registryCfg boot.Config
 	if cfg != nil {
@@ -265,6 +276,7 @@ func NewDependencyHandler(
 	}
 
 	opts := hubdeps.DependencyHandlerOptions{
+		Hub:      client,
 		Logger:   logger,
 		Resolver: resolver,
 	}

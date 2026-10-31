@@ -89,7 +89,7 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 
 	client := opts.Hub
 	if client == nil {
-		hubClient, err := newHubClientFromAuth()
+		hubClient, err := NewClientFromAuth("")
 		if err != nil {
 			return nil, err
 		}
@@ -147,6 +147,14 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 		lock:            lockObj,
 		replacements:    replacements,
 	}, nil
+}
+
+// Close releases the handler's background cache resources after its operations
+// have stopped. It is safe to call more than once or on a nil handler.
+func (h *DependencyHandler) Close() {
+	if h != nil && h.manifestCache != nil {
+		h.manifestCache.Close()
+	}
 }
 
 // PrepareRestore loads the deployment baseline and prefetches immutable artifacts
@@ -1275,12 +1283,17 @@ func formatResolutionErrors(errs []ResolutionError) string {
 	}
 	return msg
 }
-func newHubClientFromAuth() (*Client, error) {
+
+// NewClientFromAuth creates a client that reads the selected registry's current
+// credential before each request. An empty URL selects the default registry.
+func NewClientFromAuth(registryURL string) (*Client, error) {
 	projectDir, _ := os.Getwd()
 	authCfg := auth.NewConfig(projectDir)
 	store := auth.NewStore(authCfg)
 
-	registryURL := store.DefaultRegistry()
+	if registryURL == "" {
+		registryURL = store.DefaultRegistry()
+	}
 
 	client, err := NewClient(Options{
 		BaseURL: registryURL,

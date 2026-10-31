@@ -212,7 +212,11 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	}
 
 	if !useLock {
-		runtimeDefaults, recorded, err = loadRecordedDeploymentDefaults(caller, workspaceCfg, logger)
+		requestedRoot := ""
+		if isHubModuleRef(commandName) {
+			requestedRoot = commandName
+		}
+		runtimeDefaults, recorded, err = loadRecordedDeploymentDefaults(caller, workspaceCfg, requestedRoot, registryURL, logger)
 		if err != nil {
 			return err
 		}
@@ -228,11 +232,6 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 				return err
 			}
 			return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
-		} else {
-			// Validate the invocation against the deployment selected by history.
-			if err := validateHubDeploymentReference(commandName, recorded.Root, recordedRootVersion(recorded), "recorded deployment"); err != nil {
-				return err
-			}
 		}
 		commandName = ""
 		commandArgs = nil
@@ -249,6 +248,11 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	if err != nil {
 		logger.Error("failed to resolve runtime config", zap.Error(err))
 		return err
+	}
+	if recorded != nil {
+		if err := validateRecordedHistoryConfig(workspaceCfg, cfg); err != nil {
+			return err
+		}
 	}
 
 	parent, err := detachFromCaller(caller)
@@ -284,7 +288,10 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	ctx = embedapi.WithRegistry(ctx, embedReg)
 	defer embedReg.Close()
 
-	components := selectedComponents()
+	components, dependencyClient, err := selectedComponentsWithRegistry(registryURL)
+	if err != nil {
+		return err
+	}
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)
@@ -321,7 +328,7 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 		return NewStartComponentsError(err)
 	}
 
-	if err := entries.LoadFromLockFile(ctx, logger); err != nil {
+	if err := entries.LoadFromLockFileWithClient(ctx, logger, dependencyClient); err != nil {
 		logger.Error("entry loading failed", zap.Error(err))
 		return err
 	}

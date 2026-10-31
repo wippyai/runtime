@@ -51,7 +51,15 @@ func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger
 	embedReg := embedpkg.NewRegistry()
 	ctx = embedapi.WithRegistry(ctx, embedReg)
 
-	components := selectedComponents()
+	registryURL := ""
+	if cmd != nil {
+		registryURL, _ = cmd.Flags().GetString("registry")
+	}
+	components, _, err := selectedComponentsWithRegistry(registryURL)
+	if err != nil {
+		embedReg.Close()
+		return nil, nil, nil, nil, err
+	}
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)
