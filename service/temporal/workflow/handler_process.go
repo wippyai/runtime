@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
+	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 )
 
@@ -269,6 +270,11 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 
 // executeProcessTerminate handles process.terminate from workflows.
 func (d *Definition) executeProcessTerminate(cmd *process.TerminateCmd, tag uint64) error {
+	if d.env.GetVersion(terminationChangeID, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+		// The former implementation recorded cancellation. Match that command
+		// while replaying existing histories; new versioned calls terminate.
+		return d.executeProcessCancel(&process.CancelCmd{Target: cmd.Target}, tag)
+	}
 	input, err := d.dc.ToPayloads(cmd.Target.UniqID)
 	if err != nil {
 		return err

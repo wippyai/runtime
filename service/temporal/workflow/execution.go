@@ -17,6 +17,7 @@ import (
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	"github.com/wippyai/runtime/api/topology"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
@@ -30,10 +31,23 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 		var events []process.Event
 		if len(d.pendingCompletions) > 0 {
 			events = append(events, d.pendingCompletions...)
+			clear(d.pendingCompletions)
 			d.pendingCompletions = d.pendingCompletions[:0]
 		}
 		if len(d.signals) > 0 {
-			for _, sig := range d.signals {
+			signals := d.signals
+			if len(d.legacySignalDrops) > 0 && !d.deliverAllAcceptedEvents() {
+				signals = signals[:0]
+				drop := 0
+				for index, signal := range d.signals {
+					if drop < len(d.legacySignalDrops) && index == d.legacySignalDrops[drop] {
+						drop++
+						continue
+					}
+					signals = append(signals, signal)
+				}
+			}
+			for _, sig := range signals {
 				pkg := &relay.Package{
 					Messages: []*relay.Message{{
 						Topic:    sig.Name,
@@ -50,10 +64,15 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 			}
 			clear(d.signals)
 			d.signals = d.signals[:0]
+			d.legacySignalDrops = d.legacySignalDrops[:0]
 		}
 
 		if len(d.childExits) > 0 {
-			for _, exit := range d.childExits {
+			exits := d.childExits
+			if len(exits) > legacyChildExitLimit && !d.deliverAllAcceptedEvents() {
+				exits = exits[:legacyChildExitLimit]
+			}
+			for _, exit := range exits {
 				exitEvent := &topology.ExitEvent{
 					At:   d.env.Now(),
 					Kind: topology.Exit,
@@ -219,7 +238,8 @@ func (d *Definition) executeContinueAsNew() {
 		messages = append(messages, process.MailboxEnvelope{Source: signal.From, Topic: signal.Name, Payloads: signal.Payloads})
 	}
 	if len(messages) > 0 {
-		header, err = propagator.AddMailboxToHeader(d.dc, header, messages)
+		info := d.env.WorkflowInfo()
+		header, err = propagator.AddMailboxToHeader(d.dc, header, messages, info.WorkflowExecution.ID, info.FirstRunID, securitykeys.Keys(d.ctx)...)
 		if err != nil {
 			d.env.Complete(nil, fmt.Errorf("upgrade: encode mailbox: %w", err))
 			return

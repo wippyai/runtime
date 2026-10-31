@@ -27,10 +27,12 @@ func TestContinueAsNewReplaysDeterministically(t *testing.T) {
 func TestRestoredMailboxReplaysBeforeNewSignals(t *testing.T) {
 	_, env := newRouterDefinition(t, nil)
 	messages := []process.MailboxEnvelope{{Topic: "data", Payloads: payload.Payloads{payload.NewString("old")}}}
-	header, err := propagator.AddMailboxToHeader(env.dc, nil, messages)
+	header, err := propagator.AddMailboxToHeader(env.dc, nil, messages, "ReplayId", "first-run")
 	require.NoError(t, err)
 	d, _ := luaMailboxDefinition(t, `local process=require("process");return function() local data=process.listen("data");assert(data:receive()=="old");assert(data:receive()=="new");end`, nil)
 	h := newDeliveryHistory(t, env.dc, d.id.String(), header)
+	h.events[0].GetWorkflowExecutionStartedEventAttributes().ContinuedExecutionRunId = "previous-run"
+	h.events[0].GetWorkflowExecutionStartedEventAttributes().FirstExecutionRunId = "first-run"
 	wire, err := env.dc.ToPayloads(payload.Payloads{payload.NewString("new")})
 	require.NoError(t, err)
 	h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED, Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{SignalName: "data", Input: wire}}})

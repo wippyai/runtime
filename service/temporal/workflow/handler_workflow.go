@@ -171,7 +171,7 @@ func (d *Definition) handleFunctionAsyncResult(topic string, result *commonpb.Pa
 }
 
 func (d *Definition) enqueueInternalSignal(topic string, payloads payload.Payloads) {
-	d.signals = append(d.signals, incomingSignal{
+	d.queueSignal(incomingSignal{
 		Name:     topic,
 		Payloads: payloads,
 	})

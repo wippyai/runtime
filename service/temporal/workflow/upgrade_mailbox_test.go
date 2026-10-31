@@ -40,7 +40,13 @@ func (*initializingEnvironment) IsReplaying() bool { return false }
 
 func luaMailboxDefinition(t *testing.T, source string, header *commonpb.Header, keys ...[]byte) (*Definition, *recordedEnvironment) {
 	t.Helper()
+	return luaMailboxDefinitionWithRun(t, source, header, "", keys...)
+}
+
+func luaMailboxDefinitionWithRun(t *testing.T, source string, header *commonpb.Header, continuedFrom string, keys ...[]byte) (*Definition, *recordedEnvironment) {
+	t.Helper()
 	_, env := newRouterDefinition(t, nil)
+	env.info.ContinuedExecutionRunID = continuedFrom
 	ctx := securityapi.SetStrictMode(ctxapi.NewRootContext(), false)
 	transcoder := syspayload.NewTranscoder()
 	enginepayload.RegisterAllBasicFormats(transcoder)
@@ -103,7 +109,7 @@ func TestContinueAsNewPreservesUnreadLuaMailbox(t *testing.T) {
 			require.True(t, errors.As(oldEnv.completions[0].err, &continuation))
 			require.NotNil(t, continuation.Header, "continue-as-new must carry the unread mailbox")
 			require.Empty(t, oldEnv.versions)
-			next, nextEnv := luaMailboxDefinition(t, `
+			next, nextEnv := luaMailboxDefinitionWithRun(t, `
  local process = require("process")
  return function()
   local inbox = process.listen("data", {message=true})
@@ -113,7 +119,7 @@ func TestContinueAsNewPreservesUnreadLuaMailbox(t *testing.T) {
    values[i] = {value=msg:data(), from=tostring(msg:from()), topic=msg:topic()}
   end
   return values
- end`, continuation.Header, keys...)
+			end`, continuation.Header, "self-run", keys...)
 			wire, err := next.dc.ToPayloads(payload.Payloads{payload.NewString("third")})
 			require.NoError(t, err)
 			if secured {
@@ -138,7 +144,7 @@ func TestContinueAsNewCarriesSignalsBeforeFirstStep(t *testing.T) {
 	d.executeContinueAsNew()
 	var continuation *bindings.ContinueAsNewError
 	require.True(t, errors.As(env.completions[0].err, &continuation))
-	messages, err := propagator.ExtractMailboxFromHeader(d.dc, continuation.Header)
+	messages, err := propagator.ExtractMailboxFromHeader(d.dc, continuation.Header, "self-workflow", "first-run")
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 	require.Equal(t, "data", messages[0].Topic)

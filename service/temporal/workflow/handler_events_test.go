@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	bindings "go.temporal.io/sdk/internalbindings"
+	"go.temporal.io/sdk/workflow"
 )
 
 func TestQueryTypeState(t *testing.T) {
@@ -108,7 +109,7 @@ func TestAcceptedSignalsSurviveQueuePressure(t *testing.T) {
 			}
 			d.OnWorkflowTaskStarted(0)
 			require.Equal(t, 10002, len(received))
-			require.Empty(t, env.versions)
+			require.Equal(t, eventDeliveryChangeID, env.versions[0].changeID)
 			for i, topic := range received {
 				require.Equal(t, fmt.Sprintf("event-%d", i), topic)
 			}
@@ -126,6 +127,15 @@ func (e *childStartedEnvironment) ExecuteChildWorkflow(params bindings.ExecuteWo
 }
 
 func TestAcceptedChildExitsSurviveQueuePressure(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
+			testChildExitQueuePressure(t, legacy)
+		})
+	}
+}
+
+func testChildExitQueuePressure(t *testing.T, legacy bool) {
+	t.Helper()
 	var received []pid.PID
 	d, recorded := newRouterDefinition(t, &recordingProcess{step: func(events []process.Event, out *process.StepOutput) error {
 		for _, event := range events {
@@ -137,6 +147,9 @@ func TestAcceptedChildExitsSurviveQueuePressure(t *testing.T) {
 		out.Idle()
 		return nil
 	}})
+	if legacy {
+		recorded.version = workflow.DefaultVersion
+	}
 	d.env = &childStartedEnvironment{recorded}
 	for i := 0; i < 1002; i++ {
 		require.NoError(t, d.executeProcessSpawn(&process.SpawnCmd{Start: &process.Start{Source: registry.NewID("test", "child")}}, uint64(i)))
@@ -144,8 +157,12 @@ func TestAcceptedChildExitsSurviveQueuePressure(t *testing.T) {
 		recorded.childDone[i](nil, nil)
 	}
 	d.OnWorkflowTaskStarted(0)
-	require.Equal(t, 1002, len(received))
-	require.Empty(t, recorded.versions)
+	count := 1002
+	if legacy {
+		count = legacyChildExitLimit
+	}
+	require.Len(t, received, count)
+	require.Equal(t, eventDeliveryChangeID, recorded.versions[0].changeID)
 	for i, child := range received {
 		require.Equal(t, fmt.Sprintf("child-%d", i+1), child.UniqID)
 	}

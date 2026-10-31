@@ -3,6 +3,8 @@
 package propagator
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/wippyai/runtime/api/pid"
@@ -12,13 +14,28 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const mailboxHeaderKey = "wippy-upgrade-mailbox"
+const (
+	mailboxHeaderKey          = "wippy-upgrade-mailbox"
+	mailboxSignatureHeaderKey = "wippy-upgrade-mailbox-signature"
+)
 
 // AddMailboxToHeader encodes the canonical unread envelopes with the execution's
-// converter. Continuation headers come from the worker, like workflow input.
-func AddMailboxToHeader(dc converter.DataConverter, header *commonpb.Header, messages []process.MailboxEnvelope) (*commonpb.Header, error) {
+// converter, bound to its workflow and first run of the execution chain.
+// Keyed workers authenticate the complete mailbox independently of actor claims.
+func AddMailboxToHeader(dc converter.DataConverter, header *commonpb.Header, messages []process.MailboxEnvelope, workflowID, firstRunID string, keys ...[]byte) (*commonpb.Header, error) {
 	if len(messages) == 0 {
 		return header, nil
+	}
+	if dc == nil || workflowID == "" || firstRunID == "" {
+		return nil, fmt.Errorf("continued mailbox requires a converter, workflow ID and first run ID")
+	}
+	var signingKeys [][]byte
+	if len(keys) > 0 {
+		var err error
+		signingKeys, err = resolveSecurityKeys(keys)
+		if err != nil {
+			return nil, err
+		}
 	}
 	mailbox := &commonpb.Payloads{}
 	for _, message := range messages {
@@ -38,7 +55,7 @@ func AddMailboxToHeader(dc converter.DataConverter, header *commonpb.Header, mes
 	if err != nil {
 		return nil, err
 	}
-	value := &commonpb.Payload{Data: data}
+	value := &commonpb.Payload{Metadata: map[string][]byte{"workflow": []byte(workflowID), "first-run": []byte(firstRunID)}, Data: data}
 	if header == nil {
 		header = &commonpb.Header{}
 	}
@@ -46,21 +63,52 @@ func AddMailboxToHeader(dc converter.DataConverter, header *commonpb.Header, mes
 		header.Fields = make(map[string]*commonpb.Payload)
 	}
 	header.Fields[mailboxHeaderKey] = value
+	if len(signingKeys) > 0 {
+		header.Fields[mailboxSignatureHeaderKey] = &commonpb.Payload{Data: temporalPayloadMAC("wippy/temporal/upgrade-mailbox/v1", signingKeys[0], value)}
+	} else {
+		delete(header.Fields, mailboxSignatureHeaderKey)
+	}
 	return header, nil
 }
 
 // ExtractMailboxFromHeader decodes unread envelopes from a continuation.
-// New signals continue to pass through their independent relay-ticket verifier.
-func ExtractMailboxFromHeader(dc converter.DataConverter, header *commonpb.Header) ([]process.MailboxEnvelope, error) {
+// It verifies continuation identity and, on keyed workers, mailbox authenticity
+// before decoding payloads. New signals use their relay-ticket verifier.
+func ExtractMailboxFromHeader(dc converter.DataConverter, header *commonpb.Header, workflowID, firstRunID string, keys ...[]byte) ([]process.MailboxEnvelope, error) {
 	if header == nil {
 		return nil, nil
 	}
 	value, present := header.Fields[mailboxHeaderKey]
-	if !present {
+	signature, signed := header.Fields[mailboxSignatureHeaderKey]
+	if !present && !signed {
 		return nil, nil
 	}
-	if value == nil {
+	if value == nil || dc == nil {
 		return nil, fmt.Errorf("invalid continued mailbox")
+	}
+	// FirstRunID survives continue-as-new, retry and reset. A new execution
+	// reusing the workflow ID receives a different chain identity.
+	if workflowID == "" || firstRunID == "" || string(value.Metadata["workflow"]) != workflowID || string(value.Metadata["first-run"]) != firstRunID {
+		return nil, fmt.Errorf("invalid continued mailbox execution")
+	}
+	if len(keys) > 0 || signed {
+		if !signed || signature == nil || len(signature.Data) != sha256.Size {
+			return nil, fmt.Errorf("continued mailbox requires a valid signature")
+		}
+		verificationKeys, err := resolveSecurityKeys(keys)
+		if err != nil {
+			return nil, err
+		}
+		valid := false
+		for _, key := range verificationKeys {
+			if hmac.Equal(signature.Data, temporalPayloadMAC("wippy/temporal/upgrade-mailbox/v1", key, value)) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return nil, fmt.Errorf("invalid continued mailbox signature")
+		}
 	}
 	mailbox := &commonpb.Payloads{}
 	if err := proto.Unmarshal(value.Data, mailbox); err != nil {

@@ -36,7 +36,7 @@ func TestWorkflowTerminateSchedulesTerminationInsteadOfCancellation(t *testing.T
 	d.env = terminating
 	require.NoError(t, d.executeProcessTerminate(&process.TerminateCmd{Target: pid.PID{UniqID: "target"}}, 42))
 	require.Equal(t, 0, terminating.cancellations)
-	require.Empty(t, env.versions)
+	require.Equal(t, terminationChangeID, env.versions[0].changeID)
 	require.Len(t, env.activities, 1)
 	require.Equal(t, "__wippy_terminate_workflow", env.activities[0].ActivityType.Name)
 	var target string
@@ -52,7 +52,7 @@ func TestWorkflowTerminateSurfacesActivityFailure(t *testing.T) {
 	d, env := newRouterDefinition(t, nil)
 	d.env = &terminationEnvironment{recordedEnvironment: env}
 	require.NoError(t, d.executeProcessTerminate(&process.TerminateCmd{Target: pid.PID{UniqID: "target"}}, 42))
-	require.Empty(t, env.versions)
+	require.Equal(t, terminationChangeID, env.versions[0].changeID)
 	require.Len(t, env.activities, 1)
 	env.activityDone[0](nil, temporal.NewApplicationError("denied", "permission_denied"))
 	require.Error(t, requirePendingCompletion(t, d, 42).Error)
@@ -84,6 +84,7 @@ func TestWorkflowTerminationReplaysDeterministically(t *testing.T) {
 	id := registry.NewID("test", "terminate_replay")
 	h := newDeliveryHistory(t, env.dc, id.String(), nil)
 	_, task := h.task()
+	h.version(terminationChangeID, task)
 	input, err := h.dc.ToPayloads("target")
 	require.NoError(t, err)
 	scheduled := h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED, Attributes: &historypb.HistoryEvent_ActivityTaskScheduledEventAttributes{ActivityTaskScheduledEventAttributes: &historypb.ActivityTaskScheduledEventAttributes{ActivityId: fmt.Sprint(len(h.events) + 1), ActivityType: &commonpb.ActivityType{Name: "__wippy_terminate_workflow"}, TaskQueue: h.queue, Input: input, StartToCloseTimeout: durationpb.New(defaultActivityTimeout), RetryPolicy: &commonpb.RetryPolicy{MaximumAttempts: 1}, WorkflowTaskCompletedEventId: task}}})

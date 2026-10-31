@@ -40,7 +40,7 @@ type deliveryHistory struct {
 
 func newDeliveryHistory(t *testing.T, dc converter.DataConverter, name string, header *commonpb.Header) *deliveryHistory {
 	h := &deliveryHistory{t: t, dc: dc, queue: &taskqueuepb.TaskQueue{Name: "test-queue"}}
-	h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED, Attributes: &historypb.HistoryEvent_WorkflowExecutionStartedEventAttributes{WorkflowExecutionStartedEventAttributes: &historypb.WorkflowExecutionStartedEventAttributes{WorkflowType: &commonpb.WorkflowType{Name: name}, TaskQueue: h.queue, Header: header}}})
+	h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED, Attributes: &historypb.HistoryEvent_WorkflowExecutionStartedEventAttributes{WorkflowExecutionStartedEventAttributes: &historypb.WorkflowExecutionStartedEventAttributes{WorkflowType: &commonpb.WorkflowType{Name: name}, TaskQueue: h.queue, Header: header, FirstExecutionRunId: "first-run"}}})
 	return h
 }
 func (h *deliveryHistory) add(event *historypb.HistoryEvent) int64 {
@@ -57,6 +57,19 @@ func (h *deliveryHistory) task() (int64, int64) {
 func (h *deliveryHistory) signal(topic string) {
 	h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED, Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{SignalName: topic}}})
 }
+
+func (h *deliveryHistory) version(changeID string, task int64) {
+	change, err := h.dc.ToPayloads(changeID)
+	require.NoError(h.t, err)
+	version, err := h.dc.ToPayloads(1)
+	require.NoError(h.t, err)
+	searchUpdated, err := h.dc.ToPayloads(false)
+	require.NoError(h.t, err)
+	h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_MARKER_RECORDED,
+		Attributes: &historypb.HistoryEvent_MarkerRecordedEventAttributes{MarkerRecordedEventAttributes: &historypb.MarkerRecordedEventAttributes{
+			MarkerName: "Version", Details: map[string]*commonpb.Payloads{"change-id": change, "version": version, "version-search-attribute-updated": searchUpdated}, WorkflowTaskCompletedEventId: task,
+		}}})
+}
 func (h *deliveryHistory) replay(ctx context.Context, id registry.ID) {
 	replayer, err := worker.NewWorkflowReplayerWithOptions(worker.WorkflowReplayerOptions{DataConverter: h.dc})
 	require.NoError(h.t, err)
@@ -65,6 +78,15 @@ func (h *deliveryHistory) replay(ctx context.Context, id registry.ID) {
 }
 
 func TestAcceptedEventDeliveryReplaysDeterministically(t *testing.T) {
+	for _, corrected := range []bool{false, true} {
+		t.Run(fmt.Sprintf("corrected=%t", corrected), func(t *testing.T) {
+			testAcceptedEventDeliveryReplay(t, corrected)
+		})
+	}
+}
+
+func testAcceptedEventDeliveryReplay(t *testing.T, corrected bool) {
+	t.Helper()
 	d, env := newRouterDefinition(t, nil)
 	id := registry.NewID("test", "delivery_replay")
 	h := newDeliveryHistory(t, env.dc, id.String(), nil)
@@ -72,7 +94,11 @@ func TestAcceptedEventDeliveryReplaysDeterministically(t *testing.T) {
 		h.signal("data")
 	}
 	_, task := h.task()
-	count := 10002
+	count := legacySignalLimit
+	if corrected {
+		h.version(eventDeliveryChangeID, task)
+		count = 10002
+	}
 	timerID := fmt.Sprint(len(h.events) + 1)
 	timerEvent := h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_TIMER_STARTED, Attributes: &historypb.HistoryEvent_TimerStartedEventAttributes{TimerStartedEventAttributes: &historypb.TimerStartedEventAttributes{TimerId: timerID, StartToFireTimeout: durationpb.New(time.Duration(count) * time.Second), WorkflowTaskCompletedEventId: task}}})
 	h.add(&historypb.HistoryEvent{EventType: enumspb.EVENT_TYPE_TIMER_FIRED, Attributes: &historypb.HistoryEvent_TimerFiredEventAttributes{TimerFiredEventAttributes: &historypb.TimerFiredEventAttributes{TimerId: timerID, StartedEventId: timerEvent}}})

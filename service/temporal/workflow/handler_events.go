@@ -83,7 +83,7 @@ func (d *Definition) handleSignal(name string, input *commonpb.Payloads, header 
 		}
 	}
 
-	d.signals = append(d.signals, incomingSignal{Name: name, Payloads: payloads, From: from})
+	d.queueSignal(incomingSignal{Name: name, Payloads: payloads, From: from})
 	return nil
 }
 

@@ -3,7 +3,9 @@
 package workflow_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	glua "github.com/wippyai/go-lua"
@@ -73,7 +75,11 @@ return function(input)
 end`,
 	})
 	defer f.cleanup()
-	result := f.executeWorkflow(id.String(), nil)
+	run := f.startWorkflow(id.String(), nil)
+	ctx, cancel := context.WithTimeout(f.ctx, 30*time.Second)
+	defer cancel()
+	var result map[string]any
+	require.NoError(t, run.Get(ctx, &result))
 	require.Contains(t, result["error"], "workflow terminated")
 	require.Equal(t, "Canceled", result["error_kind"])
 	target, err := pid.ParsePID(result["child"].(string))
@@ -88,4 +94,5 @@ end`,
 		require.NotEqual(t, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED, event.EventType)
 		require.NotEqual(t, enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED, event.EventType)
 	}
+	replayLiveWorkflowChain(t, f, id, run.GetID(), run.GetRunID(), []byte("0123456789abcdef0123456789abcdef"))
 }

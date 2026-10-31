@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/workflow"
 )
 
 var _ converter.DataConverter = (*DataConverter)(nil)
@@ -121,6 +122,12 @@ func (c *DataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...a
 func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
 	if raw, ok := value.(converter.RawValue); ok {
 		return raw.Payload(), nil
+	}
+	// Temporal's version marker uses a named integer, which is not an
+	// application payload type in the shared transcoder. Keep its wire value
+	// identical to the native integer used by existing numeric payloads.
+	if version, ok := value.(workflow.Version); ok {
+		value = int(version)
 	}
 
 	pValue, ok := value.(payload.Payload)
