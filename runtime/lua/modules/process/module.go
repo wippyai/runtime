@@ -1019,9 +1019,10 @@ func inbox(l *lua.LState) int {
 
 func events(l *lua.LState) int {
 	req := &engine.SubscribeRequest{
-		Topic:   topology.TopicEvents,
-		BufSize: 0,
-		Handler: nil, // events use default PayloadsToLua conversion
+		Topic:           topology.TopicEvents,
+		BufSize:         0,
+		Handler:         nil,  // events use default PayloadsToLua conversion
+		RetainOnUpgrade: true, // lifecycle events belong to the process, not its code incarnation
 	}
 	l.Push(req)
 	return -1 // yield
