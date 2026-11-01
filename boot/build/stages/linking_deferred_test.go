@@ -54,9 +54,9 @@ func TestLink_DeferredDefaultAppendComposition(t *testing.T) {
 
 func TestLink_DeferredDefaultAppendStillValidatesTargets(t *testing.T) {
 	for _, tc := range []struct {
-		name, path, target string
 		data               map[string]any
 		meta               attrs.Bag
+		name, path, target string
 	}{
 		{name: "missing", path: ".groups +=", target: "missing", data: map[string]any{}},
 		{name: "scalar", path: ".groups +=", target: "target", data: map[string]any{"groups": 42}},
