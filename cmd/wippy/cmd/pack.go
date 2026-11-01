@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
@@ -318,7 +319,14 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *cli
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
 	p.Send(logMsg{level: "info", message: fmt.Sprintf("Loading from %d paths", len(paths))})
 
-	loadedEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
+	var loadedEntries []regapi.Entry
+	if moduleName != "" {
+		// Reusable packages compose their defaults below, independently of
+		// the host's dependency parameters, overrides and disable rules.
+		loadedEntries, err = entries.LoadUnlinkedEntriesFromModuleLoadPaths(app.Ctx, modulePaths, logger)
+	} else {
+		loadedEntries, err = loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
+	}
 	if err != nil {
 		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}

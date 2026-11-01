@@ -419,6 +419,14 @@ func LoadEntriesFromModuleLoadPaths(
 	return loadEntriesFromModulePaths(ctx, modulePaths, logger)
 }
 
+// LoadUnlinkedEntriesFromModuleLoadPaths preserves source declarations for
+// reusable module packing. The caller owns normalization; deployment loading
+// continues through LoadEntriesFromModuleLoadPaths.
+func LoadUnlinkedEntriesFromModuleLoadPaths(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
+	ConfigureSourceLoader(ctx, modulePaths, logger)
+	return readEntriesFromModulePaths(ctx, modulePaths, logger)
+}
+
 // ConfigureSourceLoader registers the current deployment inputs and the
 // normalization path used to reload them.
 func ConfigureSourceLoader(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) {
@@ -534,6 +542,17 @@ func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *mo
 
 // loadEntriesFromModulePaths loads entries from annotated deployment paths.
 func loadEntriesFromModulePaths(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
+	loaded, err := readEntriesFromModulePaths(ctx, modulePaths, logger)
+	if err != nil {
+		return nil, err
+	}
+	if err := NormalizeEntries(ctx, &loaded); err != nil {
+		return nil, err
+	}
+	return loaded, nil
+}
+
+func readEntriesFromModulePaths(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
 		return nil, ErrTranscoderNotFound
@@ -606,10 +625,6 @@ func loadEntriesFromModulePaths(ctx context.Context, modulePaths []lock.ModuleLo
 			}
 			entries = append(entries, entry)
 		}
-	}
-
-	if err := NormalizeEntries(ctx, &entries); err != nil {
-		return nil, err
 	}
 
 	return entries, nil
