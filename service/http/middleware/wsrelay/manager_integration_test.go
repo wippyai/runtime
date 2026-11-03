@@ -80,7 +80,7 @@ func TestW04MalformedRelayHeaderReturnsBadRequest(t *testing.T) {
 		w.Header().Set(RelayHeader, "{malformed")
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte("downstream response must not commit"))
-	}), nil)
+	}), nil, DefaultReadLimit)
 	writer := newUpgradeRecordingWriter()
 
 	handler.ServeHTTP(writer, websocketRequest("http://example.com/relay"))
@@ -127,7 +127,7 @@ func TestW05RelayPrerequisitesFailBeforeUpgrade(t *testing.T) {
 	for _, tc := range cases {
 		events := &wsEventLog{}
 		manager := newRecordingRelayManager(context.Background(), events)
-		handler := manager.middlewareHandler(relayHeaderHandler(), nil)
+		handler := manager.middlewareHandler(relayHeaderHandler(), nil, DefaultReadLimit)
 		req, frame := tc.prepare(t, websocketRequest("http://example.com/relay"))
 		writer := newUpgradeRecordingWriter()
 
