@@ -25,6 +25,8 @@ local function main()
 	-- Encode array
 	local arr = json.encode({1, 2, 3})
 	assert.eq(arr, "[1,2,3]", "array encodes correctly")
+	assert.eq(json.encode({1, nil, 3}), "[1,null,3]", "array hole encodes as null")
+	assert.eq(json.encode({[1] = "a", [3] = "c"}), '["a",null,"c"]', "short key gap encodes as null")
 
 	-- Encode object
 	local obj, err = json.encode({name = "test"})
@@ -42,7 +44,7 @@ local function main()
 	assert.eq(empty, "[]", "empty table encodes as array")
 
 	-- Sparse array error
-	local sparse = {[1] = "a", [3] = "c"}
+	local sparse = {[1] = "a", [1000] = "c"}
 	local _, sparse_err = json.encode(sparse)
 	assert.not_nil(sparse_err, "sparse array should error")
 	assert.eq(sparse_err:kind(), errors.INTERNAL, "sparse array error kind")

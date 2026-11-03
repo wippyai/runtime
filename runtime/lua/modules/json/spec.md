@@ -27,7 +27,7 @@ Encodes a Lua value into a JSON string.
 | Condition | Kind | Retryable | Notes |
 |-----------|------|-----------|-------|
 | recursively nested table | errors.INTERNAL | no | Table contains itself |
-| sparse array | errors.INTERNAL | no | Non-contiguous numeric keys (e.g., {[1]="a", [3]="c"}) |
+| sparse array | errors.INTERNAL | no | A gap before a key kept past the array part (e.g., {[1]="a", [1000]="c"}); see encoding rules |
 | mixed-key table | errors.INTERNAL | no | Table has both numeric and non-numeric keys |
 | max depth exceeded | errors.INTERNAL | no | Exceeds 128 levels of nesting |
 
@@ -37,6 +37,8 @@ Encodes a Lua value into a JSON string.
 - Numbers → JSON numbers (Inf/NaN → `"null"`)
 - Strings → JSON strings with escaping
 - Tables with sequential numeric keys (1-based) → JSON arrays
+- `nil` elements inside an array → `null` (`{1, nil, 3}` → `[1,null,3]`); trailing `nil` elements are omitted
+- Integer keys stored outside the table's array part must continue the array without a gap, otherwise encoding fails with a sparse-array error. go-lua keeps a key in the array part when it lands at most 32 slots past its end: `{[1]="a", [34]="c"}` encodes with 32 `null`s, `{[1]="a", [35]="c"}` fails, and the outcome can depend on insertion order (`{[1]="a", [20]="b", [40]="c"}` encodes, `{[1]="a", [40]="c", [20]="b"}` fails)
 - Tables with string keys → JSON objects
 - Empty tables → `"[]"`
 
@@ -66,6 +68,8 @@ Decodes a JSON string into a Lua value.
 - JSON numbers → Lua numbers
 - JSON strings → Lua strings
 - JSON arrays → 1-indexed Lua tables
+- `null` array elements → `nil`; later elements keep their indexes, so `json.encode` writes them back as `null`
+- Trailing `null` array elements and `null` object values are lost on a round trip: `["a",null]` → `["a"]`, `[null,null]` → `[]`, `{"a":null}` → `{}`
 - JSON objects → Lua tables with string keys
 
 ### decode(str: string, target: type) → target, error
