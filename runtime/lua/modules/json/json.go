@@ -384,26 +384,18 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 		return j.writeObjectDirect(buf, table, maxNumericKey)
 	}
 
-	// Check for sparse array
-	if maxNumericKey > 0 && !j.options.AllowSparseArrays {
-		actualCount := 0
-		if table.Array != nil {
-			for _, value := range table.Array {
-				if value != lua.LNil {
-					actualCount++
-				}
+	if !j.options.AllowSparseArrays {
+		arrayLen := len(table.Array)
+		hashed := 0
+		for key, value := range table.Dict {
+			if value == lua.LNil {
+				continue
+			}
+			if num, ok := key.(lua.LNumber); ok && isInteger(num) && float64(num) > float64(arrayLen) {
+				hashed++
 			}
 		}
-		if table.Dict != nil {
-			for key, value := range table.Dict {
-				if value != lua.LNil {
-					if num, ok := key.(lua.LNumber); ok && isInteger(num) && num > 0 {
-						actualCount++
-					}
-				}
-			}
-		}
-		if actualCount != maxNumericKey {
+		if hashed != max(maxNumericKey-arrayLen, 0) {
 			return nil, errSparseArray
 		}
 	}

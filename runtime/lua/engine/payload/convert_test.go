@@ -3,6 +3,7 @@
 package payload
 
 import (
+	gojson "encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -447,4 +448,64 @@ func TestEmptyTableShapeRoundTripThroughJSON(t *testing.T) {
 		_, ok := value.ToGoAny(decoded).([]any)
 		assert.True(t, ok)
 	})
+}
+
+func TestGoSliceNilElementsKeepPositions(t *testing.T) {
+	first, last := "a", "c"
+	gapped := func(gap int) []any {
+		row := []any{first}
+		for range gap {
+			row = append(row, nil)
+		}
+		return append(row, last)
+	}
+	typed := func(gap int) []*string {
+		row := []*string{&first}
+		for range gap {
+			row = append(row, nil)
+		}
+		return append(row, &last)
+	}
+	tests := []struct {
+		name string
+		row  any
+		want []any
+	}{
+		{"any slice short gap", gapped(1), gapped(1)},
+		{"any slice long gap", gapped(40), gapped(40)},
+		{"typed slice long gap", typed(40), gapped(40)},
+		{"leading nil", []any{nil, last}, []any{nil, last}},
+		{"trailing nil", []any{first, nil}, []any{first}},
+		{"only nil", []any{nil}, []any{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			converted, err := GoToLua(tt.row)
+			assert.NoError(t, err)
+			table, ok := converted.(*lua.LTable)
+			if !assert.True(t, ok) {
+				return
+			}
+			assert.Equal(t, len(tt.want), table.Len())
+
+			present := 0
+			for _, item := range tt.want {
+				if item != nil {
+					present++
+				}
+			}
+			pairs := 0
+			for key, _ := table.Next(lua.LNil); key != lua.LNil; key, _ = table.Next(key) {
+				pairs++
+			}
+			assert.Equal(t, present, pairs)
+			assert.Equal(t, tt.want, value.ToGoAny(table))
+
+			encoded, err := jsonlua.Encode(converted)
+			assert.NoError(t, err)
+			want, err := gojson.Marshal(tt.want)
+			assert.NoError(t, err)
+			assert.Equal(t, string(want), string(encoded))
+		})
+	}
 }
