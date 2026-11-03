@@ -5,6 +5,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -215,4 +216,175 @@ func TestServerService_StopWaitsForTheDrainInProgress(t *testing.T) {
 			require.NoError(t, <-second)
 		})
 	}
+}
+
+// serveHeld registers handler at /api/held on a new server for cfg and returns the server.
+func serveHeld(t *testing.T, cfg *config.ServerConfig, handler http.HandlerFunc) *ServerService {
+	t.Helper()
+	server, err := NewServerService(registry.NewID("test", "held_server"), cfg, NewMiddlewareRegistry(zap.NewNop()))
+	require.NoError(t, err)
+	routerID := registry.NewID("test", "held_router")
+	require.NoError(t, server.UpsertRouter(routerID, &config.RouterConfig{Prefix: "/api"}))
+	require.NoError(t, server.UpsertEndpoint(routerID, registry.NewID("test", "held"), "/held", http.MethodGet, handler))
+	require.NoError(t, server.Rebuild(context.Background()))
+	return server
+}
+
+// startHeld starts server and opens a request to /api/held whose response headers have
+// arrived. The caller closes the response body.
+func startHeld(ctx context.Context, t *testing.T, server *ServerService) (string, *http.Response) {
+	t.Helper()
+	status, err := server.Start(ctx)
+	require.NoError(t, err)
+	addr := strings.TrimPrefix((<-status).(string), "service listening on ")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/api/held", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return addr, resp
+}
+
+// holdUntilShutdown answers with headers, waits for the server shutdown signal, closes
+// draining and runs during before it waits for release.
+func holdUntilShutdown(draining chan<- struct{}, during func(), release <-chan struct{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		signal, _ := contextapi.FrameFromContext(r.Context()).Get(config.ServerShutdownKey())
+		shuttingDown, _ := signal.(<-chan struct{})
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-shuttingDown
+		close(draining)
+		if during != nil {
+			during()
+		}
+		<-release
+	}
+}
+
+func TestServerService_StartWaitsForTheDrainOfTheRetiredServer(t *testing.T) {
+	port, err := findFreePort()
+	require.NoError(t, err)
+	draining, release := make(chan struct{}), make(chan struct{})
+	server := serveHeld(t, &config.ServerConfig{Addr: fmt.Sprintf("127.0.0.1:%d", port)}, holdUntilShutdown(draining, nil, release))
+
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 20*time.Second)
+	defer cancel()
+	_, resp := startHeld(ctx, t, server)
+	defer resp.Body.Close()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- server.Stop(ctx) }()
+	<-draining
+
+	canceled, cancelStart := context.WithCancel(ctx)
+	cancelStart()
+	_, err = server.Start(canceled)
+	require.ErrorIs(t, err, context.Canceled, "a start that cannot wait for the drain reports its context")
+
+	restarted := make(chan error, 1)
+	go func() {
+		_, err := server.Start(ctx)
+		restarted <- err
+	}()
+	select {
+	case err := <-restarted:
+		t.Fatalf("start returned while the retired server drains: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(release)
+	require.NoError(t, <-stopped)
+	require.NoError(t, <-restarted)
+	require.NoError(t, server.Stop(ctx))
+}
+
+func TestServerService_RetiredRequestsKeepTheirHostAcrossRestart(t *testing.T) {
+	target := pid.PID{Host: "retired", UniqID: "session"}
+	inbox := make(chan *relay.Package, 1)
+	attached, restartIssued := make(chan error, 1), make(chan struct{})
+	delivered := make(chan *relay.Package, 1)
+	draining, release := make(chan struct{}), make(chan struct{})
+	var server *ServerService
+	server = serveHeld(t, &config.ServerConfig{Addr: "127.0.0.1:0"}, holdUntilShutdown(draining, func() {
+		_, err := server.Attach(target, inbox)
+		attached <- err
+		if err != nil {
+			return
+		}
+		<-restartIssued
+		if err := server.Send(&relay.Package{Target: target, Messages: []*relay.Message{{Topic: "retired"}}}); err == nil {
+			select {
+			case pkg := <-inbox:
+				delivered <- pkg
+			case <-time.After(time.Second):
+			}
+		}
+		server.Detach(target)
+	}, release))
+
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 20*time.Second)
+	defer cancel()
+	_, resp := startHeld(ctx, t, server)
+	defer resp.Body.Close()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- server.Stop(ctx) }()
+	<-draining
+	require.NoError(t, <-attached)
+
+	restarted := make(chan error, 1)
+	go func() {
+		_, err := server.Start(ctx)
+		restarted <- err
+	}()
+	select {
+	case err := <-restarted:
+		require.NoError(t, err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	close(restartIssued)
+
+	select {
+	case pkg := <-delivered:
+		assert.Equal(t, "retired", pkg.Messages[0].Topic)
+	case <-time.After(2 * time.Second):
+		t.Fatal("a request of the retired server lost its relay host to the restart")
+	}
+
+	close(release)
+	require.NoError(t, <-stopped)
+	select {
+	case err := <-restarted:
+		require.NoError(t, err)
+	default:
+	}
+	require.NoError(t, server.Stop(ctx))
+}
+
+func TestServerService_StopClosesConnectionsThatOutliveTheDeadline(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	server := serveHeld(t, &config.ServerConfig{Addr: "127.0.0.1:0"}, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-release
+	})
+
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 20*time.Second)
+	defer cancel()
+	_, resp := startHeld(ctx, t, server)
+	defer resp.Body.Close()
+
+	stopCtx, stopCancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer stopCancel()
+	err := server.Stop(stopCtx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+
+	// The request context bounds the read, so a connection that outlives the stop shows as
+	// a read that lasts until that context ends.
+	began := time.Now()
+	_, err = io.ReadAll(resp.Body)
+	assert.Error(t, err, "the connection ends without completing the response")
+	assert.Less(t, time.Since(began), 2*time.Second, "a connection outlives the stop that gave up on it")
 }
