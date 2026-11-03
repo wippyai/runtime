@@ -56,6 +56,7 @@ type ServerService struct {
 	routeMgr      *RouteManager
 	config        *config.ServerConfig
 	stopWatch     chan struct{}
+	draining      chan struct{}
 	initialRoutes chan struct{}
 	id            registry.ID
 	mu            sync.RWMutex
@@ -384,32 +385,71 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	return s.statusChan, nil
 }
 
-// Stop implements the supervisor.Service interface to stop the HTTP server
+// Stop implements the supervisor.Service interface to stop the HTTP server.
+// It returns once the server it retires, or the one a concurrent stop retired, has
+// finished its graceful shutdown.
 func (s *ServerService) Stop(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	srv, host, done := s.retireLocked()
+	draining := s.draining
+	s.mu.Unlock()
 
-	return s.stopLocked(ctx)
+	if srv == nil {
+		return awaitDrain(ctx, draining)
+	}
+	return s.shutdown(ctx, srv, host, done)
 }
 
-// stopLocked shuts the current server down and retires the watcher that
-// belongs to it. Callers hold s.mu.
-func (s *ServerService) stopLocked(ctx context.Context) error {
+// retireLocked detaches the current server and its watcher from the service, so that a
+// later start or stop cannot reach it, and registers its drain. The relay host stays
+// attached while the retired server completes its in-flight requests. Callers hold s.mu.
+func (s *ServerService) retireLocked() (*http.Server, relay.AttachableReceiver, chan struct{}) {
 	s.retireWatchLocked()
-
-	// Gracefully shutdown the server
-	if s.server != nil {
-		if err := s.server.Shutdown(ctx); err != nil {
-			return NewGracefulShutdownError(err)
-		}
-		s.server = nil
+	srv := s.server
+	if srv == nil {
+		return nil, nil, nil
 	}
-
-	// Host will be cleaned up via context cancellation
-	s.host = nil
+	s.server = nil
 	s.started.Store(false)
+	done := make(chan struct{})
+	s.draining = done
+	return srv, s.host, done
+}
 
+// shutdown gracefully shuts a retired server down without holding s.mu, so requests that
+// are still being served can reach the relay host, and releases the host unless a newer
+// start replaced it.
+func (s *ServerService) shutdown(ctx context.Context, srv *http.Server, host relay.AttachableReceiver, done chan struct{}) error {
+	err := srv.Shutdown(ctx)
+
+	s.mu.Lock()
+	if s.server == nil && s.host == host {
+		// Host will be cleaned up via context cancellation
+		s.host = nil
+	}
+	if s.draining == done {
+		s.draining = nil
+	}
+	s.mu.Unlock()
+	close(done)
+
+	if err != nil {
+		return NewGracefulShutdownError(err)
+	}
 	return nil
+}
+
+// awaitDrain waits for the graceful shutdown of a server that a concurrent stop retired.
+func awaitDrain(ctx context.Context, draining <-chan struct{}) error {
+	if draining == nil {
+		return nil
+	}
+	select {
+	case <-draining:
+		return nil
+	case <-ctx.Done():
+		return NewGracefulShutdownError(ctx.Err())
+	}
 }
 
 // retireWatchLocked releases the watcher of the start that is being replaced
@@ -431,17 +471,18 @@ func (s *ServerService) watchStartContext(ctx context.Context, srv *http.Server,
 	case <-ctx.Done():
 	}
 
+	s.mu.Lock()
+	if s.server != srv {
+		s.mu.Unlock()
+		return
+	}
+	_, host, done := s.retireLocked()
+	s.mu.Unlock()
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 	defer cancel()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.server != srv {
-		return
-	}
-
-	if err := s.stopLocked(shutdownCtx); err != nil {
+	if err := s.shutdown(shutdownCtx, srv, host, done); err != nil {
 		select {
 		case s.statusChan <- NewShutdownError(err):
 		default:

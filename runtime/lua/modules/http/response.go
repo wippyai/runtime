@@ -69,6 +69,32 @@ func checkResponse(l *lua.LState, idx int) *Response { //nolint:unparam
 	return nil
 }
 
+// pushStreamEnded pushes the error of a stream whose server began its shutdown and reports
+// whether it did.
+func pushStreamEnded(l *lua.LState, res *Response) bool {
+	err := res.rCtx.StreamErr()
+	if err == nil {
+		return false
+	}
+	l.Push(lua.WrapErrorWithLua(l, err, "stream ended").
+		WithKind(lua.Canceled).
+		WithRetryable(true))
+	return true
+}
+
+// beginStream switches the response to a streaming transfer and pushes the error when the
+// request cannot stream.
+func beginStream(l *lua.LState, res *Response, mode string) bool {
+	if err := res.rCtx.BeginStream(); err != nil {
+		l.Push(lua.WrapErrorWithLua(l, err, "cannot start streaming").
+			WithKind(lua.Internal).
+			WithRetryable(false))
+		return false
+	}
+	res.transferMode = mode
+	return true
+}
+
 func responseSetStatus(l *lua.LState) int {
 	res := checkResponse(l, 1)
 	if res == nil {
@@ -117,6 +143,9 @@ func responseWrite(l *lua.LState) int {
 		return 0
 	}
 	data := l.CheckString(2)
+	if pushStreamEnded(l, res) {
+		return 1
+	}
 	res.rCtx.CommitResponseStatus()
 	res.headersSent = true
 	_, err := res.writer.Write([]byte(data))
@@ -137,6 +166,9 @@ func responseFlush(l *lua.LState) int {
 	res := checkResponse(l, 1)
 	if res == nil {
 		return 0
+	}
+	if pushStreamEnded(l, res) {
+		return 1
 	}
 	res.rCtx.CommitResponseStatus()
 	if flusher, ok := res.writer.(interface{ Flush() }); ok {
@@ -160,6 +192,9 @@ func responseWriteJSON(l *lua.LState) int {
 			WithKind(lua.Invalid).
 			WithRetryable(false)
 		l.Push(luaErr)
+		return 1
+	}
+	if pushStreamEnded(l, res) {
 		return 1
 	}
 	if !res.headersSent {
@@ -214,10 +249,12 @@ func responseWriteEvent(l *lua.LState) int {
 			l.Push(err)
 			return 1
 		}
+		if !beginStream(l, res, "sse") {
+			return 1
+		}
 		res.writer.Header().Set("Content-Type", "text/event-stream")
 		res.writer.Header().Set("Cache-Control", "no-cache")
 		res.writer.Header().Set("Connection", "keep-alive")
-		res.transferMode = "sse"
 	}
 
 	eventTable := l.CheckTable(2)
@@ -247,6 +284,9 @@ func responseWriteEvent(l *lua.LState) int {
 		return 1
 	}
 
+	if pushStreamEnded(l, res) {
+		return 1
+	}
 	res.rCtx.CommitResponseStatus()
 	res.headersSent = true
 	_, writeErr := fmt.Fprintf(res.writer, "event: %s\ndata: %s\n\n", name, data)
@@ -283,14 +323,18 @@ func responseSetTransfer(l *lua.LState) int {
 	mode := l.CheckString(2)
 	switch mode {
 	case "chunked":
+		if !beginStream(l, res, mode) {
+			return 1
+		}
 		res.writer.Header().Set("Transfer-Encoding", "chunked")
 		res.writer.Header().Set("Cache-Control", "no-cache")
-		res.transferMode = "chunked"
 	case "sse":
+		if !beginStream(l, res, mode) {
+			return 1
+		}
 		res.writer.Header().Set("Content-Type", "text/event-stream")
 		res.writer.Header().Set("Cache-Control", "no-cache")
 		res.writer.Header().Set("Connection", "keep-alive")
-		res.transferMode = "sse"
 	default:
 		l.ArgError(2, "invalid transfer type")
 		return 0

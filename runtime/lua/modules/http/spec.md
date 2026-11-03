@@ -461,6 +461,7 @@ Writes data to response body.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
+| stream ended by server shutdown | errors.CANCELED | yes |
 | write failed | errors.INTERNAL | no |
 
 **Notes:**
@@ -482,6 +483,7 @@ Encodes value as JSON and writes to response body.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | JSON encoding failed | errors.INVALID | no |
+| stream ended by server shutdown | errors.CANCELED | yes |
 | write failed | errors.INTERNAL | no |
 
 **Notes:**
@@ -492,7 +494,13 @@ Encodes value as JSON and writes to response body.
 
 Flushes buffered response data to client.
 
-**Returns:** `error?` - always nil
+**Returns:** `error?` - nil on success, structured error when the stream has ended
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| stream ended by server shutdown | errors.CANCELED | yes |
 
 **Notes:**
 - Useful for streaming responses
@@ -514,11 +522,13 @@ Sets transfer encoding mode.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | headers already sent | errors.INVALID | no |
+| request has no server shutdown signal | errors.INTERNAL | no |
 
 **Notes:**
 - "chunked": Sets Transfer-Encoding: chunked
 - "sse": Sets Content-Type: text/event-stream and Connection: keep-alive
 - Must be called before write operations
+- Makes the response a stream, see [Streams and server shutdown](#streams-and-server-shutdown)
 
 #### response:write_event(event: table) → error
 
@@ -545,12 +555,28 @@ Writes a Server-Sent Event (SSE).
 | missing event name | errors.INVALID | no |
 | missing event data | errors.INVALID | no |
 | JSON encoding failed | errors.INVALID | no |
+| request has no server shutdown signal | errors.INTERNAL | no |
+| stream ended by server shutdown | errors.CANCELED | yes |
 | write failed | errors.INTERNAL | no |
 
 **Notes:**
 - Automatically switches to SSE mode on first call if headers not sent
 - Automatically flushes after each event
 - Format: `event: <name>\ndata: <json>\n\n`
+
+#### Streams and server shutdown
+
+A response becomes a stream once `set_transfer` selects a transfer mode or the first
+`write_event` switches it to SSE. The graceful shutdown of the HTTP server waits for
+non-streaming requests to complete, but it ends streams when it begins:
+
+- the handler execution is canceled at its next yield (for example a channel receive or
+  `time.sleep`), and the server closes the response cleanly;
+- every write, `write_json`, `write_event` and `flush` on the stream returns an
+  `errors.CANCELED` error (retryable) whose message reports that the HTTP server is shutting
+  down, so a handler that writes in a loop without yielding sees the end and returns.
+
+Clients reconnect to the next server, so a stream needs no explicit final event.
 
 ### MultipartFile
 
@@ -621,7 +647,7 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INTERNAL`, `errors.INVALID`
+**Possible kinds:** `errors.INTERNAL`, `errors.INVALID`, `errors.CANCELED`
 
 ## Example
 
