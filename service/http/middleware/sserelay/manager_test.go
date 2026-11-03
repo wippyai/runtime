@@ -316,6 +316,7 @@ func withFrame(t *testing.T, req *http.Request) *http.Request {
 	ctx, fc := contextapi.OpenFrameContext(req.Context())
 	t.Cleanup(func() { contextapi.ReleaseFrameContext(fc) })
 	require.NoError(t, fc.Set(httpapi.ServerKey(), &testAttachableHost{}))
+	require.NoError(t, fc.Set(httpapi.ServerShutdownKey(), (<-chan struct{})(make(chan struct{}))))
 	require.NoError(t, fc.Set(httpapi.ServerIDKey(), "app:test_server"))
 	return req.WithContext(ctx)
 }
@@ -407,3 +408,58 @@ func (s *blockingSession) Serve(ctx context.Context, _ http.ResponseWriter) erro
 }
 
 func (s *blockingSession) Close(_ string) {}
+
+func TestMiddlewareRequiresServerShutdownSignal(t *testing.T) {
+	tests := []struct {
+		signal any
+		name   string
+		want   string
+		set    bool
+	}{
+		{name: "missing", want: ErrServerShutdownNotFound.Error()},
+		{name: "wrong type", signal: make(chan struct{}), set: true, want: ErrInvalidServerShutdown.Error()},
+		{name: "nil channel", signal: (<-chan struct{})(nil), set: true, want: ErrInvalidServerShutdown.Error()},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := NewSSERelay(context.Background(), zap.NewNop(), &testPIDGen{})
+			created := false
+			mgr.newSession = func(
+				_ context.Context,
+				_ RelayCommand,
+				_ registry.ID,
+				_ relay.AttachableReceiver,
+				_ relay.Node,
+				_ topology.Topology,
+				_ payload.Transcoder,
+				_ process.PIDGenerator,
+				_ *zap.Logger,
+			) (sessionRunner, error) {
+				created = true
+				return &stubSession{}, nil
+			}
+
+			handler := mgr.middlewareHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				data, _ := json.Marshal(RelayCommand{MessageTopic: "llm.delta"})
+				w.Header().Set(RelayHeader, string(data))
+			}), nil)
+
+			ctx, fc := contextapi.OpenFrameContext(context.Background())
+			t.Cleanup(func() { contextapi.ReleaseFrameContext(fc) })
+			require.NoError(t, fc.Set(httpapi.ServerKey(), &testAttachableHost{}))
+			require.NoError(t, fc.Set(httpapi.ServerIDKey(), "app:test_server"))
+			if tc.set {
+				require.NoError(t, fc.Set(httpapi.ServerShutdownKey(), tc.signal))
+			}
+			req := newTestRequest(t, "http://example.com/sse").WithContext(ctx)
+
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			assert.False(t, created)
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+			assert.Contains(t, w.Body.String(), tc.want)
+		})
+	}
+}

@@ -193,6 +193,17 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			return
 		}
 
+		shutdownVal, ok := fc.Get(httpapi.ServerShutdownKey())
+		if !ok {
+			http.Error(wrappedWriter, ErrServerShutdownNotFound.Error(), http.StatusInternalServerError)
+			return
+		}
+		shuttingDown, ok := shutdownVal.(<-chan struct{})
+		if !ok || shuttingDown == nil {
+			http.Error(wrappedWriter, ErrInvalidServerShutdown.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		serverIDVal, ok := fc.Get(httpapi.ServerIDKey())
 		if !ok {
 			http.Error(wrappedWriter, ErrServerIDNotFound.Error(), http.StatusInternalServerError)
@@ -227,7 +238,6 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		}
 		defer session.Close("request finished")
 
-		shuttingDown, _ := fc.Get(httpapi.ServerShutdownKey())
 		serveCtx, stopWatch := withServerShutdown(r.Context(), shuttingDown)
 		defer stopWatch()
 
@@ -244,12 +254,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 
 // withServerShutdown cancels ctx with ErrServerShutdown when the HTTP server that owns the
 // request starts its graceful shutdown, because the server waits for open streams to finish.
-func withServerShutdown(ctx context.Context, signal any) (context.Context, context.CancelFunc) {
-	shuttingDown, ok := signal.(<-chan struct{})
-	if !ok || shuttingDown == nil {
-		return ctx, func() {}
-	}
-
+func withServerShutdown(ctx context.Context, shuttingDown <-chan struct{}) (context.Context, context.CancelFunc) {
 	watched, cancel := context.WithCancelCause(ctx)
 	go func() {
 		select {

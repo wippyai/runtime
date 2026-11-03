@@ -15,11 +15,13 @@ var (
 	ErrTranscoderRequired   = apierror.New(apierror.Invalid, "transcoder is required").WithRetryable(apierror.False)
 	ErrPIDGeneratorRequired = apierror.New(apierror.Invalid, "pid generator is required").WithRetryable(apierror.False)
 
-	ErrFrameContextNotFound = apierror.New(apierror.Internal, "frame context not found").WithRetryable(apierror.False)
-	ErrServerHostNotFound   = apierror.New(apierror.Internal, "http server host not found in context").WithRetryable(apierror.False)
-	ErrServerIDNotFound     = apierror.New(apierror.Internal, "server ID not found in context").WithRetryable(apierror.False)
-	ErrInvalidServerID      = apierror.New(apierror.Invalid, "invalid server ID in context").WithRetryable(apierror.False)
-	ErrHostNotAttachable    = apierror.New(apierror.Invalid, "server host does not implement AttachableReceiver").WithRetryable(apierror.False)
+	ErrFrameContextNotFound   = apierror.New(apierror.Internal, "frame context not found").WithRetryable(apierror.False)
+	ErrServerHostNotFound     = apierror.New(apierror.Internal, "http server host not found in context").WithRetryable(apierror.False)
+	ErrServerIDNotFound       = apierror.New(apierror.Internal, "server ID not found in context").WithRetryable(apierror.False)
+	ErrInvalidServerID        = apierror.New(apierror.Invalid, "invalid server ID in context").WithRetryable(apierror.False)
+	ErrHostNotAttachable      = apierror.New(apierror.Invalid, "server host does not implement AttachableReceiver").WithRetryable(apierror.False)
+	ErrServerShutdownNotFound = apierror.New(apierror.Internal, "server shutdown signal not found in context").WithRetryable(apierror.False)
+	ErrInvalidServerShutdown  = apierror.New(apierror.Invalid, "server shutdown signal in context is not a receive channel").WithRetryable(apierror.False)
 
 	ErrSSEFlusherUnavailable = apierror.New(apierror.Internal, "response writer does not support flushing").WithRetryable(apierror.False)
 	ErrExpectedBytesPayload  = apierror.New(apierror.Invalid, "expected bytes payload but got different type").WithRetryable(apierror.False)
