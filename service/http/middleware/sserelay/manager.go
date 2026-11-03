@@ -227,7 +227,10 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		}
 		defer session.Close("request finished")
 
-		if err := session.Serve(r.Context(), wrappedWriter); err != nil {
+		serveCtx, stopWatch := withServerShutdown(r.Context(), hostVal)
+		defer stopWatch()
+
+		if err := session.Serve(serveCtx, wrappedWriter); err != nil {
 			// If streaming already started, just log and stop.
 			if wrappedWriter.wroteHeader || wrappedWriter.wroteBody {
 				logger.Debug("sse relay ended with stream error", zap.Error(err))
@@ -236,6 +239,29 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			http.Error(wrappedWriter, err.Error(), httpStatusFromError(err))
 		}
 	})
+}
+
+// withServerShutdown cancels ctx with ErrServerShutdown when the HTTP server that owns the
+// request starts its graceful shutdown, because the server waits for open streams to finish.
+func withServerShutdown(ctx context.Context, server any) (context.Context, context.CancelFunc) {
+	notifier, ok := server.(httpapi.ShutdownNotifier)
+	if !ok {
+		return ctx, func() {}
+	}
+	shuttingDown := notifier.ShuttingDown()
+	if shuttingDown == nil {
+		return ctx, func() {}
+	}
+
+	watched, cancel := context.WithCancelCause(ctx)
+	go func() {
+		select {
+		case <-shuttingDown:
+			cancel(ErrServerShutdown)
+		case <-watched.Done():
+		}
+	}()
+	return watched, func() { cancel(nil) }
 }
 
 func httpStatusFromError(err error) int {

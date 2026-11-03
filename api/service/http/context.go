@@ -41,6 +41,13 @@ func ServerKey() *ctxapi.Key {
 	return serverCtx
 }
 
+// ShutdownNotifier is implemented by an HTTP server object that signals the start of its
+// graceful shutdown. A handler that holds a request open, such as an SSE stream, ends the
+// request when the channel closes, so the shutdown does not wait for it until its deadline.
+type ShutdownNotifier interface {
+	ShuttingDown() <-chan struct{}
+}
+
 // RouteInfo contains information about the matched route for the current request.
 // It includes routing parameters, endpoint configuration, and matching details.
 type RouteInfo struct {

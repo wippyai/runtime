@@ -24,6 +24,7 @@ var (
 	ErrSSEFlusherUnavailable = apierror.New(apierror.Internal, "response writer does not support flushing").WithRetryable(apierror.False)
 	ErrExpectedBytesPayload  = apierror.New(apierror.Invalid, "expected bytes payload but got different type").WithRetryable(apierror.False)
 	ErrOriginNotAllowed      = apierror.New(apierror.PermissionDenied, "origin is not allowed").WithRetryable(apierror.False)
+	ErrServerShutdown        = apierror.New(apierror.Canceled, "http server is shutting down").WithRetryable(apierror.True)
 )
 
 func newParseDurationError(field, value string, err error) apierror.Error {

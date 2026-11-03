@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -345,3 +346,72 @@ func (h *testAttachableHost) Attach(_ pid.PID, _ chan *relay.Package) (context.C
 }
 
 func (h *testAttachableHost) Detach(_ pid.PID) {}
+
+func TestMiddlewareEndsSessionOnServerShutdown(t *testing.T) {
+	mgr := NewSSERelay(context.Background(), zap.NewNop(), &testPIDGen{})
+	stub := &blockingSession{served: make(chan struct{})}
+	mgr.newSession = func(
+		_ context.Context,
+		_ RelayCommand,
+		_ registry.ID,
+		_ relay.AttachableReceiver,
+		_ relay.Node,
+		_ topology.Topology,
+		_ payload.Transcoder,
+		_ process.PIDGenerator,
+		_ *zap.Logger,
+	) (sessionRunner, error) {
+		return stub, nil
+	}
+
+	handler := mgr.middlewareHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		data, _ := json.Marshal(RelayCommand{MessageTopic: "llm.delta"})
+		w.Header().Set(RelayHeader, string(data))
+	}), nil)
+
+	host := &shutdownHost{shuttingDown: make(chan struct{})}
+	ctx, fc := contextapi.OpenFrameContext(context.Background())
+	t.Cleanup(func() { contextapi.ReleaseFrameContext(fc) })
+	require.NoError(t, fc.Set(httpapi.ServerKey(), host))
+	require.NoError(t, fc.Set(httpapi.ServerIDKey(), "app:test_server"))
+	req := newTestRequest(t, "http://example.com/sse").WithContext(ctx)
+
+	finished := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		close(finished)
+	}()
+
+	<-stub.served
+	close(host.shuttingDown)
+
+	select {
+	case <-finished:
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay request did not end after the server shutdown signal")
+	}
+	assert.ErrorIs(t, stub.cause, ErrServerShutdown)
+}
+
+type blockingSession struct {
+	cause  error
+	served chan struct{}
+}
+
+func (s *blockingSession) Serve(ctx context.Context, _ http.ResponseWriter) error {
+	close(s.served)
+	<-ctx.Done()
+	s.cause = context.Cause(ctx)
+	return nil
+}
+
+func (s *blockingSession) Close(_ string) {}
+
+type shutdownHost struct {
+	testAttachableHost
+	shuttingDown chan struct{}
+}
+
+func (h *shutdownHost) ShuttingDown() <-chan struct{} {
+	return h.shuttingDown
+}

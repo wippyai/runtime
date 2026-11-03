@@ -481,6 +481,28 @@ func TestSessionTimeouts(t *testing.T) {
 		assert.Equal(t, "hard timeout", s.CloseReason())
 		assert.Contains(t, writer.String(), `"reason":"hard timeout"`)
 	})
+
+	t.Run("server shutdown", func(t *testing.T) {
+		s, err := NewSession(
+			context.Background(),
+			RelayCommand{IdleTimeout: "10s", HeartbeatInterval: "0s"},
+			registry.NewID("app", "server"),
+			host,
+			node,
+			topo,
+			tc,
+			pg,
+			zap.NewNop(),
+		)
+		require.NoError(t, err)
+
+		writer := newTestSSEWriter()
+		reqCtx, cancelReq := context.WithCancelCause(context.Background())
+		cancelReq(ErrServerShutdown)
+		require.NoError(t, s.Serve(reqCtx, writer))
+		assert.Equal(t, "server shutdown", s.CloseReason())
+		assert.Contains(t, writer.String(), `"reason":"server shutdown"`)
+	})
 }
 
 func TestSessionWriterFailure(t *testing.T) {
