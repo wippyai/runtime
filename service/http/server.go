@@ -57,7 +57,6 @@ type ServerService struct {
 	config        *config.ServerConfig
 	stopWatch     chan struct{}
 	initialRoutes chan struct{}
-	shutdown      atomic.Pointer[shutdownSignal]
 	id            registry.ID
 	mu            sync.RWMutex
 	routesPending bool
@@ -297,6 +296,9 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	}
 	listenAddr := ""
 
+	signal := &shutdownSignal{closed: make(chan struct{})}
+	var shuttingDown <-chan struct{} = signal.closed
+
 	// Wrap handler with per-request FrameContext creation
 	handler := drainClosingRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always fork a dedicated request frame from the inbound context.
@@ -307,6 +309,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		_ = config.SetServerID(ctx, s.id.String())
 		_ = config.SetServerHost(ctx, listenAddr)
 		_ = fc.Set(config.ServerKey(), s)
+		_ = fc.Set(config.ServerShutdownKey(), shuttingDown)
 
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
 	}))
@@ -322,9 +325,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			return s.ctx
 		},
 	}
-	signal := &shutdownSignal{closed: make(chan struct{})}
 	srv.RegisterOnShutdown(signal.fire)
-	s.shutdown.Store(signal)
 
 	ln, probe, err := s.buildListener(ctx)
 	if err != nil {
@@ -381,16 +382,6 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	return s.statusChan, nil
-}
-
-// ShuttingDown returns a channel that closes when the running server begins its graceful
-// shutdown, or nil before the first start. It implements config.ShutdownNotifier.
-func (s *ServerService) ShuttingDown() <-chan struct{} {
-	signal := s.shutdown.Load()
-	if signal == nil {
-		return nil
-	}
-	return signal.closed
 }
 
 // Stop implements the supervisor.Service interface to stop the HTTP server

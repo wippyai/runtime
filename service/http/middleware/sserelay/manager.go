@@ -227,7 +227,8 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		}
 		defer session.Close("request finished")
 
-		serveCtx, stopWatch := withServerShutdown(r.Context(), hostVal)
+		shuttingDown, _ := fc.Get(httpapi.ServerShutdownKey())
+		serveCtx, stopWatch := withServerShutdown(r.Context(), shuttingDown)
 		defer stopWatch()
 
 		if err := session.Serve(serveCtx, wrappedWriter); err != nil {
@@ -243,13 +244,9 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 
 // withServerShutdown cancels ctx with ErrServerShutdown when the HTTP server that owns the
 // request starts its graceful shutdown, because the server waits for open streams to finish.
-func withServerShutdown(ctx context.Context, server any) (context.Context, context.CancelFunc) {
-	notifier, ok := server.(httpapi.ShutdownNotifier)
-	if !ok {
-		return ctx, func() {}
-	}
-	shuttingDown := notifier.ShuttingDown()
-	if shuttingDown == nil {
+func withServerShutdown(ctx context.Context, signal any) (context.Context, context.CancelFunc) {
+	shuttingDown, ok := signal.(<-chan struct{})
+	if !ok || shuttingDown == nil {
 		return ctx, func() {}
 	}
 

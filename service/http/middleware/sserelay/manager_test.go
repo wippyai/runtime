@@ -369,10 +369,11 @@ func TestMiddlewareEndsSessionOnServerShutdown(t *testing.T) {
 		w.Header().Set(RelayHeader, string(data))
 	}), nil)
 
-	host := &shutdownHost{shuttingDown: make(chan struct{})}
+	shuttingDown := make(chan struct{})
 	ctx, fc := contextapi.OpenFrameContext(context.Background())
 	t.Cleanup(func() { contextapi.ReleaseFrameContext(fc) })
-	require.NoError(t, fc.Set(httpapi.ServerKey(), host))
+	require.NoError(t, fc.Set(httpapi.ServerKey(), &testAttachableHost{}))
+	require.NoError(t, fc.Set(httpapi.ServerShutdownKey(), (<-chan struct{})(shuttingDown)))
 	require.NoError(t, fc.Set(httpapi.ServerIDKey(), "app:test_server"))
 	req := newTestRequest(t, "http://example.com/sse").WithContext(ctx)
 
@@ -383,7 +384,7 @@ func TestMiddlewareEndsSessionOnServerShutdown(t *testing.T) {
 	}()
 
 	<-stub.served
-	close(host.shuttingDown)
+	close(shuttingDown)
 
 	select {
 	case <-finished:
@@ -406,12 +407,3 @@ func (s *blockingSession) Serve(ctx context.Context, _ http.ResponseWriter) erro
 }
 
 func (s *blockingSession) Close(_ string) {}
-
-type shutdownHost struct {
-	testAttachableHost
-	shuttingDown chan struct{}
-}
-
-func (h *shutdownHost) ShuttingDown() <-chan struct{} {
-	return h.shuttingDown
-}
