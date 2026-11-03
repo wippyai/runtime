@@ -63,6 +63,16 @@ type ServerService struct {
 	started       atomic.Bool
 }
 
+// shutdownSignal is closed once when a started http.Server begins its graceful shutdown.
+type shutdownSignal struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (s *shutdownSignal) fire() {
+	s.once.Do(func() { close(s.closed) })
+}
+
 // NewServerService creates a new ServerService instance
 func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware MiddlewareAPI) (*ServerService, error) {
 	routeManager, err := NewRouteManager()
@@ -286,6 +296,9 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	}
 	listenAddr := ""
 
+	signal := &shutdownSignal{closed: make(chan struct{})}
+	var shuttingDown <-chan struct{} = signal.closed
+
 	// Wrap handler with per-request FrameContext creation
 	handler := drainClosingRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always fork a dedicated request frame from the inbound context.
@@ -296,6 +309,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		_ = config.SetServerID(ctx, s.id.String())
 		_ = config.SetServerHost(ctx, listenAddr)
 		_ = fc.Set(config.ServerKey(), s)
+		_ = fc.Set(config.ServerShutdownKey(), shuttingDown)
 
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
 	}))
@@ -311,6 +325,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			return s.ctx
 		},
 	}
+	srv.RegisterOnShutdown(signal.fire)
 
 	ln, probe, err := s.buildListener(ctx)
 	if err != nil {

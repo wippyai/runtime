@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -217,6 +218,10 @@ func (s *Session) Serve(reqCtx context.Context, w http.ResponseWriter) error {
 			return nil
 
 		case <-reqCtx.Done():
+			if errors.Is(context.Cause(reqCtx), ErrServerShutdown) {
+				s.writeDoneAndClose(enc, "server shutdown")
+				return nil
+			}
 			s.Close("client disconnected")
 			return nil
 
