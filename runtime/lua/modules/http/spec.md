@@ -528,7 +528,7 @@ Sets transfer encoding mode.
 - "chunked": Sets Transfer-Encoding: chunked
 - "sse": Sets Content-Type: text/event-stream and Connection: keep-alive
 - Must be called before write operations
-- Makes the response a stream, see [Streams and server shutdown](#streams-and-server-shutdown)
+- Makes the response a stream and marks it as handled, see [Streams and server shutdown](#streams-and-server-shutdown)
 
 #### response:write_event(event: table) → error
 
@@ -570,11 +570,13 @@ A response becomes a stream once `set_transfer` selects a transfer mode or the f
 `write_event` switches it to SSE. The graceful shutdown of the HTTP server waits for
 non-streaming requests to complete, but it ends streams when it begins:
 
-- the handler execution is canceled at its next yield (for example a channel receive or
-  `time.sleep`), and the server closes the response cleanly;
-- every write, `write_json`, `write_event` and `flush` on the stream returns an
+- the handler execution ends at its next yield (for example a channel receive or
+  `time.sleep`), loop iteration or function call, and the server completes the response
+  cleanly with its committed status (200 unless `set_status` selected another one), even
+  when the stream has not written yet;
+- in between, every write, `write_json`, `write_event` and `flush` on the stream returns an
   `errors.CANCELED` error (retryable) whose message reports that the HTTP server is shutting
-  down, so a handler that writes in a loop without yielding sees the end and returns.
+  down.
 
 Clients reconnect to the next server, so a stream needs no explicit final event.
 

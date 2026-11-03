@@ -227,9 +227,11 @@ func (h *RequestContext) SetStreamStart(start func() (<-chan struct{}, error)) {
 	h.streamStart = start
 }
 
-// BeginStream marks the response as a streaming transfer. A stream has no natural end that
-// a graceful server shutdown can wait for, so the stream ends when its server begins the
-// shutdown, while other responses keep their full graceful completion.
+// BeginStream marks the response as a streaming transfer, which makes it handled: its
+// headers commit with the default status even if the stream ends before its first write.
+// A stream has no natural end that a graceful server shutdown can wait for, so the stream
+// ends when its server begins the shutdown, while other responses keep their full graceful
+// completion.
 func (h *RequestContext) BeginStream() error {
 	if h.streaming {
 		return nil
@@ -242,6 +244,7 @@ func (h *RequestContext) BeginStream() error {
 		h.streamEnd = end
 	}
 	h.streaming = true
+	h.MarkHandled()
 	return nil
 }
 

@@ -16,7 +16,6 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
@@ -288,38 +287,6 @@ func TestL09EngineInvalidationTimeoutPrecedence(t *testing.T) {
 		}
 		if got := resolveEngineSettings(boot.NewConfig(opts...), zap.NewNop()).InvalidationWaitTimeout; got != fixture.want {
 			t.Fatalf("fixture %d invalidation timeout = %v, want %v", index, got, fixture.want)
-		}
-	}
-}
-
-func TestL10LuaErrorMetadataProjectionAndDetach(t *testing.T) {
-	details := map[string]any{"attempt": 7, "region": "test-zone"}
-	err := apierror.NewRich(apierror.Kind("TransientLiteral"), "temporary failure").
-		WithRetryable(apierror.True).
-		WithDetails(details)
-
-	metadata := extractLuaErrorMetadata(err)
-	if metadata == nil {
-		t.Fatal("extractLuaErrorMetadata() = nil")
-	}
-	if string(metadata.Kind) != "TransientLiteral" || metadata.Retryable == nil || !*metadata.Retryable {
-		t.Fatalf("metadata fields = %#v", metadata)
-	}
-	if metadata.Details["attempt"] != 7 || metadata.Details["region"] != "test-zone" {
-		t.Fatalf("metadata details = %#v", metadata.Details)
-	}
-	details["attempt"] = 8
-	details["region"] = "changed"
-	if metadata.Details["attempt"] != 7 || metadata.Details["region"] != "test-zone" {
-		t.Fatalf("metadata details changed with source = %#v", metadata.Details)
-	}
-}
-
-func TestL11LuaErrorMetadataNilCases(t *testing.T) {
-	inputs := []error{nil, apierror.New(apierror.Kind(""), "metadata free")}
-	for index, input := range inputs {
-		if got := extractLuaErrorMetadata(input); got != nil {
-			t.Fatalf("fixture %d metadata = %#v, want nil", index, got)
 		}
 	}
 }

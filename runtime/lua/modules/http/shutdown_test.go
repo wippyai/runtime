@@ -16,10 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	httpservice "github.com/wippyai/runtime/api/service/http"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	httpserver "github.com/wippyai/runtime/service/http"
 	"github.com/wippyai/runtime/system/scheduler"
@@ -73,17 +75,30 @@ func listenAddr(t *testing.T, status <-chan any) string {
 }
 
 func TestServerStopEndsLuaStreamsAndCompletesNormalRequests(t *testing.T) {
-	for _, transfer := range []string{"sse", "chunked"} {
-		t.Run(transfer, func(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		transfer string
+		ready    string
+	}{
+		{name: "sse", transfer: "sse", ready: "ready\n"},
+		{name: "chunked", transfer: "chunked", ready: "ready\n"},
+		{name: "sse before the first write", transfer: "sse"},
+		{name: "chunked before the first write", transfer: "chunked"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			streamID := registry.NewID("test", "stream")
 			normalID := registry.NewID("test", "normal")
+			write := ""
+			if test.ready != "" {
+				write = `assert(res:write("` + strings.TrimSuffix(test.ready, "\n") + `\n") == nil)
+						assert(res:flush() == nil)`
+			}
 			funcs := luaFunctions{
 				streamID: newLuaHandlerPool(t, `
 					local function handler()
 						local res = http.response()
-						assert(res:set_transfer("`+transfer+`") == nil)
-						assert(res:write("ready\n") == nil)
-						assert(res:flush() == nil)
+						assert(res:set_transfer("`+test.transfer+`") == nil)
+						`+write+`
 						channel.new():receive()
 					end
 					return {handler = handler}
@@ -102,6 +117,7 @@ func TestServerStopEndsLuaStreamsAndCompletesNormalRequests(t *testing.T) {
 			}
 
 			normalServing := make(chan struct{})
+			streamServing := make(chan struct{})
 			endpoints, err := httpserver.NewEndpointFactory(funcs)
 			require.NoError(t, err)
 			server, err := httpserver.NewServerService(registry.NewID("test", "server"),
@@ -119,13 +135,12 @@ func TestServerStopEndsLuaStreamsAndCompletesNormalRequests(t *testing.T) {
 					Path: ep.path, Method: ep.method, Func: ep.id,
 				})
 				require.NoError(t, err)
-				if ep.id == normalID {
-					inner := handler
-					handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						close(normalServing)
-						inner.ServeHTTP(w, r)
-					})
-				}
+				serving := map[registry.ID]chan struct{}{normalID: normalServing, streamID: streamServing}[ep.id]
+				inner := handler
+				handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					close(serving)
+					inner.ServeHTTP(w, r)
+				})
 				require.NoError(t, server.UpsertEndpoint(routerID, ep.id, ep.path, ep.method, handler))
 			}
 			require.NoError(t, server.Rebuild(context.Background()))
@@ -138,13 +153,39 @@ func TestServerStopEndsLuaStreamsAndCompletesNormalRequests(t *testing.T) {
 
 			streamReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/api/stream", nil)
 			require.NoError(t, err)
-			streamResp, err := http.DefaultClient.Do(streamReq)
-			require.NoError(t, err)
-			defer streamResp.Body.Close()
-			stream := bufio.NewReader(streamResp.Body)
-			line, err := stream.ReadString('\n')
-			require.NoError(t, err)
-			require.Equal(t, "ready\n", line)
+			type streamResult struct {
+				err    error
+				ready  string
+				rest   string
+				status int
+			}
+			streamStarted := make(chan struct{})
+			streamDone := make(chan streamResult, 1)
+			go func() {
+				resp, err := http.DefaultClient.Do(streamReq)
+				if err != nil {
+					close(streamStarted)
+					streamDone <- streamResult{err: err}
+					return
+				}
+				defer resp.Body.Close()
+				stream := bufio.NewReader(resp.Body)
+				result := streamResult{status: resp.StatusCode}
+				if test.ready != "" {
+					result.ready, result.err = stream.ReadString('\n')
+				}
+				close(streamStarted)
+				if result.err == nil {
+					var rest []byte
+					rest, result.err = io.ReadAll(stream)
+					result.rest = string(rest)
+				}
+				streamDone <- result
+			}()
+			<-streamServing
+			if test.ready != "" {
+				<-streamStarted
+			}
 
 			bodyReader, bodyWriter := io.Pipe()
 			normalReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/api/normal", bodyReader)
@@ -175,15 +216,12 @@ func TestServerStopEndsLuaStreamsAndCompletesNormalRequests(t *testing.T) {
 			began := time.Now()
 			go func() { stopped <- server.Stop(stopCtx) }()
 
-			streamEnded := make(chan error, 1)
-			go func() {
-				rest, err := io.ReadAll(stream)
-				assert.Empty(t, rest)
-				streamEnded <- err
-			}()
 			select {
-			case err := <-streamEnded:
-				require.NoError(t, err, "the stream ends with a clean end of body")
+			case result := <-streamDone:
+				require.NoError(t, result.err, "the stream ends with a clean end of body")
+				assert.Equal(t, http.StatusOK, result.status)
+				assert.Equal(t, test.ready, result.ready)
+				assert.Empty(t, result.rest)
 			case <-time.After(2 * time.Second):
 				t.Fatal("the stream is still open after the server began its shutdown")
 			}
@@ -208,6 +246,9 @@ func TestServerStopEndsLuaStreamsAndCompletesNormalRequests(t *testing.T) {
 }
 
 func TestResponseStreamAfterServerShutdown(t *testing.T) {
+	lua.SetErrorMetadataExtractor(runtimelua.ErrorMetadata)
+	t.Cleanup(func() { lua.SetErrorMetadataExtractor(nil) })
+
 	shutDown := make(chan struct{})
 	close(shutDown)
 	ended := func() (<-chan struct{}, error) { return shutDown, nil }
@@ -252,6 +293,14 @@ func TestResponseStreamAfterServerShutdown(t *testing.T) {
 			assert(err ~= nil and err:kind() == "Internal", tostring(err))
 			err = res:write_event({name = "tick", data = {}})
 			assert(err ~= nil and err:kind() == "Internal", tostring(err))
+			assert(err:retryable() == false)
+		`},
+		{name: "stream start keeps the kind of its error", start: func() (<-chan struct{}, error) {
+			return nil, apierror.New(apierror.Unavailable, "signal unavailable").WithRetryable(apierror.True)
+		}, script: `
+			local err = res:set_transfer(http.TRANSFER.CHUNKED)
+			assert(err ~= nil and err:kind() == "Unavailable", tostring(err))
+			assert(err:retryable() == true)
 		`},
 	} {
 		t.Run(test.name, func(t *testing.T) {

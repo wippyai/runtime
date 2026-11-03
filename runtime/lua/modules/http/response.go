@@ -76,9 +76,7 @@ func pushStreamEnded(l *lua.LState, res *Response) bool {
 	if err == nil {
 		return false
 	}
-	l.Push(lua.WrapErrorWithLua(l, err, "stream ended").
-		WithKind(lua.Canceled).
-		WithRetryable(true))
+	l.Push(lua.WrapErrorWithLua(l, err, "stream ended"))
 	return true
 }
 
@@ -86,9 +84,7 @@ func pushStreamEnded(l *lua.LState, res *Response) bool {
 // request cannot stream.
 func beginStream(l *lua.LState, res *Response, mode string) bool {
 	if err := res.rCtx.BeginStream(); err != nil {
-		l.Push(lua.WrapErrorWithLua(l, err, "cannot start streaming").
-			WithKind(lua.Internal).
-			WithRetryable(false))
+		l.Push(lua.WrapErrorWithLua(l, err, "cannot start streaming"))
 		return false
 	}
 	res.transferMode = mode
