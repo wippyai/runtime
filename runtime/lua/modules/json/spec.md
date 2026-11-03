@@ -27,7 +27,7 @@ Encodes a Lua value into a JSON string.
 | Condition | Kind | Retryable | Notes |
 |-----------|------|-----------|-------|
 | recursively nested table | errors.INTERNAL | no | Table contains itself |
-| sparse array | errors.INTERNAL | no | A gap before a key kept past the array part (e.g., {[1]="a", [1000]="c"}); see encoding rules |
+| sparse array | errors.INTERNAL | no | A gap before a key kept past the array part (e.g., {[1]="a", [1000]="c"}); the message names the key and the array length; see encoding rules |
 | mixed-key table | errors.INTERNAL | no | Table has both numeric and non-numeric keys |
 | max depth exceeded | errors.INTERNAL | no | Exceeds 128 levels of nesting |
 

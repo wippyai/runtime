@@ -393,6 +393,7 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 	// their contiguity is checked against the entry count, not their values.
 	arrayLen := int64(len(table.Array))
 	var hashedPastArray, maxHashedKey int64
+	var beyondInt64 lua.LNumber
 	if table.Dict != nil {
 		for key, value := range table.Dict {
 			if value != lua.LNil {
@@ -410,6 +411,7 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 					hasNumericKeys = true
 					hashedPastArray++
 					maxHashedKey = math.MaxInt64
+					beyondInt64 = max(beyondInt64, num)
 				} else {
 					hasStringKeys = true
 				}
@@ -441,7 +443,11 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 	// contiguous exactly when the largest is arrayLen plus their count.
 	if hashedPastArray > 0 {
 		if maxHashedKey != arrayLen+hashedPastArray {
-			return nil, errSparseArray
+			key := strconv.FormatInt(maxHashedKey, 10)
+			if beyondInt64 > 0 {
+				key = strconv.FormatFloat(float64(beyondInt64), 'f', 0, 64)
+			}
+			return nil, fmt.Errorf("%w: integer key %s past an array of %d elements", errSparseArray, key, arrayLen)
 		}
 		maxNumericKey = int(maxHashedKey)
 	}
