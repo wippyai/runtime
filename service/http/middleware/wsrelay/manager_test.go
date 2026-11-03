@@ -89,6 +89,7 @@ func TestResponseWrapper(t *testing.T) {
 func TestRelayCommandConstants(t *testing.T) {
 	t.Run("option keys defined", func(t *testing.T) {
 		assert.Equal(t, "wsrelay.allowed.origins", OptionAllowedOrigins)
+		assert.Equal(t, "wsrelay.read.limit", OptionReadLimit)
 		assert.Equal(t, "allow_origins", sharedAllowOrigins)
 		assert.Equal(t, "allowed_origins", legacyAllowedOrigins)
 	})

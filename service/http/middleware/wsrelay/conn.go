@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -200,11 +201,19 @@ func (c *Connection) handleWebSocketRead() {
 			// Read from WebSocket
 			msgType, data, err := c.conn.Read(c.ctx)
 			if err != nil {
-				if closeStatus := websocket.CloseStatus(err); closeStatus != -1 {
+				closeStatus := websocket.CloseStatus(err)
+				switch {
+				case errors.Is(err, websocket.ErrMessageTooBig):
+					c.mu.RLock()
+					targetPID := c.currentTargetPID
+					c.mu.RUnlock()
+					c.logger.Warn("websocket message exceeds read limit, closing connection",
+						zap.String("target_pid", targetPID.String()))
+				case closeStatus != -1:
 					c.logger.Debug("websocket closed by client",
 						zap.Int("close_code", int(closeStatus)),
 						zap.String("error", err.Error()))
-				} else {
+				default:
 					// this is DEBUG level simply because modern browsers and proxies love to close connection without close status
 					c.logger.Debug("error reading from WebSocket", zap.Error(err))
 				}
@@ -646,6 +655,8 @@ func (c *Connection) cleanup() {
 	if err := c.sendLeaveNotification(targetPID); err != nil {
 		c.logger.Error("error sending leave message", zap.Error(err))
 	}
+
+	_ = c.conn.CloseNow()
 
 	// Notify topology about our exit
 	result := &runtime.Result{

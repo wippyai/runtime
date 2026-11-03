@@ -22,6 +22,8 @@ const (
 
 	// DefaultHeartbeatInterval is the default heartbeat interval
 	DefaultHeartbeatInterval = 30 * time.Second
+
+	DefaultReadLimit int64 = 32768
 )
 
 // RelayCommand holds the configuration for a WebSocket relay request
