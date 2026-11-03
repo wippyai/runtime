@@ -348,15 +348,21 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 		}
 	}
 
-	// Check Dict part
+	// Check Dict part. Integer keys past the array part are counted and kept as
+	// floats so that they are validated before any int conversion.
+	arrayLen := len(table.Array)
+	hashedPastArray := 0
+	maxHashedKey := 0.0
 	if table.Dict != nil {
 		for key, value := range table.Dict {
 			if value != lua.LNil {
 				if num, ok := key.(lua.LNumber); ok && isInteger(num) && num > 0 {
 					hasNumericKeys = true
-					idx := int(num)
-					if idx > maxNumericKey {
-						maxNumericKey = idx
+					if float64(num) > float64(arrayLen) {
+						hashedPastArray++
+						maxHashedKey = max(maxHashedKey, float64(num))
+					} else {
+						maxNumericKey = max(maxNumericKey, int(num))
 					}
 				} else {
 					hasStringKeys = true
@@ -380,24 +386,18 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 		return nil, errInvalidKeys
 	}
 
-	if isObject {
-		return j.writeObjectDirect(buf, table, maxNumericKey)
-	}
-
-	if !j.options.AllowSparseArrays {
-		arrayLen := len(table.Array)
-		hashed := 0
-		for key, value := range table.Dict {
-			if value == lua.LNil {
-				continue
-			}
-			if num, ok := key.(lua.LNumber); ok && isInteger(num) && float64(num) > float64(arrayLen) {
-				hashed++
-			}
-		}
-		if hashed != max(maxNumericKey-arrayLen, 0) {
+	// Holes inside the array part encode as null. Keys stored past it must
+	// continue the array without a gap: distinct integers above arrayLen are
+	// contiguous exactly when the largest is arrayLen plus their count.
+	if hashedPastArray > 0 {
+		if !isObject && !j.options.AllowSparseArrays && maxHashedKey != float64(arrayLen+hashedPastArray) {
 			return nil, errSparseArray
 		}
+		maxNumericKey = int(maxHashedKey)
+	}
+
+	if isObject {
+		return j.writeObjectDirect(buf, table, maxNumericKey)
 	}
 
 	return j.writeArrayDirect(buf, table, maxNumericKey)
