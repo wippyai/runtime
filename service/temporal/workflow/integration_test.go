@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/code"
@@ -26,6 +27,7 @@ import (
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	uuidmod "github.com/wippyai/runtime/runtime/lua/modules/uuid"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	"github.com/wippyai/runtime/service/temporal/worker"
 	"github.com/wippyai/runtime/service/temporal/workflow"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -33,6 +35,7 @@ import (
 	syspayload "github.com/wippyai/runtime/system/payload"
 	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	sysprocess "github.com/wippyai/runtime/system/process"
+	syssecurity "github.com/wippyai/runtime/system/security"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/testsuite"
 	"go.uber.org/zap"
@@ -57,6 +60,7 @@ type workflowTestOpts struct {
 	allowedClasses []string
 	engineOpts     []engine.FactoryOption
 	imports        []code.Import
+	policies       []security.Policy
 }
 
 func newWorkflowTestFixture(t *testing.T, opts workflowTestOpts) *workflowTestFixture {
@@ -78,6 +82,22 @@ func newWorkflowTestFixture(t *testing.T, opts workflowTestOpts) *workflowTestFi
 	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
 
 	ctx := ctxapi.NewRootContext()
+	var securityKeys [][]byte
+	if len(opts.policies) > 0 {
+		var frame ctxapi.FrameContext
+		ctx, frame = ctxapi.ForkFrameContext(ctx)
+		f.cleanups = append(f.cleanups, func() { ctxapi.ReleaseFrameContext(frame) })
+		securityReg := syssecurity.NewPolicyRegistry(bus, logger)
+		require.NoError(t, securityReg.Start(ctx))
+		f.cleanups = append(f.cleanups, func() { require.NoError(t, securityReg.Stop()) })
+		ctx = security.WithRegistry(ctx, securityReg)
+		for _, policy := range opts.policies {
+			require.NoError(t, securityReg.ApplyPolicy(ctx, policy.ID(), security.PolicyRegister, &security.PolicyEntry{Policy: policy}))
+		}
+		require.NoError(t, security.SetActor(ctx, security.Actor{ID: "workflow-test"}))
+		require.NoError(t, security.SetScope(ctx, syssecurity.NewScope(opts.policies)))
+		securityKeys = [][]byte{[]byte("0123456789abcdef0123456789abcdef")}
+	}
 	awaitSvc := eventbus.NewAwaitService(bus)
 	require.NoError(t, awaitSvc.Start(ctx))
 	f.cleanups = append(f.cleanups, func() { _ = awaitSvc.Stop() })
@@ -148,6 +168,9 @@ func newWorkflowTestFixture(t *testing.T, opts workflowTestOpts) *workflowTestFi
 	resourceReg := newTestResourceRegistry()
 	clientID := registry.NewID("test", "client")
 	resourceReg.resources[clientID] = api.ClientResource{Client: f.temporalClient}
+	if len(securityKeys) > 0 {
+		resourceReg.resources[clientID] = securitykeys.NewResource(api.ClientResource{Client: f.temporalClient}, securityKeys)
+	}
 
 	workerConfig := &api.WorkerConfig{
 		Client:    clientID,

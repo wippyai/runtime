@@ -10,6 +10,9 @@ import (
 	"go.temporal.io/sdk/interceptor"
 )
 
+// TerminateWorkflowActivityName identifies the worker's workflow termination operation.
+const TerminateWorkflowActivityName = "__wippy_terminate_workflow"
+
 // Context keys for storing temporal-related data
 var (
 	activityContextKey      = &ctxapi.Key{Name: "temporal.activity.context"}

@@ -16,7 +16,24 @@ import (
 	transcoder "github.com/wippyai/runtime/system/payload"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/workflow"
 )
+
+func TestTemporalVersionMarkerRoundTripsAsNativeInteger(t *testing.T) {
+	dtt := transcoder.NewTranscoder()
+	jpayload.Register(dtt)
+	conv := NewDataConverter(dtt)
+	for _, version := range []workflow.Version{workflow.DefaultVersion, 0, 1} {
+		wire, err := conv.ToPayload(version)
+		require.NoError(t, err)
+		integerWire, err := conv.ToPayload(int(version))
+		require.NoError(t, err)
+		require.Equal(t, integerWire, wire)
+		var restored workflow.Version
+		require.NoError(t, conv.FromPayload(wire, &restored))
+		require.Equal(t, version, restored)
+	}
+}
 
 func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 	dtt := transcoder.NewTranscoder()
@@ -273,4 +290,13 @@ func TestDataConverter_PayloadNewTranscoding(t *testing.T) {
 		_, err := conv.ToPayload(p)
 		require.Error(t, err)
 	})
+}
+
+func TestTerminalPayloadSurvivesContinuationEncoding(t *testing.T) {
+	dc := NewDataConverter(nil)
+	encoded, err := dc.ToPayload(payload.NewTerminal())
+	require.NoError(t, err)
+	var restored payload.Payload
+	require.NoError(t, dc.FromPayload(encoded, &restored))
+	require.True(t, payload.IsTerminal(restored))
 }

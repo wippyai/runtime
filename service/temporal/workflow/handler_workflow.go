@@ -171,11 +171,7 @@ func (d *Definition) handleFunctionAsyncResult(topic string, result *commonpb.Pa
 }
 
 func (d *Definition) enqueueInternalSignal(topic string, payloads payload.Payloads) {
-	if len(d.signals) >= maxSignalQueueSize {
-		d.replayLog.Warn("signal queue full, dropping internal signal", zap.String("topic", topic))
-		return
-	}
-	d.signals = append(d.signals, incomingSignal{
+	d.queueSignal(incomingSignal{
 		Name:     topic,
 		Payloads: payloads,
 	})

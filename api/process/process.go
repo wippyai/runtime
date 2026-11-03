@@ -95,6 +95,20 @@ type (
 		TransferUpgradeState(replacement Process) error
 	}
 
+	// MailboxEnvelope contains the replayable part of an unread message.
+	// Queue reservations and receiver-owned state never cross this boundary.
+	MailboxEnvelope struct {
+		Source   pid.PID
+		Topic    string
+		Payloads payload.Payloads
+	}
+
+	// UpgradeMailbox exports unread envelopes in their original admission order.
+	// The snapshot remains owned by the exporting process until it closes.
+	UpgradeMailbox interface {
+		ExportUpgradeMailbox() []MailboxEnvelope
+	}
+
 	// FactoryFunc creates new Process instances.
 	FactoryFunc func() (Process, error)
 
