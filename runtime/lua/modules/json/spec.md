@@ -39,6 +39,8 @@ Encodes a Lua value into a JSON string.
 - Tables with sequential numeric keys (1-based) → JSON arrays
 - `nil` elements inside an array → `null` (`{1, nil, 3}` → `[1,null,3]`); trailing `nil` elements are omitted
 - Integer keys stored outside the table's array part must continue the array without a gap, otherwise encoding fails with a sparse-array error. go-lua keeps a key in the array part when it lands at most 32 slots past its end: `{[1]="a", [34]="c"}` encodes with 32 `null`s, `{[1]="a", [35]="c"}` fails, and the outcome can depend on insertion order (`{[1]="a", [20]="b", [40]="c"}` encodes, `{[1]="a", [40]="c", [20]="b"}` fails)
+- Every positive integer key is an array position, whatever its size: `{[1730000000]="ts"}` is a sparse array, and `{[1730000000]="ts", a=1}` is a mixed-key table
+- Zero, negative and fractional numeric keys are object keys: `{[0]="z", [-1]="m"}` → `{"-1":"m","0":"z"}`
 - Tables with string keys → JSON objects
 - Empty tables → `"[]"`
 
