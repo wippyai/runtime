@@ -198,11 +198,11 @@ func TestEncodeRejectsSparseHashKeys(t *testing.T) {
 	unrepresentable.RawSetH(lua.LNumber(1<<63), lua.LString("b"))
 
 	tests := []struct {
-		name  string
 		table *lua.LTable
+		name  string
 	}{
-		{"distant key", distant},
-		{"unrepresentable key", unrepresentable},
+		{table: distant, name: "distant key"},
+		{table: unrepresentable, name: "unrepresentable key"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
