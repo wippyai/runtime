@@ -392,7 +392,7 @@ func TestMiddlewareEndsSessionOnServerShutdown(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("relay request did not end after the server shutdown signal")
 	}
-	assert.ErrorIs(t, stub.cause, ErrServerShutdown)
+	assert.ErrorIs(t, stub.cause, httpapi.ErrServerShutdown)
 }
 
 type blockingSession struct {
@@ -416,9 +416,9 @@ func TestMiddlewareRequiresServerShutdownSignal(t *testing.T) {
 		want   string
 		set    bool
 	}{
-		{name: "missing", want: ErrServerShutdownNotFound.Error()},
-		{name: "wrong type", signal: make(chan struct{}), set: true, want: ErrInvalidServerShutdown.Error()},
-		{name: "nil channel", signal: (<-chan struct{})(nil), set: true, want: ErrInvalidServerShutdown.Error()},
+		{name: "missing", want: httpapi.ErrServerShutdownNotFound.Error()},
+		{name: "wrong type", signal: make(chan struct{}), set: true, want: httpapi.ErrInvalidServerShutdown.Error()},
+		{name: "nil channel", signal: (<-chan struct{})(nil), set: true, want: httpapi.ErrInvalidServerShutdown.Error()},
 	}
 
 	for _, tc := range tests {

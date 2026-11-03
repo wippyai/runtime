@@ -50,6 +50,33 @@ func ServerShutdownKey() *ctxapi.Key {
 	return serverShutdownCtx
 }
 
+// ServerShutdown returns the shutdown signal of the HTTP server serving the request in ctx.
+func ServerShutdown(ctx context.Context) (<-chan struct{}, error) {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return nil, ErrServerShutdownNotFound
+	}
+	val, ok := fc.Get(serverShutdownCtx)
+	if !ok {
+		return nil, ErrServerShutdownNotFound
+	}
+	shuttingDown, ok := val.(<-chan struct{})
+	if !ok || shuttingDown == nil {
+		return nil, ErrInvalidServerShutdown
+	}
+	return shuttingDown, nil
+}
+
+// WatchServerShutdown cancels a request context with ErrServerShutdown when shuttingDown
+// closes before ctx is done. It returns once either happens.
+func WatchServerShutdown(ctx context.Context, cancel context.CancelCauseFunc, shuttingDown <-chan struct{}) {
+	select {
+	case <-shuttingDown:
+		cancel(ErrServerShutdown)
+	case <-ctx.Done():
+	}
+}
+
 // RouteInfo contains information about the matched route for the current request.
 // It includes routing parameters, endpoint configuration, and matching details.
 type RouteInfo struct {
@@ -64,8 +91,11 @@ type RouteInfo struct {
 type RequestContext struct {
 	r               *http.Request
 	w               http.ResponseWriter
-	responseHandled bool
+	streamStart     func() (<-chan struct{}, error)
+	streamEnd       <-chan struct{}
 	responseStatus  int
+	responseHandled bool
+	streaming       bool
 }
 
 // GetRequestContext retrieves HTTP request context from FrameContext
@@ -188,6 +218,48 @@ func (h *RequestContext) MarkHandled() {
 // ResponseHandled returns true if a response has already been sent for this request.
 func (h *RequestContext) ResponseHandled() bool {
 	return h.responseHandled
+}
+
+// SetStreamStart installs the function BeginStream runs when the response switches to a
+// streaming transfer. It arms the end of the stream and returns the channel whose close
+// ends it.
+func (h *RequestContext) SetStreamStart(start func() (<-chan struct{}, error)) {
+	h.streamStart = start
+}
+
+// BeginStream marks the response as a streaming transfer, which makes it handled: its
+// headers commit with the default status even if the stream ends before its first write.
+// A stream has no natural end that a graceful server shutdown can wait for, so the stream
+// ends when its server begins the shutdown, while other responses keep their full graceful
+// completion.
+func (h *RequestContext) BeginStream() error {
+	if h.streaming {
+		return nil
+	}
+	if h.streamStart != nil {
+		end, err := h.streamStart()
+		if err != nil {
+			return err
+		}
+		h.streamEnd = end
+	}
+	h.streaming = true
+	h.MarkHandled()
+	return nil
+}
+
+// StreamErr returns ErrServerShutdown once the server serving a streaming response has
+// begun its shutdown.
+func (h *RequestContext) StreamErr() error {
+	if h.streamEnd == nil {
+		return nil
+	}
+	select {
+	case <-h.streamEnd:
+		return ErrServerShutdown
+	default:
+		return nil
+	}
 }
 
 // SetRequest sets the HTTP request (for pooling)
