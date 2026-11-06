@@ -73,11 +73,20 @@ func (r *actionRadix) match(action string) *patternClass {
 }
 func (r *actionRadix) link(parent *patternClass) { linkPatterns(&r.radix, parent) }
 func linkPatterns(r *radix[*patternClass], parent *patternClass) {
-	if r.value != nil {
-		r.value.parent = parent
-		parent = r.value
+	type link struct {
+		node   *radix[*patternClass]
+		parent *patternClass
 	}
-	for _, child := range r.children {
-		linkPatterns(child, parent)
+	pending := []link{{node: r, parent: parent}}
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if current.node.value != nil {
+			current.node.value.parent = current.parent
+			current.parent = current.node.value
+		}
+		for _, child := range current.node.children {
+			pending = append(pending, link{node: child, parent: current.parent})
+		}
 	}
 }

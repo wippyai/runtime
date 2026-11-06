@@ -3,6 +3,7 @@
 package security
 
 import (
+	"encoding/binary"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -43,9 +44,10 @@ type patternClass struct {
 }
 
 type actionPlans struct {
-	byAction map[string]*planSlot
-	patterns actionRadix
-	opaque   []security.Policy
+	byAction     map[string]*planSlot
+	byCandidates map[string]*actionPlan
+	patterns     actionRadix
+	opaque       []security.Policy
 }
 
 func (p *actionPlan) match(resource string) uint8 {
@@ -81,7 +83,7 @@ func (s *segment) actionIndex() *actionPlans {
 	if index := s.plans.Load(); index != nil {
 		return index
 	}
-	index := &actionPlans{byAction: make(map[string]*planSlot)}
+	index := &actionPlans{byAction: make(map[string]*planSlot), byCandidates: make(map[string]*actionPlan)}
 	for i, entry := range s.ordered {
 		if entry.descriptor == nil {
 			index.opaque = append(index.opaque, entry.policy)
@@ -127,23 +129,33 @@ func (s *segment) plan(action string) *actionPlan {
 	if p := slot.value.Load(); p != nil {
 		return p
 	}
-	p := &actionPlan{exact: make(map[string]uint8), dynamic: append([]security.Policy(nil), index.opaque...)}
-	if class == nil {
-		for _, entry := range s.ordered {
-			if entry.descriptor != nil && entry.descriptor.AppliesToAction(action) {
-				p.add(entry)
-			}
-		}
-	} else {
-		seen := make([]bool, len(s.ordered))
+	var seen []bool
+	if class != nil {
+		seen = make([]bool, len(s.ordered))
 		for current := class; current != nil; current = current.parent {
 			for _, i := range current.candidates {
-				if !seen[i] {
-					seen[i] = true
-					p.add(s.ordered[i])
-				}
+				seen[i] = true
 			}
 		}
+	}
+	// Ordered, self-delimiting indices identify candidates before any resources
+	// are compiled. Opaque candidates are the same for every plan in this segment.
+	var candidates []byte
+	for i, entry := range s.ordered {
+		if (class != nil && seen[i]) || (class == nil && entry.descriptor != nil && entry.descriptor.AppliesToAction(action)) {
+			candidates = binary.AppendUvarint(candidates, uint64(i))
+		}
+	}
+	key := string(candidates)
+	p := index.byCandidates[key]
+	if p == nil {
+		p = &actionPlan{exact: make(map[string]uint8), dynamic: append([]security.Policy(nil), index.opaque...)}
+		for len(candidates) > 0 {
+			i, n := binary.Uvarint(candidates)
+			p.add(s.ordered[i])
+			candidates = candidates[n:]
+		}
+		index.byCandidates[key] = p
 	}
 	slot.value.Store(p)
 	return p
