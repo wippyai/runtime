@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	sec "github.com/wippyai/runtime/api/security"
 	cfg "github.com/wippyai/runtime/api/service/security/policy"
@@ -81,7 +82,8 @@ func TestSegmentAdmissionAndDuplicateReplacement(t *testing.T) {
 	b := NewScope([]sec.Policy{p, opaque}).(*scope)
 	require.True(t, b.segments[0].opaque)
 	require.Equal(t, sec.Deny, b.Evaluate(sec.Actor{}, "read", "entry", nil))
-	require.Nil(t, b.segments[0].plans.Load())
+	require.Equal(t, []sec.Policy{opaque}, b.segments[0].plan("read").dynamic)
+	require.Empty(t, b.segments[0].plan("read").exact)
 }
 
 func TestCopiedPolicyLastObjectWins(t *testing.T) {
@@ -119,7 +121,9 @@ func TestCopiedPolicyLastObjectWins(t *testing.T) {
 					require.Same(t, test.copy, result.Policies()[0])
 					require.True(t, result.segments[0].opaque)
 					require.Equal(t, sec.Allow, result.Evaluate(sec.Actor{}, "read", "entry", nil))
-					require.Nil(t, result.segments[0].plans.Load())
+					require.Len(t, result.segments[0].plan("read").dynamic, 1)
+					require.Same(t, test.copy, result.segments[0].plan("read").dynamic[0])
+					require.Empty(t, result.segments[0].plan("read").exact)
 					require.NotSame(t, result, path.build(), "copied policies are not interned")
 					require.Same(t, test.original, result.With(test.original).Policies()[0])
 				})
@@ -202,4 +206,21 @@ func TestSegmentCompactionDifferential(t *testing.T) {
 			}
 		}
 	}
+}
+
+func (s *segment) evaluatePolicies(actor sec.Actor, action, resource string, meta attrs.Bag) sec.Result {
+	result := sec.Undefined
+	for _, entry := range s.ordered {
+		if entry.descriptor != nil && !entry.descriptor.AppliesToAction(action) {
+			continue
+		}
+		r := entry.policy.Evaluate(actor, action, resource, meta)
+		if r == sec.Deny {
+			return r
+		}
+		if r != sec.Undefined {
+			result = r
+		}
+	}
+	return result
 }

@@ -4,7 +4,6 @@ package security
 
 import (
 	"fmt"
-	"runtime"
 	"testing"
 
 	sec "github.com/wippyai/runtime/api/security"
@@ -37,26 +36,5 @@ func BenchmarkShapedPatternActions(b *testing.B) {
 				})
 			}
 		})
-	}
-}
-
-func TestPatternStreamRetainedMemory(t *testing.T) {
-	for _, n := range []int{430, 1024} {
-		list, _ := shapedPolicies(t, n)
-		part := freshShapedScope(list).(*scope).segments[0]
-		warm := part.plan("unnamed.warm")
-		runtime.GC()
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&before)
-		for i := 0; i < 10000; i++ {
-			part.evaluate(sec.Actor{}, fmt.Sprintf("unnamed.%08d", i), "missing", nil)
-		}
-		runtime.GC()
-		runtime.ReadMemStats(&after)
-		t.Logf("policies=%d live heap delta after 10000 actions=%d bytes", n, int64(after.HeapAlloc)-int64(before.HeapAlloc))
-		if warm != part.plan("unnamed.final") {
-			t.Fatal("pattern plan changes with caller key")
-		}
-		runtime.KeepAlive(part)
 	}
 }

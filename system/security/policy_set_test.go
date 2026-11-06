@@ -157,21 +157,21 @@ func TestSetHashCollisionAndEviction(t *testing.T) {
 	require.Equal(t, sec.Allow, first.evaluate(sec.Actor{}, "read", "entry", nil))
 	require.Equal(t, sec.Deny, second.evaluate(sec.Actor{}, "read", "entry", nil))
 }
-func TestPlanBoundsAndUncachedActions(t *testing.T) {
+func TestPlanBoundsFollowPolicyShapes(t *testing.T) {
 	p := nativePolicy(t, "wild", "read.*", "foo.*", cfg.Allow)
 	s := NewScope([]sec.Policy{p, nativePolicy(t, "pad1", "other", "*", cfg.Allow), nativePolicy(t, "pad2", "other", "*", cfg.Allow), nativePolicy(t, "pad3", "other", "*", cfg.Allow)}).(*scope)
-	for i := 0; i < maxActionPlans*3; i++ {
+	first := s.segments[0].plan("read.warm")
+	for i := 0; i < 1000; i++ {
 		action := fmt.Sprintf("read.%d", i)
 		require.Equal(t, sec.Allow, s.Evaluate(sec.Actor{}, action, "foobar", nil))
-	}
-	require.LessOrEqual(t, len(s.segments[0].plans.Load().byAction), maxActionPlans)
-	before := len(s.segments[0].plans.Load().byAction)
-	for i := 0; i < 500; i++ {
+		require.Same(t, first, s.segments[0].plan(action))
+		require.Nil(t, s.segments[0].plan(fmt.Sprintf("unknown.%d", i)))
 		require.Equal(t, sec.Undefined, s.Evaluate(sec.Actor{}, fmt.Sprintf("unknown.%d", i), "foo", nil))
 	}
-	require.Equal(t, before, len(s.segments[0].plans.Load().byAction))
+	require.Len(t, s.segments[0].plans.Load().byAction, 1)
+	require.Len(t, retainedPatternPlans(s.segments[0].plans.Load()), 1)
 	require.Equal(t, sec.Allow, s.Evaluate(sec.Actor{}, "read."+strings.Repeat("x", 65536), "foo"+strings.Repeat("x", 65536), nil))
-	require.Equal(t, before, len(s.segments[0].plans.Load().byAction))
+	require.Same(t, first, s.segments[0].plan("read."+strings.Repeat("x", 65536)))
 	// A large exact union is admitted in full, independent of a fixed byte cap.
 	resources := make([]any, 2000)
 	for i := range resources {
@@ -182,7 +182,7 @@ func TestPlanBoundsAndUncachedActions(t *testing.T) {
 	plan, known := large.segments[0].plans.Load().byAction["read"]
 	require.True(t, known)
 	require.NotNil(t, plan)
-	require.Len(t, plan.exact, len(resources))
+	require.Len(t, plan.value.Load().exact, len(resources))
 }
 func TestConcurrentConstructionAndEvaluation(t *testing.T) {
 	policies, _ := countPolicies(600, false)
@@ -252,7 +252,7 @@ func TestResidentSetRecreation(t *testing.T) {
 func BenchmarkCacheRetainedBytes(b *testing.B) {
 	isolateBenchmarkInterner(b)
 	var policies []sec.Policy
-	actions := make([]any, maxActionPlans)
+	actions := make([]any, 32)
 	for i := range actions {
 		actions[i] = fmt.Sprintf("read.%d", i)
 	}
@@ -277,7 +277,7 @@ func BenchmarkCacheRetainedBytes(b *testing.B) {
 			b.Fatal(err)
 		}
 		s := NewScope(append(append([]sec.Policy(nil), policies...), p))
-		for action := 0; action < maxActionPlans; action++ {
+		for action := 0; action < 32; action++ {
 			s.Evaluate(sec.Actor{}, fmt.Sprintf("read.%d", action), "missing", nil)
 		}
 	}
@@ -294,7 +294,11 @@ func BenchmarkCacheRetainedBytes(b *testing.B) {
 			for _, slot := range table.slots {
 				if slot.value != nil {
 					if plans := slot.value.plans.Load(); plans != nil {
-						for _, plan := range plans.byAction {
+						for _, slot := range plans.byAction {
+							plan := slot.value.Load()
+							if plan == nil {
+								continue
+							}
 							exactValues += len(plan.exact)
 							nodes, _ := radixSize(&plan.prefixes)
 							radixNodes += nodes

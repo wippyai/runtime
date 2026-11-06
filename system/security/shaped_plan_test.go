@@ -70,7 +70,7 @@ func TestShapedActionsKeepPlans(t *testing.T) {
 					p.matches.Store(0)
 				}
 				s.Evaluate(sec.Actor{}, action, "entry:0429:prefix:0000:xchild", nil)
-				require.NotNil(t, part.plans.Load().byAction[action], action)
+				require.NotNil(t, part.plans.Load().byAction[action].value.Load(), action)
 				for _, p := range counters {
 					require.Zero(t, p.calls.Load(), action)
 					require.Zero(t, p.matches.Load(), action)
@@ -165,22 +165,20 @@ func TestResourceRadixDifferential(t *testing.T) {
 	}
 }
 
-func TestPatternPlansDoNotDisplaceExactPlans(t *testing.T) {
-	actions := shapeAny(shapeOtherActions())
-	actions = append(actions, "pattern.*")
-	p := nativePolicy(t, "action-budget", actions, "prefix*", cfg.Allow)
+func TestPatternClassesDoNotDisplaceExactPlans(t *testing.T) {
+	actions := append(shapeAny(shapeOtherActions()), "pattern.*")
+	p := nativePolicy(t, "action-shapes", actions, "prefix*", cfg.Allow)
 	part := freshShapedScope([]sec.Policy{p}).(*scope).segments[0]
-	for i := 0; i < 3*maxActionPlans; i++ {
+	first := part.plan("pattern.first")
+	for i := 0; i < 1000; i++ {
 		require.Equal(t, sec.Allow, part.evaluate(sec.Actor{}, fmt.Sprintf("pattern.%d", i), "prefix", nil))
+		require.Same(t, first, part.plan(fmt.Sprintf("pattern.%d", i)))
 	}
-	require.Equal(t, maxActionPlans, part.plans.Load().patterns)
 	for _, action := range shapeOtherActions() {
 		require.NotNil(t, part.plan(action))
 	}
-	require.Len(t, part.plans.Load().byAction, maxActionPlans+86)
-	// Over-budget pattern keys get transient plans without retaining the caller key.
-	require.NotNil(t, part.plan("pattern.overflow"))
-	require.Len(t, part.plans.Load().byAction, maxActionPlans+86)
+	require.Len(t, part.plans.Load().byAction, 86)
+	require.Len(t, retainedPatternPlans(part.plans.Load()), 1)
 }
 
 func TestConcurrentShapedPlans(t *testing.T) {
@@ -205,7 +203,7 @@ func TestConcurrentShapedPlans(t *testing.T) {
 }
 
 func radixSize(root *resourceRadix) (nodes, labelBytes int) {
-	pending := []*resourceRadix{root}
+	pending := []*radix[uint8]{&root.radix}
 	for len(pending) > 0 {
 		node := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]

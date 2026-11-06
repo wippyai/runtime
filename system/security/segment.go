@@ -16,9 +16,6 @@ const (
 	segmentsPerShard    = 32
 	maxInternedSegments = segmentShards * segmentsPerShard
 	maxInternedPolicies = 1024
-	// Only pattern-minted keys are caller-controlled. Exact names come from policies.
-	maxActionPlans = 32
-	maxActionBytes = 256
 )
 
 type policyEntry struct {
