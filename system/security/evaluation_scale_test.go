@@ -169,6 +169,9 @@ func (p *countingPolicy) AppliesToAction(action string) bool {
 	p.matches.Add(1)
 	return p.action == action
 }
+func (p *countingPolicy) ActionFilter() (bool, []string, []string) {
+	return false, []string{p.action}, nil
+}
 func (p *countingPolicy) ResourceFilter() (bool, []string, []string) {
 	return false, []string{"entry"}, nil
 }

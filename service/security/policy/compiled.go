@@ -149,6 +149,7 @@ func (p *Policy) PolicyIdentity(candidate security.Policy) uint64 {
 	return p.identity
 }
 func (p *Policy) AppliesToAction(action string) bool         { return p.actions.matches(action) }
+func (p *Policy) ActionFilter() (bool, []string, []string)   { return p.actions.describe() }
 func (p *Policy) ResourceFilter() (bool, []string, []string) { return p.resources.describe() }
 func (p *Policy) StaticEffect() (security.Result, bool) {
 	return p.getResult(), len(p.config.Policy.Conditions) == 0
@@ -161,6 +162,7 @@ func (p *ExprPolicy) PolicyIdentity(candidate security.Policy) uint64 {
 	return p.identity
 }
 func (p *ExprPolicy) AppliesToAction(action string) bool         { return p.actions.matches(action) }
+func (p *ExprPolicy) ActionFilter() (bool, []string, []string)   { return p.actions.describe() }
 func (p *ExprPolicy) ResourceFilter() (bool, []string, []string) { return p.resources.describe() }
 func (p *ExprPolicy) StaticEffect() (security.Result, bool)      { return security.Undefined, false }
 

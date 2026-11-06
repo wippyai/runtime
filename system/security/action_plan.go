@@ -14,20 +14,64 @@ const (
 	denyBit
 )
 
-type resourcePrefix struct {
-	prefix  string
-	effects uint8
+// A compressed byte radix tree joins effects along the resource's path. Neither
+// sibling count nor the number of stored prefixes affects the number of steps.
+type resourceRadix struct {
+	children map[byte]*resourceRadix
+	prefix   string
+	effects  uint8
 }
+
+func (r *resourceRadix) insert(prefix string, effects uint8) {
+	for len(prefix) > 0 {
+		if r.children == nil {
+			r.children = make(map[byte]*resourceRadix)
+		}
+		child := r.children[prefix[0]]
+		if child == nil {
+			r.children[prefix[0]] = &resourceRadix{prefix: prefix, effects: effects}
+			return
+		}
+		common := 0
+		for common < len(prefix) && common < len(child.prefix) && prefix[common] == child.prefix[common] {
+			common++
+		}
+		if common < len(child.prefix) {
+			suffix := &resourceRadix{prefix: child.prefix[common:], effects: child.effects, children: child.children}
+			child.prefix = child.prefix[:common]
+			child.effects = 0
+			child.children = map[byte]*resourceRadix{suffix.prefix[0]: suffix}
+		}
+		prefix = prefix[common:]
+		r = child
+	}
+	r.effects |= effects
+}
+func (r *resourceRadix) match(resource string) uint8 {
+	effects := r.effects
+	for len(resource) > 0 {
+		child := r.children[resource[0]]
+		if child == nil || !strings.HasPrefix(resource, child.prefix) {
+			break
+		}
+		effects |= child.effects
+		resource = resource[len(child.prefix):]
+		r = child
+	}
+	return effects
+}
+
 type actionPlan struct {
 	exact    map[string]uint8
-	prefixes []resourcePrefix
 	dynamic  []security.Policy
+	prefixes resourceRadix
 	any      uint8
 }
 
 type actionPlans struct {
-	byAction map[string]*actionPlan
-	bytes    int
+	byAction     map[string]*actionPlan
+	exactActions map[string]string
+	patterns     int
 }
 
 func cachedPlan(plans *actionPlans, action string) (*actionPlan, bool) {
@@ -37,15 +81,8 @@ func cachedPlan(plans *actionPlans, action string) (*actionPlan, bool) {
 	p, known := plans.byAction[action]
 	return p, known
 }
-
 func (p *actionPlan) match(resource string) uint8 {
-	effects := p.any | p.exact[resource]
-	for _, prefix := range p.prefixes {
-		if strings.HasPrefix(resource, prefix.prefix) {
-			effects |= prefix.effects
-		}
-	}
-	return effects
+	return p.any | p.exact[resource] | p.prefixes.match(resource)
 }
 func (p *actionPlan) evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {
 	effects := p.match(resource)
@@ -66,28 +103,65 @@ func (p *actionPlan) evaluate(actor security.Actor, action, resource string, met
 	return security.Undefined
 }
 
-// No actor, metadata, or resource from a caller enters a plan.
+// Exact action keys and all resource data belong to policies. Only a bounded
+// number of short pattern-minted keys are retained; no caller data enters a plan.
 func (s *segment) plan(action string) *actionPlan {
-	if s.opaque || len(action) > maxActionBytes {
-		return nil
-	}
 	previous := s.plans.Load()
-	p, known := cachedPlan(previous, action)
-	if known {
+	if p, known := cachedPlan(previous, action); known {
 		return p
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous = s.plans.Load()
-	if p, known = cachedPlan(previous, action); known {
+	if p, known := cachedPlan(previous, action); known {
 		return p
 	}
-	if previous != nil && (len(previous.byAction) >= maxActionPlans || previous.bytes >= maxSegmentPlanBytes) {
+	p := s.buildPlan(action)
+	if p == nil {
 		return nil
 	}
+	exactActions := map[string]string(nil)
+	if previous != nil {
+		exactActions = previous.exactActions
+	} else {
+		exactActions = make(map[string]string)
+		for _, entry := range s.ordered {
+			if entry.descriptor != nil {
+				_, exact, _ := entry.descriptor.ActionFilter()
+				for _, name := range exact {
+					if _, exists := exactActions[name]; !exists {
+						exactActions[name] = name
+					}
+				}
+			}
+		}
+	}
+	key, exact := exactActions[action]
+	if !exact {
+		if len(action) > maxActionBytes || previous != nil && previous.patterns >= maxActionPlans {
+			return p
+		}
+		key = strings.Clone(action)
+	}
+	next := &actionPlans{byAction: make(map[string]*actionPlan), exactActions: exactActions}
+	if previous != nil {
+		next.patterns = previous.patterns
+		for k, v := range previous.byAction {
+			next.byAction[k] = v
+		}
+	}
+	if !exact {
+		next.patterns++
+	}
+	next.byAction[key] = p
+	s.plans.Store(next)
+	return p
+}
+
+func (s *segment) buildPlan(action string) *actionPlan {
 	named := false
 	for _, entry := range s.ordered {
-		if entry.descriptor.AppliesToAction(action) {
+		if entry.descriptor != nil && entry.descriptor.AppliesToAction(action) {
 			named = true
 			break
 		}
@@ -95,20 +169,19 @@ func (s *segment) plan(action string) *actionPlan {
 	if !named {
 		return nil
 	}
-	p = &actionPlan{exact: make(map[string]uint8)}
-	size := 256 + len(action)
+	p := &actionPlan{exact: make(map[string]uint8)}
 	for _, entry := range s.ordered {
 		d := entry.descriptor
+		if d == nil {
+			p.dynamic = append(p.dynamic, entry.policy)
+			continue
+		}
 		if !d.AppliesToAction(action) {
 			continue
 		}
 		result, static := d.StaticEffect()
 		if !static {
 			p.dynamic = append(p.dynamic, entry.policy)
-			size += 32
-			if size > maxPlanBytes {
-				break
-			}
 			continue
 		}
 		var effect uint8
@@ -125,50 +198,17 @@ func (s *segment) plan(action string) *actionPlan {
 			p.any |= effect
 		}
 		for _, resource := range exact {
-			if _, exists := p.exact[resource]; !exists {
-				size += 96 + len(resource)
-			}
-			if size > maxPlanBytes {
-				break
-			}
 			p.exact[resource] |= effect
 		}
-		if size <= maxPlanBytes {
-			for _, prefix := range prefixes {
-				size += 64 + len(prefix)
-				if size > maxPlanBytes {
-					break
-				}
-				p.prefixes = append(p.prefixes, resourcePrefix{prefix: prefix, effects: effect})
-			}
-		}
-		if size > maxPlanBytes {
-			break
+		for _, prefix := range prefixes {
+			p.prefixes.insert(prefix, effect)
 		}
 	}
-	if size > maxPlanBytes {
-		p = nil
-		size = 256 + len(action)
-	}
-	next := &actionPlans{byAction: make(map[string]*actionPlan), bytes: size}
-	if previous != nil {
-		if previous.bytes+size > maxSegmentPlanBytes {
-			return nil
-		}
-		next.bytes += previous.bytes
-		for key, value := range previous.byAction {
-			next.byAction[key] = value
-		}
-	}
-	next.byAction[strings.Clone(action)] = p
-	s.plans.Store(next)
 	return p
 }
 func (s *segment) evaluate(actor security.Actor, action, resource string, meta attrs.Bag) security.Result {
-	if !s.opaque && len(s.ordered) >= minPlannedPolicies {
-		if p := s.plan(action); p != nil {
-			return p.evaluate(actor, action, resource, meta)
-		}
+	if p := s.plan(action); p != nil {
+		return p.evaluate(actor, action, resource, meta)
 	}
 	return s.evaluatePolicies(actor, action, resource, meta)
 }

@@ -4,12 +4,15 @@ package security
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/registry"
 	sec "github.com/wippyai/runtime/api/security"
 	cfg "github.com/wippyai/runtime/api/service/security/policy"
 	impl "github.com/wippyai/runtime/service/security/policy"
@@ -66,7 +69,7 @@ func TestShapedActionsKeepPlans(t *testing.T) {
 					p.calls.Store(0)
 					p.matches.Store(0)
 				}
-				s.Evaluate(sec.Actor{}, action, "entry:0429:prefix:0000:child", nil)
+				s.Evaluate(sec.Actor{}, action, "entry:0429:prefix:0000:xchild", nil)
 				require.NotNil(t, part.plans.Load().byAction[action], action)
 				for _, p := range counters {
 					require.Zero(t, p.calls.Load(), action)
@@ -107,7 +110,7 @@ func TestShapedDifferential(t *testing.T) {
 			oracle = append(oracle, &referencePolicy{id: p.ID(), actions: shapedHotActions, resources: test.resource, effect: result})
 		}
 		s := NewScope(list)
-		resources := []string{"", "missing", "nest", "nested", "nested.safe.value", "nesting", "entry:0000:prefix:0000:", "entry:0000:prefix:0000:child", "entry:0429:prefix:0000:child", strings.Repeat("x", 65536)}
+		resources := []string{"", "missing", "nest", "nested", "nested.safe.value", "nesting", "entry:0000:prefix:0000:x", "entry:0000:prefix:0000:xchild", "entry:0429:prefix:0000:xchild", strings.Repeat("x", 65536)}
 		for _, action := range append(shapedHotActions, shapeOtherActions()...) {
 			for _, resource := range resources {
 				for _, meta := range []attrs.Bag{nil, {"enabled": true}, {"enabled": false}} {
@@ -135,4 +138,115 @@ func TestAllExactActionsAdmitted(t *testing.T) {
 		require.NotNil(t, s.segments[0].plan(action))
 	}
 	require.Len(t, s.segments[0].plans.Load().byAction, len(names))
+}
+
+func TestResourceRadixDifferential(t *testing.T) {
+	rng := rand.New(rand.NewSource(87123))
+	var tree resourceRadix
+	prefixes := map[string]uint8{}
+	for i := 0; i < 2000; i++ {
+		bytes := make([]byte, 1+rng.Intn(48))
+		for j := range bytes {
+			bytes[j] = byte(rng.Intn(256))
+		}
+		prefix := string(bytes)
+		effects := uint8(1 + rng.Intn(3))
+		prefixes[prefix] |= effects
+		tree.insert(prefix, effects)
+		for _, resource := range []string{prefix, prefix + "suffix", prefix[:len(prefix)/2], "missing"} {
+			var want uint8
+			for key, value := range prefixes {
+				if strings.HasPrefix(resource, key) {
+					want |= value
+				}
+			}
+			require.Equal(t, want, tree.match(resource))
+		}
+	}
+}
+
+func TestPatternPlansDoNotDisplaceExactPlans(t *testing.T) {
+	actions := shapeAny(shapeOtherActions())
+	actions = append(actions, "pattern.*")
+	p := nativePolicy(t, "action-budget", actions, "prefix*", cfg.Allow)
+	part := freshShapedScope([]sec.Policy{p}).(*scope).segments[0]
+	for i := 0; i < 3*maxActionPlans; i++ {
+		require.Equal(t, sec.Allow, part.evaluate(sec.Actor{}, fmt.Sprintf("pattern.%d", i), "prefix", nil))
+	}
+	require.Equal(t, maxActionPlans, part.plans.Load().patterns)
+	for _, action := range shapeOtherActions() {
+		require.NotNil(t, part.plan(action))
+	}
+	require.Len(t, part.plans.Load().byAction, maxActionPlans+86)
+	// Over-budget pattern keys get transient plans without retaining the caller key.
+	require.NotNil(t, part.plan("pattern.overflow"))
+	require.Len(t, part.plans.Load().byAction, maxActionPlans+86)
+}
+
+func TestConcurrentShapedPlans(t *testing.T) {
+	list, _ := shapedPolicies(t, 1024)
+	list = append(list, mutableValuePolicy{id: registry.NewID("shape", "opaque"), state: []sec.Result{sec.Undefined}})
+	part := freshShapedScope(list).(*scope).segments[0]
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, action := range append(shapedHotActions, shapeOtherActions()...) {
+				part.evaluate(sec.Actor{}, action, "missing", nil)
+				if part.plan(action) == nil {
+					t.Error("missing named plan")
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	require.Len(t, part.plans.Load().byAction, 96)
+}
+
+func radixSize(root *resourceRadix) (nodes, labelBytes int) {
+	pending := []*resourceRadix{root}
+	for len(pending) > 0 {
+		node := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		nodes++
+		labelBytes += len(node.prefix)
+		for _, child := range node.children {
+			pending = append(pending, child)
+		}
+	}
+	return nodes, labelBytes
+}
+
+func TestPlanStorageBoundedByCandidates(t *testing.T) {
+	for _, n := range []int{430, 700, 1024} {
+		list, _ := shapedPolicies(t, n)
+		part := freshShapedScope(list).(*scope).segments[0]
+		for _, action := range append(shapedHotActions, shapeOtherActions()...) {
+			plan := part.plan(action)
+			require.NotNil(t, plan)
+			var exactCount, prefixCount, prefixBytes, dynamic int
+			for _, p := range list {
+				d := p.(sec.PolicyDescriptor)
+				if !d.AppliesToAction(action) {
+					continue
+				}
+				if _, static := d.StaticEffect(); !static {
+					dynamic++
+					continue
+				}
+				_, exact, prefixes := d.ResourceFilter()
+				exactCount += len(exact)
+				prefixCount += len(prefixes)
+				for _, prefix := range prefixes {
+					prefixBytes += len(prefix)
+				}
+			}
+			nodes, bytes := radixSize(&plan.prefixes)
+			require.LessOrEqual(t, len(plan.exact), exactCount)
+			require.LessOrEqual(t, nodes, 2*prefixCount+1)
+			require.LessOrEqual(t, bytes, prefixBytes)
+			require.Len(t, plan.dynamic, dynamic)
+		}
+	}
 }

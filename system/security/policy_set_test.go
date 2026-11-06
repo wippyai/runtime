@@ -287,14 +287,18 @@ func BenchmarkCacheRetainedBytes(b *testing.B) {
 	if after.HeapAlloc > before.HeapAlloc {
 		b.ReportMetric(float64(after.HeapAlloc-before.HeapAlloc), "retained-B/cache")
 	}
-	charged := 0
+	exactValues, radixNodes := 0, 0
 	count := 0
 	for i := range sharedSegments.shards {
 		if table := sharedSegments.shards[i].table.Load(); table != nil {
 			for _, slot := range table.slots {
 				if slot.value != nil {
 					if plans := slot.value.plans.Load(); plans != nil {
-						charged += plans.bytes
+						for _, plan := range plans.byAction {
+							exactValues += len(plan.exact)
+							nodes, _ := radixSize(&plan.prefixes)
+							radixNodes += nodes
+						}
 					}
 					count++
 				}
@@ -302,7 +306,8 @@ func BenchmarkCacheRetainedBytes(b *testing.B) {
 		}
 	}
 
-	b.ReportMetric(float64(charged), "charged-plan-B/cache")
+	b.ReportMetric(float64(exactValues), "exact-values/cache")
+	b.ReportMetric(float64(radixNodes), "radix-nodes/cache")
 	b.ReportMetric(float64(count), "sets/cache")
 	runtime.KeepAlive(policies)
 }

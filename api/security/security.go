@@ -80,6 +80,9 @@ type (
 		// AppliesToAction is independent of actor, resource, and metadata.
 		// False guarantees Evaluate returns Undefined for this action.
 		AppliesToAction(action string) bool
+		// ActionFilter returns owned copies of the immutable action filter, in the
+		// same form as ResourceFilter. Exact names bound the segment's named plans.
+		ActionFilter() (anyAction bool, exact, prefixes []string)
 		// ResourceFilter returns owned copies of an any flag, exact values, and
 		// literal prefixes. Their union describes the policy's resource filter.
 		ResourceFilter() (anyResource bool, exact, prefixes []string)

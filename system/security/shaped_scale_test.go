@@ -36,7 +36,7 @@ func shapedPolicies(tb testing.TB, n int) ([]sec.Policy, []sec.Policy) {
 	prefixes := shapeHistogram(map[int]int{2: 41, 1: 26, 0: 274, 11: 5, 8: 10, 6: 15, 3: 10, 15: 3, 9: 6, 10: 4, 4: 9, 7: 15, 13: 5, 18: 1, 16: 2, 5: 1, 20: 2, 14: 1})
 	list, oracle := make([]sec.Policy, n), make([]sec.Policy, n)
 	for i := range list {
-		k := i % 430
+		k := i * 430 / n
 		names := make([]string, actions[k])
 		for j := range names {
 			if k < 150 {
@@ -45,21 +45,32 @@ func shapedPolicies(tb testing.TB, n int) ([]sec.Policy, []sec.Policy) {
 				names[j] = fmt.Sprintf("action.%02d", (i+j)%86)
 			}
 		}
-		if k >= 419 {
+		if k >= 300 && k < 311 {
 			names[0] = "*"
 		}
 		var resources []string
-		for j := 0; j < exact[k]; j++ {
-			resources = append(resources, fmt.Sprintf("entry:%04d:resource:%04d:exact-value", i, j))
+		for j := 0; j < exact[(k+279)%430]; j++ {
+			resource := fmt.Sprintf("entry:%04d:resource:%04d:exact-valuexx", i, j)
+			if k == 151 && j == 0 {
+				resource = ""
+			}
+			if k == 151 && j == 1 {
+				resource += strings.Repeat("z", 60-len(resource))
+			}
+			resources = append(resources, resource)
 		}
 		for j := 0; j < prefixes[k]; j++ {
-			resources = append(resources, fmt.Sprintf("entry:%04d:prefix:%04d:*", i, j))
+			prefix := fmt.Sprintf("entry:%04d:prefix:%04d:x", i, j)
+			if i == 0 && j == 0 {
+				prefix = "short"
+			}
+			if i == 0 && j == 1 {
+				prefix += strings.Repeat("z", 46-len(prefix))
+			}
+			resources = append(resources, prefix+"*")
 		}
-		if k >= 349 && k < 430 {
+		if k >= 349 {
 			resources = append(resources, "*")
-		}
-		if len(resources) == 0 {
-			resources = []string{"unmatched"}
 		}
 		effect, decision := cfg.Allow, sec.Allow
 		if k < 4 {
@@ -86,13 +97,13 @@ func shapedPolicies(tb testing.TB, n int) ([]sec.Policy, []sec.Policy) {
 }
 
 func BenchmarkShapedPermissions(b *testing.B) {
-	for _, n := range []int{430, 700, 1024} {
+	for _, n := range []int{430, 700, 1024, 860, 1720} {
 		b.Run(fmt.Sprint(n), func(b *testing.B) {
 			policies, _ := shapedPolicies(b, n)
 			s := NewScope(policies)
 			resources := make([]string, 5400)
 			for i := range resources {
-				resources[i] = fmt.Sprintf("entry:%04d:prefix:%04d:child", i%n, i%20)
+				resources[i] = fmt.Sprintf("entry:%04d:prefix:%04d:xchild", i%n, i%20)
 			}
 			for _, action := range shapedHotActions {
 				b.Run("check/"+action, func(b *testing.B) {
@@ -159,15 +170,34 @@ func TestShapedFixtureDistribution(t *testing.T) {
 	if len(list) != 430 {
 		t.Fatal("policy count")
 	}
-	var exact, prefix int
+	var exact, prefix, anyCount int
+	var exactLengths, prefixLengths []int
+	names := make(map[string]struct{})
 	for _, p := range oracle {
+		for _, name := range p.(*referencePolicy).actions.([]string) {
+			if name != "*" {
+				names[name] = struct{}{}
+			}
+		}
 		for _, r := range p.(*referencePolicy).resources.([]string) {
 			if strings.HasSuffix(r, "*") && r != "*" {
 				prefix++
-			} else if r != "*" && r != "unmatched" {
+				prefixLengths = append(prefixLengths, len(r)-1)
+			} else if r != "*" {
 				exact++
+				exactLengths = append(exactLengths, len(r))
+			} else {
+				anyCount++
 			}
 		}
+	}
+	sort.Ints(exactLengths)
+	sort.Ints(prefixLengths)
+	if len(names) != 96 || anyCount != 81 {
+		t.Fatalf("action/any distributions: %d/%d", len(names), anyCount)
+	}
+	if exactLengths[0] != 0 || exactLengths[len(exactLengths)/2] != 38 || exactLengths[len(exactLengths)-1] != 60 || prefixLengths[0] != 5 || prefixLengths[len(prefixLengths)/2] != 24 || prefixLengths[len(prefixLengths)-1] != 46 {
+		t.Fatal("resource length distributions")
 	}
 	if exact != 650 || prefix != 817 {
 		t.Fatalf("resource distributions: exact=%d prefix=%d", exact, prefix)

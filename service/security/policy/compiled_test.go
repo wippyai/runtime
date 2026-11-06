@@ -37,6 +37,9 @@ func TestPolicyDetachedConfig(t *testing.T) {
 	config.Policy.Conditions[0].Field = "resource"
 	require.Equal(t, security.Allow, p.Evaluate(security.Actor{ID: "a"}, "read", "entry", nil))
 	require.Equal(t, security.Undefined, p.Evaluate(security.Actor{ID: "b"}, "read", "entry", nil))
+	_, actionNames, _ := p.ActionFilter()
+	actionNames[0] = "changed"
+	require.True(t, p.AppliesToAction("read"))
 	_, exact, prefixes := p.ResourceFilter()
 	exact[0] = "changed"
 	_ = prefixes
@@ -54,6 +57,9 @@ func TestExprDetachedConfigAndChangingInputs(t *testing.T) {
 	config.Policy.Expression = "false"
 	require.Equal(t, security.Allow, p.Evaluate(security.Actor{ID: "a"}, "read", "foobar", attrs.Bag{"owner": "a"}))
 	require.Equal(t, security.Undefined, p.Evaluate(security.Actor{ID: "b"}, "read", "foobar", attrs.Bag{"owner": "a"}))
+	_, actionNames, _ := p.ActionFilter()
+	actionNames[0] = "changed"
+	require.True(t, p.AppliesToAction("read"))
 	_, static := p.StaticEffect()
 	require.False(t, static)
 }
