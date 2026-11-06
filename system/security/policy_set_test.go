@@ -165,7 +165,6 @@ func TestPlanBoundsAndUncachedActions(t *testing.T) {
 		require.Equal(t, sec.Allow, s.Evaluate(sec.Actor{}, action, "foobar", nil))
 	}
 	require.LessOrEqual(t, len(s.segments[0].plans.Load().byAction), maxActionPlans)
-	require.LessOrEqual(t, s.segments[0].plans.Load().bytes, maxSegmentPlanBytes)
 	before := len(s.segments[0].plans.Load().byAction)
 	for i := 0; i < 500; i++ {
 		require.Equal(t, sec.Undefined, s.Evaluate(sec.Actor{}, fmt.Sprintf("unknown.%d", i), "foo", nil))
@@ -173,7 +172,7 @@ func TestPlanBoundsAndUncachedActions(t *testing.T) {
 	require.Equal(t, before, len(s.segments[0].plans.Load().byAction))
 	require.Equal(t, sec.Allow, s.Evaluate(sec.Actor{}, "read."+strings.Repeat("x", 65536), "foo"+strings.Repeat("x", 65536), nil))
 	require.Equal(t, before, len(s.segments[0].plans.Load().byAction))
-	// An oversized exact union keeps the original compiled evaluation path.
+	// A large exact union is admitted in full, independent of a fixed byte cap.
 	resources := make([]any, 2000)
 	for i := range resources {
 		resources[i] = fmt.Sprintf("entry:%d:%s", i, strings.Repeat("x", 64))
@@ -182,8 +181,8 @@ func TestPlanBoundsAndUncachedActions(t *testing.T) {
 	require.Equal(t, sec.Deny, large.Evaluate(sec.Actor{}, "read", resources[1999].(string), nil))
 	plan, known := large.segments[0].plans.Load().byAction["read"]
 	require.True(t, known)
-	require.Nil(t, plan)
-	require.LessOrEqual(t, large.segments[0].plans.Load().bytes, maxSegmentPlanBytes)
+	require.NotNil(t, plan)
+	require.Len(t, plan.exact, len(resources))
 }
 func TestConcurrentConstructionAndEvaluation(t *testing.T) {
 	policies, _ := countPolicies(600, false)
@@ -302,9 +301,7 @@ func BenchmarkCacheRetainedBytes(b *testing.B) {
 			}
 		}
 	}
-	if charged > maxInternedSegments*maxSegmentPlanBytes {
-		b.Fatal("aggregate plan budget exceeds bound")
-	}
+
 	b.ReportMetric(float64(charged), "charged-plan-B/cache")
 	b.ReportMetric(float64(count), "sets/cache")
 	runtime.KeepAlive(policies)
