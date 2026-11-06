@@ -100,26 +100,13 @@ func (h *DependencyHandler) legacySourceInputsMatch(ctx context.Context, transco
 			expected[entry.ID] = entry
 		}
 	}
-	seen := make(map[regapi.ID]struct{})
-	for _, transaction := range regapi.DependencyChangesFromContext(ctx) {
-		for _, operation := range transaction {
-			if _, checked := seen[operation.Entry.ID]; checked {
-				continue
-			}
-			seen[operation.Entry.ID] = struct{}{}
-			entry, present := expected[operation.Entry.ID]
-			original := operation.OriginalEntry
-			if (!present || h.isDeploymentRoot(entryModule(entry))) &&
-				(original == nil || !original.Registry.Root || h.isDeploymentRoot(entryModule(*original))) {
-				continue
-			}
-			if operation.Kind == regapi.EntryCreate {
-				delete(expected, operation.Entry.ID)
-			} else if original == nil {
-				return false, nil
-			} else {
-				expected[operation.Entry.ID] = *original
-			}
+	replay, err := regapi.DependencyReplayState(ctx, transcoder)
+	if err != nil {
+		return false, err
+	}
+	for id, operation := range replay.FirstDependencyOperations(baseline) {
+		if !h.applyLegacySourceInput(expected, id, operation) {
+			return false, nil
 		}
 	}
 	var baselineModules []regapi.ResolvedModule
@@ -172,4 +159,22 @@ func (h *DependencyHandler) legacySourceInputsMatch(ctx context.Context, transco
 	}
 	got, err := h.hashDeploymentBaseline(ctx, baseline, transcoder, deploymentBaselineModel)
 	return got == want, err
+}
+
+func (h *DependencyHandler) applyLegacySourceInput(expected map[regapi.ID]regapi.Entry, id regapi.ID, operation regapi.Operation) bool {
+	entry, present := expected[id]
+	original := operation.OriginalEntry
+	if (!present || h.isDeploymentRoot(entryModule(entry))) &&
+		(original == nil || !original.Registry.Root || h.isDeploymentRoot(entryModule(*original))) {
+		return true
+	}
+	if operation.Kind == regapi.EntryCreate {
+		delete(expected, id)
+		return true
+	}
+	if original == nil {
+		return false
+	}
+	expected[id] = *original
+	return true
 }

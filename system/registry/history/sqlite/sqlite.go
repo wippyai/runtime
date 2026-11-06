@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/sqliteconn"
 	"github.com/wippyai/runtime/internal/version"
+	"github.com/wippyai/runtime/system/registry/history/checkpoint"
 	historyschema "github.com/wippyai/runtime/system/registry/history/schema"
 	migrationstorage "github.com/wippyai/runtime/system/registry/migration/storage"
 	schemamanager "github.com/wippyai/runtime/system/schema"
@@ -128,9 +129,11 @@ func MigrateEntryMetadata(ctx context.Context, h *History, baseline registry.Sta
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return migrationstorage.RewriteEntryMetadata(ctx, h.db, h.handle, migrationstorage.Tables{
-		ChangeSets:    "changesets",
-		SchemaVersion: "schema_version",
-		UpdateHistory: "schema_update_history",
+		Versions:          "versions",
+		ReplayCheckpoints: "replay_checkpoints",
+		ChangeSets:        "changesets",
+		SchemaVersion:     "schema_version",
+		UpdateHistory:     "schema_update_history",
 	}, func(int) string { return "?" }, func(ctx context.Context, tx *sql.Tx) error {
 		// BeginTx is deferred in SQLite. This no-op write acquires the writer
 		// reservation before history rows are read, so an existing writer
@@ -300,11 +303,14 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	ctx := context.Background()
+	return h.readChangeSet(context.Background(), v.ID())
+}
+
+func (h *History) readChangeSet(ctx context.Context, versionID uint) (registry.ChangeSet, error) {
 	var data []byte
-	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", v.ID()).Scan(&data)
+	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", versionID).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, NewChangesetNotFoundError(v.ID())
+		return nil, NewChangesetNotFoundError(versionID)
 	}
 	if err != nil {
 		return nil, NewQueryChangesetError(err)
@@ -316,7 +322,7 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	var encodedOps []encodedOperation
 
-	decoder := codec.NewDecoder(bytes.NewReader(data), h.handle)
+	decoder := codec.NewDecoderBytes(data, h.handle)
 	if err := decoder.Decode(&encodedOps); err != nil {
 		return nil, NewDecodeChangesetError(err)
 	}
@@ -360,36 +366,55 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	return cs, nil
 }
 
-// ReplayChanges loads one target lineage in a single query. Encoded rows are
-// buffered so callbacks run after the query and history lock are released.
+// ReplayChanges validates the target lineage, then reads and applies each
+// changeset in ancestry order from bounded pages. Rows and the lock are released
+// before every callback so callbacks may use history methods safely.
 func (h *History) ReplayChanges(ctx context.Context, target registry.Version, apply func(registry.ChangeSet) error) error {
 	h.mu.RLock()
-	encoded, err := h.replayLineage(ctx, target)
+	lineage, err := h.replayLineage(ctx, target)
 	h.mu.RUnlock()
 	if err != nil {
 		return err
 	}
-	for _, item := range encoded {
+	store := h.checkpoints()
+	for len(lineage) > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		changes, err := h.decodeChangeSet(item)
+		h.mu.RLock()
+		page, err := store.ReadPage(ctx, h.db, lineage)
+		h.mu.RUnlock()
 		if err != nil {
-			return err
+			var missing *checkpoint.MissingChangesetError
+			if errors.As(err, &missing) {
+				return NewChangesetNotFoundError(missing.VersionID)
+			}
+			return NewQueryChangesetError(err)
 		}
-		if err := apply(changes); err != nil {
-			return err
+		for i, data := range page {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			changes, err := h.decodeChangeSet(data)
+			page[i] = nil
+			if err != nil {
+				return err
+			}
+			if err := apply(changes); err != nil {
+				return err
+			}
 		}
+		lineage = lineage[len(page):]
 	}
 	return nil
 }
 
 type replayLineageRow struct {
-	data     []byte
 	parentID sql.NullInt64
+	size     sql.NullInt64
 }
 
-func (h *History) replayLineage(ctx context.Context, target registry.Version) ([][]byte, error) {
+func (h *History) replayLineage(ctx context.Context, target registry.Version) ([]checkpoint.ReplayVersion, error) {
 	var exists int
 	if err := h.db.QueryRowContext(ctx, "SELECT 1 FROM versions WHERE id = ?", target.ID()).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -403,8 +428,8 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 		SELECT v.id, v.parent_id
 		FROM versions v JOIN lineage ON v.id = lineage.parent_id
 	)
-	SELECT lineage.id, lineage.parent_id, c.data
-	FROM lineage LEFT JOIN changesets c ON c.version_id = lineage.id`, target.ID())
+	SELECT lineage.id, lineage.parent_id, length(c.data)
+ FROM lineage LEFT JOIN changesets c ON c.version_id=lineage.id`, target.ID())
 	if err != nil {
 		return nil, NewQueryChangesetError(err)
 	}
@@ -412,12 +437,12 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 	for rows.Next() {
 		var versionID uint
 		var parentID sql.NullInt64
-		var data []byte
-		if err := rows.Scan(&versionID, &parentID, &data); err != nil {
+		var size sql.NullInt64
+		if err := rows.Scan(&versionID, &parentID, &size); err != nil {
 			_ = rows.Close()
 			return nil, NewQueryChangesetError(err)
 		}
-		lineage[versionID] = replayLineageRow{parentID: parentID, data: data}
+		lineage[versionID] = replayLineageRow{parentID: parentID, size: size}
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
@@ -427,7 +452,7 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 		return nil, NewIterateVersionsError(err)
 	}
 
-	encoded := make([][]byte, 0, len(lineage))
+	versionIDs := make([]checkpoint.ReplayVersion, 0, len(lineage))
 	seen := make(map[uint]struct{}, len(lineage))
 	currentID := target.ID()
 	for currentID != registry.RootVersion {
@@ -439,20 +464,20 @@ func (h *History) replayLineage(ctx context.Context, target registry.Version) ([
 		if !ok || !row.parentID.Valid || row.parentID.Int64 < 0 {
 			return nil, NewQueryChangesetError(fmt.Errorf("version %d lineage does not terminate at root", target.ID()))
 		}
-		if row.data == nil {
+		if !row.size.Valid {
 			return nil, NewChangesetNotFoundError(currentID)
 		}
-		encoded = append(encoded, row.data)
+		versionIDs = append(versionIDs, checkpoint.ReplayVersion{ID: currentID, Size: row.size.Int64})
 		currentID = uint(row.parentID.Int64)
 	}
 	root, ok := lineage[registry.RootVersion]
 	if !ok || root.parentID.Valid {
 		return nil, NewQueryChangesetError(fmt.Errorf("version %d lineage does not terminate at root", target.ID()))
 	}
-	for left, right := 0, len(encoded)-1; left < right; left, right = left+1, right-1 {
-		encoded[left], encoded[right] = encoded[right], encoded[left]
+	for left, right := 0, len(versionIDs)-1; left < right; left, right = left+1, right-1 {
+		versionIDs[left], versionIDs[right] = versionIDs[right], versionIDs[left]
 	}
-	return encoded, nil
+	return versionIDs, nil
 }
 
 func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
@@ -495,56 +520,12 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		return NewInsertVersionError(err)
 	}
 
-	encodedOps := make([]encodedOperation, len(cs))
-
-	for i, op := range cs {
-		var encPayload *encodedPayload
-		if op.Entry.Data != nil {
-			encPayload = &encodedPayload{
-				Format: op.Entry.Data.Format(),
-				Data:   op.Entry.Data.Data(),
-			}
-		}
-
-		var encOriginal *encodedEntry
-		if op.OriginalEntry != nil {
-			var encOrigPayload *encodedPayload
-			if op.OriginalEntry.Data != nil {
-				encOrigPayload = &encodedPayload{
-					Format: op.OriginalEntry.Data.Format(),
-					Data:   op.OriginalEntry.Data.Data(),
-				}
-			}
-
-			encOriginal = &encodedEntry{
-				ID:       op.OriginalEntry.ID,
-				Kind:     op.OriginalEntry.Kind,
-				Meta:     op.OriginalEntry.Meta,
-				Data:     encOrigPayload,
-				Registry: op.OriginalEntry.Registry,
-			}
-		}
-
-		encodedOps[i] = encodedOperation{
-			Kind: op.Kind,
-			Entry: encodedEntry{
-				ID:       op.Entry.ID,
-				Kind:     op.Entry.Kind,
-				Meta:     op.Entry.Meta,
-				Data:     encPayload,
-				Registry: op.Entry.Registry,
-			},
-			OriginalEntry: encOriginal,
-		}
+	encoded, err := h.encodeChangeSet(cs)
+	if err != nil {
+		return err
 	}
 
-	var buf bytes.Buffer
-	encoder := codec.NewEncoder(&buf, h.handle)
-	if err := encoder.Encode(encodedOps); err != nil {
-		return NewEncodeChangesetError(err)
-	}
-
-	_, err = tx.ExecContext(ctx, "INSERT INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
+	_, err = tx.ExecContext(ctx, "INSERT INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), encoded)
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
@@ -567,6 +548,10 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			SELECT ?, resolution_digest FROM version_resolutions WHERE version_id = ?`, v.ID(), v.Previous().ID()); err != nil {
 			return NewInsertChangesetError(err)
 		}
+	}
+
+	if err := h.checkpoints().MaybeWrite(ctx, tx, v.ID()); err != nil {
+		return err
 	}
 
 	if head {
@@ -712,53 +697,47 @@ func (h *History) SetHead(v registry.Version) error {
 }
 
 func (h *History) CompareAndSetHead(expected, target registry.Version) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	ctx := context.Background()
-	result, err := h.db.ExecContext(ctx, `UPDATE metadata SET value = ?
-		WHERE key = 'head' AND value = ? AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`,
-		target.ID(), expected.ID(), target.ID())
-	if err != nil {
-		return NewSetHeadError(err)
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return NewSetHeadError(err)
-	}
-	if updated != 1 {
-		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
-	}
-	return nil
+	return h.compareAndSetHead(context.Background(), expected, target, nil, nil)
 }
 
 func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target registry.Version, resolution *registry.DependencyResolution) error {
 	if resolution == nil {
 		return registry.ErrDependencyResolutionNotFound
 	}
-	canonical := resolution.Canonical()
-	if !canonical.Valid() {
-		return registry.ErrInvalidDependencyResolution
-	}
+	return h.compareAndSetHead(context.Background(), expected, target, resolution, nil)
+}
+
+func (h *History) compareAndSetHead(ctx context.Context, expected, target registry.Version, resolution *registry.DependencyResolution, prepared *checkpoint.Prepared) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	data, err := json.Marshal(canonical)
-	if err != nil {
-		return NewEncodeChangesetError(err)
+	var canonical *registry.DependencyResolution
+	var data []byte
+	var err error
+	if resolution != nil {
+		canonical = resolution.Canonical()
+		if !canonical.Valid() {
+			return registry.ErrInvalidDependencyResolution
+		}
+		data, err = json.Marshal(canonical)
+		if err != nil {
+			return NewEncodeChangesetError(err)
+		}
 	}
-	ctx := context.Background()
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
 		return NewBeginTransactionError(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
-		return NewInsertChangesetError(err)
-	}
-	if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
-		return NewDecodeChangesetError(err)
-	}
-	if err = rebindVersionResolution(ctx, tx, target.ID(), canonical); err != nil {
-		return NewInsertChangesetError(err)
+	if canonical != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
+			return NewInsertChangesetError(err)
+		}
+		if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
+			return NewDecodeChangesetError(err)
+		}
+		if err = rebindVersionResolution(ctx, tx, target.ID(), canonical); err != nil {
+			return NewInsertChangesetError(err)
+		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE metadata SET value = ?
 		WHERE key = 'head' AND value = ? AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`,
@@ -773,6 +752,15 @@ func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if updated != 1 {
 		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
 	}
+	if prepared != nil {
+		err = h.checkpoints().WritePrepared(ctx, tx, prepared)
+	} else {
+		err = h.checkpoints().MaybeWrite(ctx, tx, target.ID())
+	}
+	if err != nil {
+		return err
+	}
+
 	if err = tx.Commit(); err != nil {
 		return NewCommitTransactionError(err)
 	}
@@ -891,4 +879,57 @@ func (h *History) Close() error {
 
 	h.log.Debug("SQLite history close skipped, database not initialized")
 	return nil
+}
+
+func (h *History) encodeChangeSet(cs registry.ChangeSet) ([]byte, error) {
+	encodedOps := make([]encodedOperation, len(cs))
+
+	for i, op := range cs {
+		var encPayload *encodedPayload
+		if op.Entry.Data != nil {
+			encPayload = &encodedPayload{
+				Format: op.Entry.Data.Format(),
+				Data:   op.Entry.Data.Data(),
+			}
+		}
+
+		var encOriginal *encodedEntry
+		if op.OriginalEntry != nil {
+			var encOrigPayload *encodedPayload
+			if op.OriginalEntry.Data != nil {
+				encOrigPayload = &encodedPayload{
+					Format: op.OriginalEntry.Data.Format(),
+					Data:   op.OriginalEntry.Data.Data(),
+				}
+			}
+
+			encOriginal = &encodedEntry{
+				ID:       op.OriginalEntry.ID,
+				Kind:     op.OriginalEntry.Kind,
+				Meta:     op.OriginalEntry.Meta,
+				Data:     encOrigPayload,
+				Registry: op.OriginalEntry.Registry,
+			}
+		}
+
+		encodedOps[i] = encodedOperation{
+			Kind: op.Kind,
+			Entry: encodedEntry{
+				ID:       op.Entry.ID,
+				Kind:     op.Entry.Kind,
+				Meta:     op.Entry.Meta,
+				Data:     encPayload,
+				Registry: op.Entry.Registry,
+			},
+			OriginalEntry: encOriginal,
+		}
+	}
+
+	var buf bytes.Buffer
+	encoder := codec.NewEncoder(&buf, h.handle)
+	if err := encoder.Encode(encodedOps); err != nil {
+		return nil, NewEncodeChangesetError(err)
+	}
+
+	return buf.Bytes(), nil
 }

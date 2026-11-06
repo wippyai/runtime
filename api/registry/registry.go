@@ -250,10 +250,28 @@ type (
 	}
 
 	// ChangeSetReplayer is an optional history capability for streaming the
-	// ordered ancestry of one target version. Database histories use it to avoid
-	// one query and one retained decoded changeset per historical version.
+	// ordered ancestry of one target version without retaining the lineage
+	// payloads. Each callback receives one original historical transaction.
 	ChangeSetReplayer interface {
 		ReplayChanges(context.Context, Version, func(ChangeSet) error) error
+	}
+
+	// ProjectionHistory restores a compact authored overlay and dependency replay
+	// state. Raw Get and ReplayChanges continue to expose original transactions.
+	ProjectionHistory interface {
+		ReplayState(context.Context, Version) (*ReplayState, error)
+	}
+
+	// ReplayActivation commits a prepared projection's checkpoint together with
+	// the head CAS and optional dependency resolution. A nil resolution leaves
+	// the version's existing dependency graph unchanged.
+	ReplayActivation func(expected Version, resolution *DependencyResolution) error
+
+	// ReplayActivationHistory prepares projection and checkpoint construction in
+	// one read. Activation writes only after the caller accepts the transition.
+	// The returned function binds the target and prepared cache to this history.
+	ReplayActivationHistory interface {
+		PrepareReplayState(context.Context, Version) (*ReplayState, ReplayActivation, error)
 	}
 
 	// VersionIDBounds avoids enumerating an entire long history merely to seed
