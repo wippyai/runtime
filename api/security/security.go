@@ -67,6 +67,27 @@ type (
 		Evaluate(actor Actor, action, resource string, meta attrs.Bag) Result
 	}
 
+	// PolicyDescriptor is an optional immutable description of a policy. Wrappers
+	// must implement their own description; forwarding an authority's description
+	// is unsound when a wrapper can independently deny access.
+	PolicyDescriptor interface {
+		Policy
+		// PolicyIdentity returns a process-unique, stable, never-reused identity
+		// only when this descriptor describes the exact candidate policy. Otherwise
+		// it returns zero. This binding prevents an embedding wrapper from inheriting
+		// a description that bypasses its own Evaluate method.
+		PolicyIdentity(candidate Policy) uint64
+		// AppliesToAction is independent of actor, resource, and metadata.
+		// False guarantees Evaluate returns Undefined for this action.
+		AppliesToAction(action string) bool
+		// ResourceFilter returns owned copies of an any flag, exact values, and
+		// literal prefixes. Their union describes the policy's resource filter.
+		ResourceFilter() (anyResource bool, exact, prefixes []string)
+		// StaticEffect returns a decision and whether matching action and resource
+		// alone determine it. Conditional and expression policies return false.
+		StaticEffect() (Result, bool)
+	}
+
 	// Scope is an immutable collection of policies defining access boundaries.
 	Scope interface {
 		// With returns a new Scope with the added policy.
