@@ -123,14 +123,14 @@ func (r *Registry) apply(changes contract.Changes) string {
 	for _, change := range changes {
 		switch change.Kind {
 		case contract.RegisterDefinition, contract.UpdateDefinition:
-			if _, ok := change.Data.(*contract.Definition); !ok {
+			if def, ok := change.Data.(*contract.Definition); !ok || def == nil {
 				r.logger.Error("invalid definition payload",
 					zap.String("path", change.Path),
 					zap.String("type", fmt.Sprintf("%T", change.Data)))
 				return "invalid definition payload"
 			}
 		case contract.RegisterBinding, contract.UpdateBinding:
-			if _, ok := change.Data.(*contract.Binding); !ok {
+			if binding, ok := change.Data.(*contract.Binding); !ok || binding == nil {
 				r.logger.Error("invalid binding payload",
 					zap.String("path", change.Path),
 					zap.String("type", fmt.Sprintf("%T", change.Data)))
@@ -144,6 +144,7 @@ func (r *Registry) apply(changes contract.Changes) string {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	registered := make(map[string]struct{})
 	for _, change := range changes {
 		id := registry.ParseID(change.Path)
 		switch change.Kind {
@@ -154,6 +155,7 @@ func (r *Registry) apply(changes contract.Changes) string {
 				def.Meta = make(attrs.Bag)
 			}
 			r.definitions[change.Path] = def
+			registered[change.Path] = struct{}{}
 		case contract.DeleteDefinition:
 			delete(r.definitions, change.Path)
 			delete(r.defaultBindings, change.Path)
@@ -172,6 +174,7 @@ func (r *Registry) apply(changes contract.Changes) string {
 		}
 		r.logger.Debug("contract change applied", zap.String("kind", change.Kind), zap.String("id", change.Path))
 	}
+	r.restoreDefaultBindings(registered)
 	return ""
 }
 
@@ -181,6 +184,23 @@ func (r *Registry) updateDefaultBindings(binding *contract.Binding, bindingID re
 	for _, bc := range binding.Contracts {
 		if bc.Default {
 			r.defaultBindings[bc.Contract.String()] = bindingID
+		}
+	}
+}
+
+// restoreDefaultBindings gives each definition registered in a batch the
+// default binding a retained binding declares for it, which a delete of the
+// same definition earlier in the batch cleared. Assumes r.mu is already locked.
+func (r *Registry) restoreDefaultBindings(registered map[string]struct{}) {
+	if len(registered) == 0 {
+		return
+	}
+	for _, binding := range r.bindings {
+		for _, bc := range binding.Binding.Contracts {
+			contractID := bc.Contract.String()
+			if _, ok := registered[contractID]; ok && bc.Default {
+				r.defaultBindings[contractID] = binding.ID
+			}
 		}
 	}
 }

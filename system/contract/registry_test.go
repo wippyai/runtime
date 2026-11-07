@@ -1082,3 +1082,89 @@ func TestContractRegistry_ApplyChangesIsAtomic(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, bindingID, defaultBinding)
 }
+
+// A batch carrying a nil definition or binding is refused before any change
+// applies, and the registry keeps answering later batches.
+func TestContractRegistry_ApplyChangesRefusesNilPayloads(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+	require.NoError(t, contractRegistry.Start(ctx))
+	defer func() { require.NoError(t, contractRegistry.Stop()) }()
+
+	await := eventbus.NewAwaitService(bus)
+	require.NoError(t, await.Start(ctx))
+	defer func() { _ = await.Stop() }()
+
+	defID := registry.NewID("test", "contract")
+	bindingID := registry.NewID("test", "binding")
+	apply := func(path event.Path, changes contract.Changes) event.AwaitResult {
+		waiter, err := await.Prepare(ctx, contract.System, "contract.(accept|reject)", path, 5*time.Second)
+		require.NoError(t, err)
+		bus.Send(ctx, event.Event{System: contract.System, Kind: contract.ApplyChanges, Path: path, Data: changes})
+		return waiter.Wait()
+	}
+	definition := func() *contract.Definition {
+		return &contract.Definition{Methods: []contract.MethodDef{{Name: "get"}}}
+	}
+
+	for i, changes := range []contract.Changes{
+		{
+			{Kind: contract.RegisterDefinition, Path: defID.String(), Data: definition()},
+			{Kind: contract.RegisterBinding, Path: bindingID.String(), Data: (*contract.Binding)(nil)},
+		},
+		{
+			{Kind: contract.RegisterDefinition, Path: defID.String(), Data: definition()},
+			{Kind: contract.UpdateDefinition, Path: defID.String(), Data: (*contract.Definition)(nil)},
+		},
+	} {
+		result := apply(event.Path(fmt.Sprintf("nil/%d", i)), changes)
+		require.NoError(t, result.Error, "batch %d must be answered", i)
+		assert.False(t, result.Accepted, "batch %d must be refused", i)
+		_, err := contractRegistry.GetContract(ctx, defID)
+		assert.Error(t, err, "batch %d must not apply its valid changes", i)
+	}
+
+	result := apply("nil/after", contract.Changes{{Kind: contract.RegisterDefinition, Path: defID.String(), Data: definition()}})
+	require.True(t, result.Accepted, "registry must keep serving after refusing nil payloads: %+v", result)
+}
+
+// Re-creating a definition in one batch keeps the binding that stays its
+// default: the default binding belongs to the binding, not the definition.
+func TestContractRegistry_RecreatedDefinitionKeepsRetainedDefaultBinding(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+	require.NoError(t, contractRegistry.Start(ctx))
+	defer func() { require.NoError(t, contractRegistry.Stop()) }()
+
+	await := eventbus.NewAwaitService(bus)
+	require.NoError(t, await.Start(ctx))
+	defer func() { _ = await.Stop() }()
+
+	defID := registry.NewID("test", "contract")
+	bindingID := registry.NewID("test", "binding")
+	apply := func(path event.Path, changes contract.Changes) {
+		waiter, err := await.Prepare(ctx, contract.System, "contract.(accept|reject)", path, 5*time.Second)
+		require.NoError(t, err)
+		bus.Send(ctx, event.Event{System: contract.System, Kind: contract.ApplyChanges, Path: path, Data: changes})
+		result := waiter.Wait()
+		require.True(t, result.Accepted, "batch %s must be accepted: %+v", path, result)
+	}
+	definition := func() *contract.Definition {
+		return &contract.Definition{Methods: []contract.MethodDef{{Name: "get"}}}
+	}
+
+	apply("seed", contract.Changes{
+		{Kind: contract.RegisterDefinition, Path: defID.String(), Data: definition()},
+		{Kind: contract.RegisterBinding, Path: bindingID.String(), Data: &contract.Binding{Contracts: []contract.BoundContract{{Contract: defID, Default: true}}}},
+	})
+	apply("recreate", contract.Changes{
+		{Kind: contract.DeleteDefinition, Path: defID.String()},
+		{Kind: contract.RegisterDefinition, Path: defID.String(), Data: definition()},
+	})
+
+	_, err := contractRegistry.GetContract(ctx, defID)
+	require.NoError(t, err)
+	defaultBinding, err := contractRegistry.GetDefaultBinding(ctx, defID)
+	require.NoError(t, err)
+	assert.Equal(t, bindingID, defaultBinding)
+}
