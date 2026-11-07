@@ -546,8 +546,10 @@ func loadLibrary(l *lua.LState, proto *lua.FunctionProto, granted []string, avai
 func privilegedImportEnv(l *lua.LState, granted []string, available map[string]*luaapi.ModuleDef) (*lua.LTable, error) {
 	base := l.Get(lua.GlobalsIndex).(*lua.LTable)
 
-	env := l.NewTable()
-	mt := l.NewTable()
+	// Both tables hold a known set of string keys: the granted modules plus
+	// require, and __index.
+	env := l.CreateTable(0, len(granted)+1)
+	mt := l.CreateTable(0, 1)
 	mt.RawSetString("__index", base)
 	l.SetMetatable(env, mt)
 

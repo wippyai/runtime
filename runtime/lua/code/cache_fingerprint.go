@@ -128,6 +128,10 @@ func RuntimeFingerprint(toolchainIdentity, entryID, kind, contentHash, method st
 	return cache.Fingerprint(self, deps)
 }
 
+// defaultBuildOptionsFingerprint is the fingerprint of NewBuildOptions, used
+// for builds that pass no options.
+var defaultBuildOptionsFingerprint = BuildOptionsFingerprint(nil)
+
 func BuildOptionsFingerprint(options *BuildOptions) string {
 	if options == nil {
 		options = NewBuildOptions()

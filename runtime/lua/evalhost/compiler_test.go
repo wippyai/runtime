@@ -3,14 +3,17 @@
 package evalhost
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/parse"
 	typeio "github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	luacode "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 )
@@ -445,4 +448,75 @@ func TestCompiler_Security_EnvModuleBlockedByClassProcess(t *testing.T) {
 	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "forbidden class")
+}
+
+// TestSourceDeclaredTypes_MatchesFullCheck pins the scan that decides whether
+// a source is type checked: for every shape of type definition, the types it
+// yields equal the types a full check of the source exports.
+func TestSourceDeclaredTypes_MatchesFullCheck(t *testing.T) {
+	available := safeModulesProvider()()
+	modules := []string{"json"}
+	cases := map[string]struct {
+		source   string
+		declared bool
+	}{
+		"no types": {source: `
+			local json = require("json")
+			local function enc(v) return json.encode(v) end
+			return { run = function(x) return enc({ x = x }) end }`},
+		"root": {declared: true, source: `
+			type Point = {x: number}
+			return { run = function() return Point:is({x = 1}) end }`},
+		"do block": {declared: true, source: `
+			do type Point = {x: number} end
+			return {}`},
+		"if else": {declared: true, source: `
+			if true then local a = 1 elseif false then local b = 2 else type Point = {x: number} end
+			return {}`},
+		"while": {declared: true, source: `
+			while false do type Point = {x: number} end
+			return {}`},
+		"repeat": {declared: true, source: `
+			repeat type Point = {x: number} until true
+			return {}`},
+		"numeric for": {declared: true, source: `
+			for i = 1, 1 do type Point = {x: number} end
+			return {}`},
+		"generic for": {declared: true, source: `
+			for _, v in ipairs({}) do type Point = {x: number} end
+			return {}`},
+		"interface": {source: `
+			interface Shape function area(self: any): number end
+			return {}`},
+		"local function body": {source: `
+			local function f() type Point = {x: number}; return Point:is({x = 1}) end
+			return { run = f }`},
+		"method body": {source: `
+			local M = {}
+			function M.run() type Point = {x: number}; return Point:is({x = 1}) end
+			return M`},
+		"function expression body": {source: `
+			return { run = function() type Point = {x: number}; return Point:is({x = 1}) end }`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			chunk, err := parse.Parse(strings.NewReader(tc.source), "eval")
+			require.NoError(t, err)
+			require.Equal(t, tc.declared, declaresTypes(chunk))
+
+			typeCfg := luacode.DefaultTypeCheckConfig()
+			typeCfg.Enabled = true
+			checker := luacode.NewTypeChecker(typeCfg, modulesForNames(modules, available))
+			full, _ := checker.CheckParsed(chunk, "eval", nil)
+			require.NotNil(t, full)
+
+			got := sourceDeclaredTypes(chunk, modules, available)
+			require.Equal(t, len(full.Types), len(got))
+			for name, want := range full.Types {
+				require.Contains(t, got, name)
+				require.True(t, typ.TypeEquals(want, got[name]), "type %s", name)
+			}
+			require.Equal(t, tc.declared, len(got) > 0)
+		})
+	}
 }
