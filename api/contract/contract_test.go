@@ -18,33 +18,19 @@ import (
 )
 
 func TestEventConstants(t *testing.T) {
-	tests := []struct {
-		name     string
-		system   event.System
-		kind     event.Kind
-		expected string
-	}{
-		{"system", System, "", "contract"},
-		{"register definition", "", RegisterDefinition, "contract.definition.register"},
-		{"update definition", "", UpdateDefinition, "contract.definition.update"},
-		{"delete definition", "", DeleteDefinition, "contract.definition.delete"},
-		{"register binding", "", RegisterBinding, "contract.binding.register"},
-		{"update binding", "", UpdateBinding, "contract.binding.update"},
-		{"delete binding", "", DeleteBinding, "contract.binding.delete"},
-		{"accept", "", ContractAccept, "contract.accept"},
-		{"reject", "", ContractReject, "contract.reject"},
-	}
+	assert.Equal(t, event.System("contract"), System)
+	assert.Equal(t, event.Kind("contract.changes.apply"), ApplyChanges)
+	assert.Equal(t, event.Kind("contract.accept"), ContractAccept)
+	assert.Equal(t, event.Kind("contract.reject"), ContractReject)
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.system != "" {
-				assert.Equal(t, tt.expected, tt.system)
-			}
-			if tt.kind != "" {
-				assert.Equal(t, tt.expected, tt.kind)
-			}
-		})
-	}
+func TestChangeKindConstants(t *testing.T) {
+	assert.Equal(t, ChangeKind("definition.register"), RegisterDefinition)
+	assert.Equal(t, ChangeKind("definition.update"), UpdateDefinition)
+	assert.Equal(t, ChangeKind("definition.delete"), DeleteDefinition)
+	assert.Equal(t, ChangeKind("binding.register"), RegisterBinding)
+	assert.Equal(t, ChangeKind("binding.update"), UpdateBinding)
+	assert.Equal(t, ChangeKind("binding.delete"), DeleteBinding)
 }
 
 func TestDefinition_MarshalUnmarshal(t *testing.T) {

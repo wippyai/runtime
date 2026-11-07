@@ -31,6 +31,7 @@ type awaitDispatcher struct {
 
 type awaitWaiter struct {
 	ctx     context.Context
+	stopped <-chan struct{}
 	d       *awaitDispatcher
 	ch      chan event.Event
 	path    event.Path
@@ -91,6 +92,7 @@ func (s *AwaitService) Prepare(ctx context.Context, system event.System, kind ev
 
 	return &awaitWaiter{
 		ctx:     ctx,
+		stopped: s.ctx.Done(),
 		timeout: timeout,
 		path:    path,
 		d:       d,
@@ -127,6 +129,9 @@ func (w *awaitWaiter) Wait() event.AwaitResult {
 			}
 		}
 		return event.AwaitResult{Event: evt, Accepted: accepted, Error: resultErr}
+
+	case <-w.stopped:
+		return event.AwaitResult{Error: NewAwaitStoppedError(w.path)}
 
 	case <-waitCtx.Done():
 		if w.ctx.Err() != nil {

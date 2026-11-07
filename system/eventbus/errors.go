@@ -38,3 +38,10 @@ func NewAwaitTimeoutError(path event.Path) apierror.Error {
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"path": path}))
 }
+
+// NewAwaitStoppedError reports a wait released because the await service stopped.
+func NewAwaitStoppedError(path event.Path) apierror.Error {
+	return apierror.New(apierror.Unavailable, "await service stopped while waiting for event").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path}))
+}
