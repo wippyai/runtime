@@ -18,12 +18,6 @@ const System event.System = "contract"
 
 // Event kinds for contract operations.
 const (
-	RegisterDefinition event.Kind = "contract.definition.register"
-	UpdateDefinition   event.Kind = "contract.definition.update"
-	DeleteDefinition   event.Kind = "contract.definition.delete"
-	RegisterBinding    event.Kind = "contract.binding.register"
-	UpdateBinding      event.Kind = "contract.binding.update"
-	DeleteBinding      event.Kind = "contract.binding.delete"
 	// ApplyChanges carries Changes the contract registry applies as one unit
 	// and answers once, with ContractAccept or ContractReject on the event path.
 	ApplyChanges   event.Kind = "contract.changes.apply"
@@ -31,13 +25,25 @@ const (
 	ContractReject event.Kind = "contract.reject"
 )
 
+// ChangeKind names the mutation a Change makes.
+type ChangeKind string
+
+// Change kinds for definitions and bindings.
+const (
+	RegisterDefinition ChangeKind = "definition.register"
+	UpdateDefinition   ChangeKind = "definition.update"
+	DeleteDefinition   ChangeKind = "definition.delete"
+	RegisterBinding    ChangeKind = "binding.register"
+	UpdateBinding      ChangeKind = "binding.update"
+	DeleteBinding      ChangeKind = "binding.delete"
+)
+
 type (
-	// Change is one definition or binding mutation within Changes. Kind is one
-	// of the definition or binding event kinds, Path the entry ID, and Data the
-	// *Definition or *Binding for a register or update.
+	// Change is one definition or binding mutation within Changes. Path is the
+	// entry ID and Data the *Definition or *Binding for a register or update.
 	Change struct {
 		Data any
-		Kind event.Kind
+		Kind ChangeKind
 		Path event.Path
 	}
 

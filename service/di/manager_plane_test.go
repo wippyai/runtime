@@ -220,14 +220,14 @@ func TestManager_CommittedDefinitionResolvesImmediately(t *testing.T) {
 	}
 }
 
-// subscribeChanges calls handle with one event per change of the given kind
-// in each change batch sent on bus.
-func subscribeChanges(ctx context.Context, bus event.Bus, kind event.Kind, handle func(event.Event)) (*eventbus.Subscriber, error) {
+// subscribeChanges calls handle with each change of the given kind in every
+// change batch sent on bus.
+func subscribeChanges(ctx context.Context, bus event.Bus, kind contract.ChangeKind, handle func(contract.Change)) (*eventbus.Subscriber, error) {
 	return eventbus.NewSubscriber(ctx, bus, contract.System, contract.ApplyChanges, func(batch event.Event) {
 		changes, _ := batch.Data.(contract.Changes)
 		for _, change := range changes {
 			if change.Kind == kind {
-				handle(event.Event{System: contract.System, Kind: change.Kind, Path: change.Path, Data: change.Data})
+				handle(change)
 			}
 		}
 	})

@@ -34,7 +34,7 @@ type Registry struct {
 	mu              sync.RWMutex
 }
 
-const contractEventPattern = "contract.(definition|binding|changes).(register|update|delete|apply)"
+const contractEventPattern = contract.ApplyChanges
 
 // NewContractRegistry creates a new contract registry
 func NewContractRegistry(bus event.Bus, logger *zap.Logger) *Registry {
@@ -87,25 +87,15 @@ func (r *Registry) sendResponse(path event.Path, kind event.Kind, data any) {
 }
 
 func (r *Registry) handleEvent(e event.Event) {
-	switch e.Kind {
-	case contract.ApplyChanges:
-		changes, ok := e.Data.(contract.Changes)
-		if !ok {
-			r.logger.Error("invalid changes payload",
-				zap.String("path", e.Path),
-				zap.String("type", fmt.Sprintf("%T", e.Data)))
-			r.sendReject(e.Path, "invalid changes payload")
-			return
-		}
-		r.reply(e.Path, r.apply(changes))
-	case contract.RegisterDefinition, contract.UpdateDefinition, contract.DeleteDefinition,
-		contract.RegisterBinding, contract.UpdateBinding, contract.DeleteBinding:
-		r.reply(e.Path, r.apply(contract.Changes{{Kind: e.Kind, Path: e.Path, Data: e.Data}}))
-	default:
-		r.logger.Warn("unknown event kind",
-			zap.String("kind", e.Kind),
-			zap.String("path", e.Path))
+	changes, ok := e.Data.(contract.Changes)
+	if !ok {
+		r.logger.Error("invalid changes payload",
+			zap.String("path", e.Path),
+			zap.String("type", fmt.Sprintf("%T", e.Data)))
+		r.sendReject(e.Path, "invalid changes payload")
+		return
 	}
+	r.reply(e.Path, r.apply(changes))
 }
 
 func (r *Registry) reply(path event.Path, reason string) {
@@ -138,7 +128,7 @@ func (r *Registry) apply(changes contract.Changes) string {
 			}
 		case contract.DeleteDefinition, contract.DeleteBinding:
 		default:
-			return "unknown change kind " + change.Kind
+			return "unknown change kind " + string(change.Kind)
 		}
 	}
 
@@ -172,7 +162,7 @@ func (r *Registry) apply(changes contract.Changes) string {
 			r.removeDefaultBindings(id)
 			delete(r.bindings, change.Path)
 		}
-		r.logger.Debug("contract change applied", zap.String("kind", change.Kind), zap.String("id", change.Path))
+		r.logger.Debug("contract change applied", zap.String("kind", string(change.Kind)), zap.String("id", change.Path))
 	}
 	r.restoreDefaultBindings(registered)
 	return ""

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/contract"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	apidi "github.com/wippyai/runtime/api/service/di"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -99,7 +98,7 @@ func TestManager_TransactionCommitRejectsIncompleteState(t *testing.T) {
 	seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 	var updates atomic.Int32
-	sub, err := subscribeChanges(ctx, bus, contract.UpdateDefinition, func(event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.UpdateDefinition, func(contract.Change) {
 		updates.Add(1)
 	})
 	require.NoError(t, err)
@@ -152,10 +151,10 @@ func TestManager_TransactionEventsFlushOnCommitOnly(t *testing.T) {
 	seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 	var mu sync.Mutex
-	var kinds []string
+	var kinds []contract.ChangeKind
 	var wg sync.WaitGroup
-	subscribe := func(kind string) *eventbus.Subscriber {
-		sub, err := subscribeChanges(ctx, bus, kind, func(event.Event) {
+	subscribe := func(kind contract.ChangeKind) *eventbus.Subscriber {
+		sub, err := subscribeChanges(ctx, bus, kind, func(contract.Change) {
 			mu.Lock()
 			kinds = append(kinds, kind)
 			mu.Unlock()
@@ -180,7 +179,7 @@ func TestManager_TransactionEventsFlushOnCommitOnly(t *testing.T) {
 	wg.Wait()
 
 	mu.Lock()
-	assert.ElementsMatch(t, []string{contract.UpdateDefinition, contract.UpdateBinding}, kinds)
+	assert.ElementsMatch(t, []contract.ChangeKind{contract.UpdateDefinition, contract.UpdateBinding}, kinds)
 	mu.Unlock()
 }
 

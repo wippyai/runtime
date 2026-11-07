@@ -105,7 +105,7 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		eventKind    event.Kind
+		eventKind    contract.ChangeKind
 		eventData    any
 		expectedKind event.Kind
 	}{
@@ -146,12 +146,7 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 			responses = nil // Clear previous responses
 			wg.Add(1)       // Expect one response event
 
-			evt := event.Event{
-				System: contract.System,
-				Kind:   tt.eventKind,
-				Path:   "test:contract",
-				Data:   tt.eventData,
-			}
+			evt := changeEvent(tt.eventKind, "test:contract", tt.eventData)
 
 			bus.Send(ctx, evt)
 
@@ -224,7 +219,7 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		eventKind    event.Kind
+		eventKind    contract.ChangeKind
 		eventData    any
 		expectedKind event.Kind
 	}{
@@ -265,12 +260,7 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 			responses = nil // Clear previous responses
 			wg.Add(1)       // Expect one response event
 
-			evt := event.Event{
-				System: contract.System,
-				Kind:   tt.eventKind,
-				Path:   "test:binding",
-				Data:   tt.eventData,
-			}
+			evt := changeEvent(tt.eventKind, "test:binding", tt.eventData)
 
 			bus.Send(ctx, evt)
 
@@ -357,12 +347,7 @@ func TestContractRegistry_GetContract(t *testing.T) {
 
 	contractID := registry.NewID("test", "contract")
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait() // Wait for registration to complete
 
 	// Test successful retrieval
@@ -425,12 +410,7 @@ func TestContractRegistry_GetBinding(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   testBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), testBinding))
 	wg.Wait() // Wait for registration to complete
 
 	// Test successful retrieval
@@ -504,24 +484,9 @@ func TestContractRegistry_GetBindingsForContract(t *testing.T) {
 	}
 
 	wg.Add(3) // Expect 3 registrations
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   binding1ID.String(),
-		Data:   testBinding1,
-	})
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   binding2ID.String(),
-		Data:   testBinding2,
-	})
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   binding3ID.String(),
-		Data:   testBinding3,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, binding1ID.String(), testBinding1))
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, binding2ID.String(), testBinding2))
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, binding3ID.String(), testBinding3))
 	wg.Wait() // Wait for all registrations to complete
 
 	// Test getting bindings for contract
@@ -597,12 +562,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		}
 
 		wg.Add(1)
-		bus.Send(ctx, event.Event{
-			System: contract.System,
-			Kind:   contract.RegisterBinding,
-			Path:   defaultBindingID.String(),
-			Data:   defaultBinding,
-		})
+		bus.Send(ctx, changeEvent(contract.RegisterBinding, defaultBindingID.String(), defaultBinding))
 		wg.Wait()
 
 		// Should now return the default binding
@@ -623,12 +583,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		}
 
 		wg.Add(1)
-		bus.Send(ctx, event.Event{
-			System: contract.System,
-			Kind:   contract.RegisterBinding,
-			Path:   nonDefaultBindingID.String(),
-			Data:   nonDefaultBinding,
-		})
+		bus.Send(ctx, changeEvent(contract.RegisterBinding, nonDefaultBindingID.String(), nonDefaultBinding))
 		wg.Wait()
 
 		// Should still return the original default binding
@@ -649,12 +604,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		}
 
 		wg.Add(1)
-		bus.Send(ctx, event.Event{
-			System: contract.System,
-			Kind:   contract.UpdateBinding,
-			Path:   defaultBindingID.String(),
-			Data:   nonDefaultBinding,
-		})
+		bus.Send(ctx, changeEvent(contract.UpdateBinding, defaultBindingID.String(), nonDefaultBinding))
 		wg.Wait()
 
 		// Should now have no default binding
@@ -675,12 +625,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 		}
 
 		wg.Add(1)
-		bus.Send(ctx, event.Event{
-			System: contract.System,
-			Kind:   contract.UpdateBinding,
-			Path:   nonDefaultBindingID.String(),
-			Data:   newDefaultBinding,
-		})
+		bus.Send(ctx, changeEvent(contract.UpdateBinding, nonDefaultBindingID.String(), newDefaultBinding))
 		wg.Wait()
 
 		// Should now return the updated default binding
@@ -691,11 +636,7 @@ func TestContractRegistry_GetDefaultBinding(t *testing.T) {
 
 	t.Run("delete default binding", func(t *testing.T) {
 		wg.Add(1)
-		bus.Send(ctx, event.Event{
-			System: contract.System,
-			Kind:   contract.DeleteBinding,
-			Path:   nonDefaultBindingID.String(),
-		})
+		bus.Send(ctx, changeEvent(contract.DeleteBinding, nonDefaultBindingID.String(), nil))
 		wg.Wait()
 
 		// Should now have no default binding
@@ -738,12 +679,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait()
 
 	// Register a default binding
@@ -758,12 +694,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   defaultBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), defaultBinding))
 	wg.Wait()
 
 	// Verify default binding exists
@@ -773,11 +704,7 @@ func TestContractRegistry_DefaultBindingCleanupOnContractDelete(t *testing.T) {
 
 	// Delete the contract definition
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.DeleteDefinition,
-		Path:   contractID.String(),
-	})
+	bus.Send(ctx, changeEvent(contract.DeleteDefinition, contractID.String(), nil))
 	wg.Wait()
 
 	// Verify default binding is cleaned up
@@ -831,12 +758,7 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   multiBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), multiBinding))
 	wg.Wait()
 
 	// Test that contract1 has a default binding
@@ -866,12 +788,7 @@ func TestContractRegistry_MultipleContractsInBinding(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.UpdateBinding,
-		Path:   bindingID.String(),
-		Data:   updatedBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.UpdateBinding, bindingID.String(), updatedBinding))
 	wg.Wait()
 
 	// Test that contract1 no longer has a default binding
@@ -924,12 +841,7 @@ func TestContractRegistry_ConcurrentAccess(t *testing.T) {
 				},
 			}
 
-			bus.Send(ctx, event.Event{
-				System: contract.System,
-				Kind:   contract.RegisterDefinition,
-				Path:   fmt.Sprintf("test:contract-%d", idx),
-				Data:   def,
-			})
+			bus.Send(ctx, changeEvent(contract.RegisterDefinition, fmt.Sprintf("test:contract-%d", idx), def))
 		}(i)
 	}
 
@@ -964,17 +876,12 @@ func TestContractImpl_ID_Meta(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data: &contract.Definition{
-			Meta: attrs.Bag{"key": "value"},
-			Methods: []contract.MethodDef{
-				{Name: "method1"},
-			},
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), &contract.Definition{
+		Meta: attrs.Bag{"key": "value"},
+		Methods: []contract.MethodDef{
+			{Name: "method1"},
 		},
-	})
+	}))
 
 	<-done
 
@@ -1022,15 +929,10 @@ func TestContractRegistry_NilMetaInit(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data: &contract.Definition{
-			Meta:    nil,
-			Methods: []contract.MethodDef{{Name: "method1"}},
-		},
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), &contract.Definition{
+		Meta:    nil,
+		Methods: []contract.MethodDef{{Name: "method1"}},
+	}))
 
 	<-done
 
@@ -1167,4 +1069,14 @@ func TestContractRegistry_RecreatedDefinitionKeepsRetainedDefaultBinding(t *test
 	defaultBinding, err := contractRegistry.GetDefaultBinding(ctx, defID)
 	require.NoError(t, err)
 	assert.Equal(t, bindingID, defaultBinding)
+}
+
+// changeEvent wraps one change in a change batch sent and answered on path.
+func changeEvent(kind contract.ChangeKind, path event.Path, data any) event.Event {
+	return event.Event{
+		System: contract.System,
+		Kind:   contract.ApplyChanges,
+		Path:   path,
+		Data:   contract.Changes{{Kind: kind, Path: path, Data: data}},
+	}
 }
