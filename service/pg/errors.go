@@ -24,8 +24,13 @@ var (
 	// ErrGroupNotFound is returned when querying a non-existent group.
 	ErrGroupNotFound = apierror.New(apierror.NotFound, "pg: group not found").WithRetryable(apierror.False)
 
-	// ErrServiceStopped is returned when the pg service is not running.
-	ErrServiceStopped = apierror.New(apierror.Unavailable, "pg: service stopped").WithRetryable(apierror.False)
+	// ErrServiceNotStarted is returned when the pg service has not started its
+	// event loop yet; the supervisor starts it after the scope is registered.
+	ErrServiceNotStarted = apierror.New(apierror.Unavailable, "pg: service not started").WithRetryable(apierror.True)
+
+	// ErrServiceStopped is returned when the pg service is stopping or has
+	// stopped; a supervised restart or a replacement scope serves later calls.
+	ErrServiceStopped = apierror.New(apierror.Unavailable, "pg: service stopped").WithRetryable(apierror.True)
 
 	// ErrBackpressure is returned when the event loop queue is full.
 	ErrBackpressure = apierror.New(apierror.Unavailable, "pg: event loop backpressure, try again later").WithRetryable(apierror.True)
