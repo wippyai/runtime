@@ -15,14 +15,18 @@ import (
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 )
 
+// modulesProvider returns a provider serving the given modules keyed by name.
+func modulesProvider(modules ...*luaapi.ModuleDef) ModuleProvider {
+	byName := make(map[string]*luaapi.ModuleDef, len(modules))
+	for _, m := range modules {
+		byName[m.Name] = m
+	}
+	return func() map[string]*luaapi.ModuleDef { return byName }
+}
+
 // safeModulesProvider returns a provider for modules safe for eval testing
 func safeModulesProvider() ModuleProvider {
-	return func() []*luaapi.ModuleDef {
-		return []*luaapi.ModuleDef{
-			json.Module,
-			timemod.Module,
-		}
-	}
+	return modulesProvider(json.Module, timemod.Module)
 }
 
 func TestCompiler_Compile_Basic(t *testing.T) {
@@ -54,7 +58,7 @@ func TestCompiler_Compile_ModuleTypesAreIncluded(t *testing.T) {
 		Class: []string{luaapi.ClassDeterministic},
 		Types: func() *typeio.Manifest { return manifest },
 	}
-	compiler := NewCompiler(func() []*luaapi.ModuleDef { return []*luaapi.ModuleDef{mockMod} })
+	compiler := NewCompiler(modulesProvider(mockMod))
 
 	program, err := compiler.Compile(CompileCmd{
 		Source:  `local p = Point({x = 1}); return p`,
@@ -135,7 +139,7 @@ func TestCompiler_Compile_ForbiddenClass(t *testing.T) {
 		json.Module,
 		mockMod,
 	}
-	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
+	compiler := NewCompiler(modulesProvider(modules...))
 
 	// Requesting a module with forbidden class should fail
 	program, err := compiler.Compile(CompileCmd{
@@ -209,7 +213,7 @@ func TestCompiler_ClassBasedFiltering(t *testing.T) {
 		storageModule,
 		networkModule,
 	}
-	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
+	compiler := NewCompiler(modulesProvider(modules...))
 
 	// Safe module should compile
 	_, err := compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"safe"}})
@@ -233,9 +237,7 @@ func TestCompiler_CustomForbiddenClasses(t *testing.T) {
 		Class: []string{luaapi.ClassIO},
 	}
 
-	provider := func() []*luaapi.ModuleDef {
-		return []*luaapi.ModuleDef{ioModule}
-	}
+	provider := modulesProvider(ioModule)
 
 	// With default settings, IO is allowed
 	compilerDefault := NewCompiler(provider)
@@ -307,9 +309,7 @@ func TestCompiler_ForbiddenClasses(t *testing.T) {
 	storageModule := &luaapi.ModuleDef{Name: "stor", Class: []string{luaapi.ClassStorage}}
 	networkModule := &luaapi.ModuleDef{Name: "net", Class: []string{luaapi.ClassNetwork}}
 
-	compiler := NewCompiler(func() []*luaapi.ModuleDef {
-		return []*luaapi.ModuleDef{processModule, storageModule, networkModule}
-	})
+	compiler := NewCompiler(modulesProvider(processModule, storageModule, networkModule))
 
 	// All should be blocked by default
 	_, err := compiler.Compile(CompileCmd{Source: "return {}", Modules: []string{"proc"}})
@@ -337,7 +337,7 @@ func TestCompiler_Security_ProcessModuleBlocked(t *testing.T) {
 		json.Module,
 		processModule,
 	}
-	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
+	compiler := NewCompiler(modulesProvider(modules...))
 
 	// Attempting to compile with process module should fail
 	_, err := compiler.Compile(CompileCmd{
@@ -435,7 +435,7 @@ func TestCompiler_Security_EnvModuleBlockedByClassProcess(t *testing.T) {
 		json.Module,
 		envModule,
 	}
-	compiler := NewCompiler(func() []*luaapi.ModuleDef { return modules })
+	compiler := NewCompiler(modulesProvider(modules...))
 
 	// Requesting env module should fail due to ClassProcess
 	_, err := compiler.Compile(CompileCmd{

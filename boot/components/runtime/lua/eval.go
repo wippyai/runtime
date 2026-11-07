@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"time"
 
+	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
+	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 )
 
@@ -29,6 +31,19 @@ func evalMaxSteps(luaCfg boot.Config) (uint64, error) {
 		return 0, fmt.Errorf("lua.eval.max_steps cannot be negative")
 	}
 	return uint64(configured), nil
+}
+
+// evalImportLoader resolves eval imports to the code manager's compiled
+// prototype, retained per node version and released when the registry changes
+// the node or its dependencies.
+func evalImportLoader(cm *code.Manager) evalhost.ImportLoader {
+	return func(id registry.ID) (*glua.FunctionProto, error) {
+		compiled, err := cm.Compile(id, nil)
+		if err != nil {
+			return nil, err
+		}
+		return compiled.Main, nil
+	}
 }
 
 // Eval creates the eval host boot component.
@@ -70,7 +85,7 @@ func Eval() boot.Component {
 			evalLogger := logger.Named("eval")
 			host := evalhost.NewHost(
 				evalLogger,
-				cm.GetModuleDefs,
+				cm.ModuleDefsByName,
 				evalhost.WithProgramCache(evalhost.HostConfig{
 					CacheSize: evalCacheSize,
 					CacheTTL:  evalCacheTTL,
@@ -78,17 +93,7 @@ func Eval() boot.Component {
 				evalhost.WithDefaultMaxSteps(maxSteps),
 			)
 
-			// Set up import loader to load library sources from code manager
-			host.WithImportLoader(func(id registry.ID) (string, error) {
-				node, err := cm.GetNode(id)
-				if err != nil {
-					return "", err
-				}
-				if node.Source == "" {
-					return "", fmt.Errorf("import %s has no source (bytecode libraries not supported in eval)", id)
-				}
-				return node.Source, nil
-			})
+			host.WithImportLoader(evalImportLoader(cm))
 
 			// Register dispatcher handlers
 			d := evalhost.NewDispatcher(host)
