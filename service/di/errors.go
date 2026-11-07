@@ -182,3 +182,24 @@ func NewBindingNotFoundForDeleteError(id registry.ID) error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"binding_id": id.String()}))
 }
+
+// ErrAwaitServiceNotAvailable reports a listener context without the await
+// service that confirms contract-plane changes.
+var ErrAwaitServiceNotAvailable = apierror.New(apierror.Internal, "await service not available in context").
+	WithRetryable(apierror.False)
+
+// NewContractPlaneError reports a contract-plane change the contract registry
+// did not confirm.
+func NewContractPlaneError(kind string, path string, cause error) error {
+	return apierror.New(apierror.Unavailable, "contract registry did not apply "+kind+" for "+path).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"kind": kind, "path": path})).
+		WithCause(cause)
+}
+
+// NewContractPlaneRejectedError carries the reason the contract registry gave
+// for refusing a change.
+func NewContractPlaneRejectedError(reason string) error {
+	return apierror.New(apierror.Invalid, "contract registry rejected the change: "+reason).
+		WithRetryable(apierror.False)
+}

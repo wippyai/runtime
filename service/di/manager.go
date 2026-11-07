@@ -160,6 +160,37 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 }
 
+// contractPlaneResponses matches the contract registry's reply to each
+// contract-plane event.
+const contractPlaneResponses = "contract.(accept|reject)"
+
+// publish sends one contract-plane event and returns once the contract
+// registry has applied it, so the change is visible to contract lookups when
+// the registry operation that made it returns. Callers hold m.mu, which keeps
+// one waiter per path.
+func (m *Manager) publish(ctx context.Context, evt event.Event) error {
+	await := event.GetAwaitService(ctx)
+	if await == nil {
+		return NewContractPlaneError(evt.Kind, evt.Path, ErrAwaitServiceNotAvailable)
+	}
+	waiter, err := await.Prepare(ctx, contract.System, contractPlaneResponses, evt.Path, event.DefaultAwaitTimeout)
+	if err != nil {
+		return NewContractPlaneError(evt.Kind, evt.Path, err)
+	}
+	defer waiter.Close()
+
+	m.bus.Send(ctx, evt)
+	result := waiter.Wait()
+	if result.Accepted {
+		return nil
+	}
+	cause := result.Error
+	if reason, ok := result.Event.Data.(string); ok && cause == nil {
+		cause = NewContractPlaneRejectedError(reason)
+	}
+	return NewContractPlaneError(evt.Kind, evt.Path, cause)
+}
+
 // --- registry.TransactionListener ---
 
 // Begin opens a staging area. Until Commit, entry operations are validated
@@ -171,9 +202,12 @@ func (m *Manager) Begin(context.Context) error {
 	return nil
 }
 
-// Commit validates the complete staged state and applies it atomically. On a
-// validation failure nothing is applied or emitted, and staging remains live
-// while the registry runner dispatches inverse operations before Discard.
+// Commit validates the complete staged state, publishes it to the contract
+// registry, and applies it. It returns once the contract registry has applied
+// every staged event. On a validation failure nothing is applied or emitted;
+// on a publication failure the manager's state is unchanged and the error names
+// the event the contract registry did not confirm. Either way staging remains
+// live while the registry runner dispatches inverse operations before Discard.
 func (m *Manager) Commit(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -191,13 +225,15 @@ func (m *Manager) Commit(ctx context.Context) error {
 			return err
 		}
 	}
+	for _, evt := range tx.events {
+		if err := m.publish(ctx, evt); err != nil {
+			return err
+		}
+	}
 	m.definitions = definitions
 	m.bindings = bindings
 	events := tx.events
 	m.tx = nil
-	for _, evt := range events {
-		m.bus.Send(ctx, evt)
-	}
 	if len(events) > 0 {
 		m.log.Info("contract transaction committed",
 			zap.Int("staged_events", len(events)),
@@ -391,8 +427,10 @@ func (m *Manager) handleDefinitionAdd(ctx context.Context, entry registry.Entry)
 		return nil
 	}
 
+	if err := m.publish(ctx, registerEvent); err != nil {
+		return err
+	}
 	m.definitions[entry.ID] = definition
-	m.bus.Send(ctx, registerEvent)
 
 	m.log.Debug("contract definition registered",
 		zap.String("id", entry.ID.String()),
@@ -462,14 +500,16 @@ func (m *Manager) handleDefinitionUpdate(ctx context.Context, entry registry.Ent
 		m.definitions[entry.ID] = originalDefinition // Rollback
 		return validationError
 	}
-	// If successful, updatedDefinition remains in m.definitions[entry.ID]
 
-	m.bus.Send(ctx, event.Event{
+	if err := m.publish(ctx, event.Event{
 		System: contract.System,
 		Kind:   contract.UpdateDefinition,
 		Path:   entry.ID.String(),
 		Data:   updatedDefinition,
-	})
+	}); err != nil {
+		m.definitions[entry.ID] = originalDefinition
+		return err
+	}
 
 	m.log.Info("contract definition updated",
 		zap.String("id", entry.ID.String()),
@@ -506,13 +546,14 @@ func (m *Manager) handleDefinitionDelete(ctx context.Context, entry registry.Ent
 		}
 	}
 
-	delete(m.definitions, entry.ID)
-
-	m.bus.Send(ctx, event.Event{
+	if err := m.publish(ctx, event.Event{
 		System: contract.System,
 		Kind:   contract.DeleteDefinition,
 		Path:   entry.ID.String(),
-	})
+	}); err != nil {
+		return err
+	}
+	delete(m.definitions, entry.ID)
 
 	m.log.Info("contract definition deleted", zap.String("id", entry.ID.String()))
 	return nil
@@ -561,14 +602,15 @@ func (m *Manager) handleBindingAdd(ctx context.Context, entry registry.Entry) er
 		return err
 	}
 
-	m.bindings[entry.ID] = binding
-
-	m.bus.Send(ctx, event.Event{
+	if err := m.publish(ctx, event.Event{
 		System: contract.System,
 		Kind:   contract.RegisterBinding,
 		Path:   entry.ID.String(),
 		Data:   binding,
-	})
+	}); err != nil {
+		return err
+	}
+	m.bindings[entry.ID] = binding
 
 	m.log.Info("contract binding registered",
 		zap.String("id", entry.ID.String()),
@@ -614,14 +656,15 @@ func (m *Manager) handleBindingUpdate(ctx context.Context, entry registry.Entry)
 		return err
 	}
 
-	m.bindings[entry.ID] = updatedBinding
-
-	m.bus.Send(ctx, event.Event{
+	if err := m.publish(ctx, event.Event{
 		System: contract.System,
 		Kind:   contract.UpdateBinding,
 		Path:   entry.ID.String(),
 		Data:   updatedBinding,
-	})
+	}); err != nil {
+		return err
+	}
+	m.bindings[entry.ID] = updatedBinding
 
 	m.log.Info("contract binding updated",
 		zap.String("id", entry.ID.String()),
@@ -646,13 +689,14 @@ func (m *Manager) handleBindingDelete(ctx context.Context, entry registry.Entry)
 		return nil
 	}
 
-	delete(m.bindings, entry.ID)
-
-	m.bus.Send(ctx, event.Event{
+	if err := m.publish(ctx, event.Event{
 		System: contract.System,
 		Kind:   contract.DeleteBinding,
 		Path:   entry.ID.String(),
-	})
+	}); err != nil {
+		return err
+	}
+	delete(m.bindings, entry.ID)
 
 	m.log.Info("contract binding deleted", zap.String("id", entry.ID.String()))
 	return nil
