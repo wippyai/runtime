@@ -33,8 +33,9 @@ var DefaultAllowedClasses = []string{
 	luaapi.ClassNondeterministic, // Allow if not in forbidden
 }
 
-// ModuleProvider returns available module definitions dynamically.
-type ModuleProvider func() []*luaapi.ModuleDef
+// ModuleProvider returns the available module definitions keyed by name. The
+// returned map is shared and must not be modified.
+type ModuleProvider func() map[string]*luaapi.ModuleDef
 
 // Program represents a compiled Lua program.
 type Program struct {
@@ -78,14 +79,9 @@ func NewCompiler(provider ModuleProvider, opts ...CompilerOption) *Compiler {
 	return c
 }
 
-// getModules returns a map of available modules from the provider.
+// getModules returns the available modules keyed by name.
 func (c *Compiler) getModules() map[string]*luaapi.ModuleDef {
-	modules := c.moduleProvider()
-	available := make(map[string]*luaapi.ModuleDef, len(modules))
-	for _, m := range modules {
-		available[m.Name] = m
-	}
-	return available
+	return c.moduleProvider()
 }
 
 // Compile compiles Lua source into a Program.
