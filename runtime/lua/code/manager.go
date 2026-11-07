@@ -469,6 +469,12 @@ func (cm *Manager) Compile(
 ) (*CompiledMain, error) {
 	cm.mutMu.RLock()
 	defer cm.mutMu.RUnlock()
+	// Nodes, edges and versions change only under mutMu held exclusively, so
+	// the retained lookup reads a stable graph; only a build needs the isolated
+	// snapshot it annotates.
+	if compiled, ok := cm.compiler.retained(cm.memGraph, entrypoint, options); ok {
+		return compiled, nil
+	}
 	var preloads []registry.ID
 	if options != nil {
 		preloads = make([]registry.ID, 0, len(options.Preloaded))
@@ -625,30 +631,29 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 
 // GetModules returns all registered modules with their info
 func (cm *Manager) GetModules() []api.ModuleInfo {
-	cm.memGraph.mu.RLock()
-	defer cm.memGraph.mu.RUnlock()
-
-	var modules []api.ModuleInfo
-	for _, node := range cm.memGraph.nodes {
-		if node.Module != nil {
-			modules = append(modules, node.Module.Info())
-		}
+	defs := cm.memGraph.ModuleDefs()
+	modules := make([]api.ModuleInfo, 0, len(defs))
+	for _, mod := range defs {
+		modules = append(modules, mod.Info())
 	}
 	return modules
 }
 
 // GetModuleDefs returns all registered module definitions
 func (cm *Manager) GetModuleDefs() []*api.ModuleDef {
-	cm.memGraph.mu.RLock()
-	defer cm.memGraph.mu.RUnlock()
-
-	var modules []*api.ModuleDef
-	for _, node := range cm.memGraph.nodes {
-		if node.Module != nil {
-			modules = append(modules, node.Module)
-		}
+	defs := cm.memGraph.ModuleDefs()
+	modules := make([]*api.ModuleDef, 0, len(defs))
+	for _, mod := range defs {
+		modules = append(modules, mod)
 	}
 	return modules
+}
+
+// ModuleDefsByName returns the registered module definitions keyed by name.
+// The graph keeps this index current as module nodes change; the returned map
+// is shared and must not be modified.
+func (cm *Manager) ModuleDefsByName() map[string]*api.ModuleDef {
+	return cm.memGraph.ModuleDefs()
 }
 
 // GetModuleManifests returns manifests from the code manager graph.

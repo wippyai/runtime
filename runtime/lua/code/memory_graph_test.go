@@ -1192,3 +1192,36 @@ func TestNewMemoryGraph(t *testing.T) {
 	assert.NotNil(t, mg.nodes)
 	assert.NotNil(t, mg.graph)
 }
+
+func TestMemoryGraph_ModuleDefsTrackModuleNodes(t *testing.T) {
+	g := NewMemoryGraph()
+	json := &runtime.ModuleDef{Name: "json"}
+	yaml := &runtime.ModuleDef{Name: "yaml"}
+
+	assert.Empty(t, g.ModuleDefs())
+
+	assert.NoError(t, g.AddNode(&Node{ID: registry.NewID("", "json"), Kind: runtime.ModuleKind, Module: json}))
+	assert.NoError(t, g.AddNode(createTestNode("fn")))
+	before := g.ModuleDefs()
+	assert.Equal(t, map[string]*runtime.ModuleDef{"json": json}, before)
+
+	assert.NoError(t, g.AddNode(&Node{ID: registry.NewID("", "yaml"), Kind: runtime.ModuleKind, Module: yaml}))
+	assert.Equal(t, map[string]*runtime.ModuleDef{"json": json, "yaml": yaml}, g.ModuleDefs())
+	assert.Equal(t, map[string]*runtime.ModuleDef{"json": json}, before, "published index is immutable")
+
+	snapshot := g.Snapshot()
+	reachable := g.snapshotReachable(registry.NewID("", "yaml"), nil)
+
+	yaml2 := &runtime.ModuleDef{Name: "yaml"}
+	assert.NoError(t, g.UpdateNode(&Node{ID: registry.NewID("", "yaml"), Kind: runtime.ModuleKind, Module: yaml2}, nil))
+	assert.Same(t, yaml2, g.ModuleDefs()["yaml"])
+
+	assert.NoError(t, g.RemoveNode(registry.NewID("", "json")))
+	assert.Equal(t, map[string]*runtime.ModuleDef{"yaml": yaml2}, g.ModuleDefs())
+
+	assert.NoError(t, g.UpdateNode(&Node{ID: registry.ID{Name: "fn"}, Kind: "function.lua", Source: "return 1"}, nil))
+	assert.Equal(t, map[string]*runtime.ModuleDef{"yaml": yaml2}, g.ModuleDefs())
+
+	assert.Equal(t, map[string]*runtime.ModuleDef{"json": json, "yaml": yaml}, snapshot.ModuleDefs())
+	assert.Equal(t, map[string]*runtime.ModuleDef{"yaml": yaml}, reachable.ModuleDefs())
+}
