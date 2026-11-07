@@ -99,7 +99,7 @@ func TestManager_TransactionCommitRejectsIncompleteState(t *testing.T) {
 	seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 	var updates atomic.Int32
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.UpdateDefinition, func(event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.UpdateDefinition, func(event.Event) {
 		updates.Add(1)
 	})
 	require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestManager_TransactionEventsFlushOnCommitOnly(t *testing.T) {
 	var kinds []string
 	var wg sync.WaitGroup
 	subscribe := func(kind string) *eventbus.Subscriber {
-		sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, kind, func(event.Event) {
+		sub, err := subscribeChanges(ctx, bus, kind, func(event.Event) {
 			mu.Lock()
 			kinds = append(kinds, kind)
 			mu.Unlock()

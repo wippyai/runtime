@@ -374,3 +374,35 @@ func TestAwaitService_PrepareCloseReleasesPath(t *testing.T) {
 		t.Fatalf("expected accepted result on reused path, got %#v", result)
 	}
 }
+
+// A pending waiter returns as soon as the service stops, without waiting for
+// its own timeout or its caller's context.
+func TestAwaitService_StopReleasesPendingWaiter(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	svc := NewAwaitService(bus)
+	ctx := context.Background()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("failed to start service: %v", err)
+	}
+
+	waiter, err := svc.Prepare(ctx, "test", "response.(accept|reject)", "test/path", time.Minute)
+	if err != nil {
+		t.Fatalf("prepare failed: %v", err)
+	}
+	done := make(chan event.AwaitResult, 1)
+	go func() { done <- waiter.Wait() }()
+
+	if err := svc.Stop(); err != nil {
+		t.Fatalf("stop failed: %v", err)
+	}
+	select {
+	case result := <-done:
+		if result.Error == nil || result.Accepted {
+			t.Fatalf("expected a stopped-service error, got %+v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter still pending after the await service stopped")
+	}
+}

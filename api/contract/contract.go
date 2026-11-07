@@ -24,11 +24,27 @@ const (
 	RegisterBinding    event.Kind = "contract.binding.register"
 	UpdateBinding      event.Kind = "contract.binding.update"
 	DeleteBinding      event.Kind = "contract.binding.delete"
-	ContractAccept     event.Kind = "contract.accept"
-	ContractReject     event.Kind = "contract.reject"
+	// ApplyChanges carries Changes the contract registry applies as one unit
+	// and answers once, with ContractAccept or ContractReject on the event path.
+	ApplyChanges   event.Kind = "contract.changes.apply"
+	ContractAccept event.Kind = "contract.accept"
+	ContractReject event.Kind = "contract.reject"
 )
 
 type (
+	// Change is one definition or binding mutation within Changes. Kind is one
+	// of the definition or binding event kinds, Path the entry ID, and Data the
+	// *Definition or *Binding for a register or update.
+	Change struct {
+		Data any
+		Kind event.Kind
+		Path event.Path
+	}
+
+	// Changes is the ApplyChanges payload: the contract registry applies all of
+	// them or none.
+	Changes []Change
+
 	// Definition represents a contract stored in the registry.
 	Definition struct {
 		ID      registry.ID `json:"id,omitempty"`

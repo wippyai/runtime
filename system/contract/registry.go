@@ -34,7 +34,7 @@ type Registry struct {
 	mu              sync.RWMutex
 }
 
-const contractEventPattern = "contract.(definition|binding).(register|update|delete)"
+const contractEventPattern = "contract.(definition|binding|changes).(register|update|delete|apply)"
 
 // NewContractRegistry creates a new contract registry
 func NewContractRegistry(bus event.Bus, logger *zap.Logger) *Registry {
@@ -88,18 +88,19 @@ func (r *Registry) sendResponse(path event.Path, kind event.Kind, data any) {
 
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case contract.RegisterDefinition:
-		r.registerDefinition(e)
-	case contract.UpdateDefinition:
-		r.updateDefinition(e)
-	case contract.DeleteDefinition:
-		r.deleteDefinition(e)
-	case contract.RegisterBinding:
-		r.registerBinding(e)
-	case contract.UpdateBinding:
-		r.updateBinding(e)
-	case contract.DeleteBinding:
-		r.deleteBinding(e)
+	case contract.ApplyChanges:
+		changes, ok := e.Data.(contract.Changes)
+		if !ok {
+			r.logger.Error("invalid changes payload",
+				zap.String("path", e.Path),
+				zap.String("type", fmt.Sprintf("%T", e.Data)))
+			r.sendReject(e.Path, "invalid changes payload")
+			return
+		}
+		r.reply(e.Path, r.apply(changes))
+	case contract.RegisterDefinition, contract.UpdateDefinition, contract.DeleteDefinition,
+		contract.RegisterBinding, contract.UpdateBinding, contract.DeleteBinding:
+		r.reply(e.Path, r.apply(contract.Changes{{Kind: e.Kind, Path: e.Path, Data: e.Data}}))
 	default:
 		r.logger.Warn("unknown event kind",
 			zap.String("kind", e.Kind),
@@ -107,141 +108,71 @@ func (r *Registry) handleEvent(e event.Event) {
 	}
 }
 
-func (r *Registry) registerDefinition(e event.Event) {
-	def, ok := e.Data.(*contract.Definition)
-	if !ok {
-		r.logger.Error("invalid definition payload",
-			zap.String("path", e.Path),
-			zap.String("type", fmt.Sprintf("%T", e.Data)))
-		r.sendReject(e.Path, "invalid definition payload")
+func (r *Registry) reply(path event.Path, reason string) {
+	if reason != "" {
+		r.sendReject(path, reason)
 		return
 	}
-
-	// Populate runtime ID and metadata if not set
-	defID := registry.ParseID(e.Path)
-	def.ID = defID
-	if def.Meta == nil {
-		def.Meta = make(attrs.Bag)
-	}
-
-	r.mu.Lock()
-	r.definitions[e.Path] = def
-	r.mu.Unlock()
-
-	r.logger.Debug("contract definition registered", zap.String("id", e.Path))
-	r.sendAccept(e.Path)
+	r.sendAccept(path)
 }
 
-func (r *Registry) updateDefinition(e event.Event) {
-	def, ok := e.Data.(*contract.Definition)
-	if !ok {
-		r.sendReject(e.Path, "invalid definition payload")
-		return
-	}
-
-	// Populate runtime ID and metadata if not set
-	defID := registry.ParseID(e.Path)
-	def.ID = defID
-	if def.Meta == nil {
-		def.Meta = make(attrs.Bag)
-	}
-
-	r.mu.Lock()
-	r.definitions[e.Path] = def
-	r.mu.Unlock()
-
-	r.logger.Debug("contract definition updated", zap.String("id", e.Path))
-	r.sendAccept(e.Path)
-}
-
-func (r *Registry) deleteDefinition(e event.Event) {
-	r.mu.Lock()
-	delete(r.definitions, e.Path)
-	// Clean up any default bindings for this contract
-	delete(r.defaultBindings, e.Path)
-	r.mu.Unlock()
-
-	r.logger.Debug("contract definition deleted", zap.String("id", e.Path))
-	r.sendAccept(e.Path)
-}
-
-func (r *Registry) registerBinding(e event.Event) {
-	binding, ok := e.Data.(*contract.Binding)
-	if !ok {
-		r.logger.Error("invalid binding payload",
-			zap.String("path", e.Path),
-			zap.String("type", fmt.Sprintf("%T", e.Data)))
-		r.sendReject(e.Path, "invalid binding payload")
-		return
-	}
-
-	bindingID := registry.ParseID(e.Path)
-
-	// Populate runtime fields
-	binding.ID = bindingID
-	if binding.Meta == nil {
-		binding.Meta = make(attrs.Bag)
+// apply validates every change and then applies all of them under one lock,
+// so a lookup observes either none or all of a batch. It returns the reason a
+// batch is refused, or "" once it is applied.
+func (r *Registry) apply(changes contract.Changes) string {
+	for _, change := range changes {
+		switch change.Kind {
+		case contract.RegisterDefinition, contract.UpdateDefinition:
+			if _, ok := change.Data.(*contract.Definition); !ok {
+				r.logger.Error("invalid definition payload",
+					zap.String("path", change.Path),
+					zap.String("type", fmt.Sprintf("%T", change.Data)))
+				return "invalid definition payload"
+			}
+		case contract.RegisterBinding, contract.UpdateBinding:
+			if _, ok := change.Data.(*contract.Binding); !ok {
+				r.logger.Error("invalid binding payload",
+					zap.String("path", change.Path),
+					zap.String("type", fmt.Sprintf("%T", change.Data)))
+				return "invalid binding payload"
+			}
+		case contract.DeleteDefinition, contract.DeleteBinding:
+		default:
+			return "unknown change kind " + change.Kind
+		}
 	}
 
 	r.mu.Lock()
-	r.bindings[e.Path] = &bindingWithMeta{
-		ID:      bindingID,
-		Meta:    binding.Meta,
-		Binding: binding,
+	defer r.mu.Unlock()
+	for _, change := range changes {
+		id := registry.ParseID(change.Path)
+		switch change.Kind {
+		case contract.RegisterDefinition, contract.UpdateDefinition:
+			def := change.Data.(*contract.Definition)
+			def.ID = id
+			if def.Meta == nil {
+				def.Meta = make(attrs.Bag)
+			}
+			r.definitions[change.Path] = def
+		case contract.DeleteDefinition:
+			delete(r.definitions, change.Path)
+			delete(r.defaultBindings, change.Path)
+		case contract.RegisterBinding, contract.UpdateBinding:
+			binding := change.Data.(*contract.Binding)
+			binding.ID = id
+			if binding.Meta == nil {
+				binding.Meta = make(attrs.Bag)
+			}
+			r.removeDefaultBindings(id)
+			r.bindings[change.Path] = &bindingWithMeta{ID: id, Meta: binding.Meta, Binding: binding}
+			r.updateDefaultBindings(binding, id)
+		case contract.DeleteBinding:
+			r.removeDefaultBindings(id)
+			delete(r.bindings, change.Path)
+		}
+		r.logger.Debug("contract change applied", zap.String("kind", change.Kind), zap.String("id", change.Path))
 	}
-
-	// Update default bindings map
-	r.updateDefaultBindings(binding, bindingID)
-	r.mu.Unlock()
-
-	r.logger.Debug("contract binding registered", zap.String("id", e.Path))
-	r.sendAccept(e.Path)
-}
-
-func (r *Registry) updateBinding(e event.Event) {
-	binding, ok := e.Data.(*contract.Binding)
-	if !ok {
-		r.sendReject(e.Path, "invalid binding payload")
-		return
-	}
-
-	bindingID := registry.ParseID(e.Path)
-
-	// Populate runtime fields
-	binding.ID = bindingID
-	if binding.Meta == nil {
-		binding.Meta = make(attrs.Bag)
-	}
-
-	r.mu.Lock()
-	// Remove old default bindings for this binding ID
-	r.removeDefaultBindings(bindingID)
-
-	r.bindings[e.Path] = &bindingWithMeta{
-		ID:      bindingID,
-		Meta:    binding.Meta,
-		Binding: binding,
-	}
-
-	// Update default bindings map with new defaults
-	r.updateDefaultBindings(binding, bindingID)
-	r.mu.Unlock()
-
-	r.logger.Debug("contract binding updated", zap.String("id", e.Path))
-	r.sendAccept(e.Path)
-}
-
-func (r *Registry) deleteBinding(e event.Event) {
-	bindingID := registry.ParseID(e.Path)
-
-	r.mu.Lock()
-	// Remove default bindings for this binding ID
-	r.removeDefaultBindings(bindingID)
-	delete(r.bindings, e.Path)
-	r.mu.Unlock()
-
-	r.logger.Debug("contract binding deleted", zap.String("id", e.Path))
-	r.sendAccept(e.Path)
+	return ""
 }
 
 // updateDefaultBindings updates the default bindings map for contracts that are marked as default

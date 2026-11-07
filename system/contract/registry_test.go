@@ -1038,3 +1038,47 @@ func TestContractRegistry_NilMetaInit(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, contractObj.Meta())
 }
+
+// A change batch applies whole or not at all: a batch whose second change is
+// refused leaves the registry unchanged, and an accepted batch is visible in
+// full once its reply arrives.
+func TestContractRegistry_ApplyChangesIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	contractRegistry, bus := setupRegistryTest()
+	require.NoError(t, contractRegistry.Start(ctx))
+	defer func() { require.NoError(t, contractRegistry.Stop()) }()
+
+	await := eventbus.NewAwaitService(bus)
+	require.NoError(t, await.Start(ctx))
+	defer func() { _ = await.Stop() }()
+
+	defID := registry.NewID("test", "contract")
+	bindingID := registry.NewID("test", "binding")
+	apply := func(path event.Path, changes contract.Changes) event.AwaitResult {
+		waiter, err := await.Prepare(ctx, contract.System, "contract.(accept|reject)", path, 5*time.Second)
+		require.NoError(t, err)
+		bus.Send(ctx, event.Event{System: contract.System, Kind: contract.ApplyChanges, Path: path, Data: changes})
+		return waiter.Wait()
+	}
+
+	result := apply("batch/1", contract.Changes{
+		{Kind: contract.RegisterDefinition, Path: defID.String(), Data: &contract.Definition{Methods: []contract.MethodDef{{Name: "get"}}}},
+		{Kind: contract.RegisterBinding, Path: bindingID.String(), Data: "invalid"},
+	})
+	require.NoError(t, result.Error)
+	assert.False(t, result.Accepted)
+	assert.Equal(t, "invalid binding payload", result.Event.Data)
+	_, err := contractRegistry.GetContract(ctx, defID)
+	assert.Error(t, err, "a refused batch must not apply its valid changes")
+
+	result = apply("batch/2", contract.Changes{
+		{Kind: contract.RegisterDefinition, Path: defID.String(), Data: &contract.Definition{Methods: []contract.MethodDef{{Name: "get"}}}},
+		{Kind: contract.RegisterBinding, Path: bindingID.String(), Data: &contract.Binding{Contracts: []contract.BoundContract{{Contract: defID, Default: true}}}},
+	})
+	require.True(t, result.Accepted, "batch must be accepted: %+v", result)
+	_, err = contractRegistry.GetContract(ctx, defID)
+	require.NoError(t, err)
+	defaultBinding, err := contractRegistry.GetDefaultBinding(ctx, defID)
+	require.NoError(t, err)
+	assert.Equal(t, bindingID, defaultBinding)
+}
