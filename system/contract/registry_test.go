@@ -1117,7 +1117,7 @@ func TestContractRegistry_ApplyChangesRefusesNilPayloads(t *testing.T) {
 			{Kind: contract.UpdateDefinition, Path: defID.String(), Data: (*contract.Definition)(nil)},
 		},
 	} {
-		result := apply(event.Path(fmt.Sprintf("nil/%d", i)), changes)
+		result := apply(fmt.Sprintf("nil/%d", i), changes)
 		require.NoError(t, result.Error, "batch %d must be answered", i)
 		assert.False(t, result.Accepted, "batch %d must be refused", i)
 		_, err := contractRegistry.GetContract(ctx, defID)
