@@ -469,6 +469,12 @@ func (cm *Manager) Compile(
 ) (*CompiledMain, error) {
 	cm.mutMu.RLock()
 	defer cm.mutMu.RUnlock()
+	// Nodes, edges and versions change only under mutMu held exclusively, so
+	// the retained lookup reads a stable graph; only a build needs the isolated
+	// snapshot it annotates.
+	if compiled, ok := cm.compiler.retained(cm.memGraph, entrypoint, options); ok {
+		return compiled, nil
+	}
 	var preloads []registry.ID
 	if options != nil {
 		preloads = make([]registry.ID, 0, len(options.Preloaded))
