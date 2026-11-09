@@ -188,10 +188,15 @@ func NewBindingNotFoundForDeleteError(id registry.ID) error {
 var ErrAwaitServiceNotAvailable = apierror.New(apierror.Internal, "await service not available in context").
 	WithRetryable(apierror.False)
 
+// ErrContractRegistryNotAvailable reports that no live subscriber can apply
+// the batch, so a context-bound wait could never receive a reply.
+var ErrContractRegistryNotAvailable = apierror.New(apierror.Unavailable, "contract registry is not available").
+	WithRetryable(apierror.False)
+
 // NewContractPlaneError reports a change batch the contract registry did not
 // confirm.
 func NewContractPlaneError(request string, changes int, cause error) error {
-	return apierror.New(apierror.Unavailable, "contract registry did not apply change batch "+request).
+	return apierror.New(apierror.Unavailable, "contract registry did not confirm change batch "+request).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"request": request, "changes": changes})).
 		WithCause(cause)

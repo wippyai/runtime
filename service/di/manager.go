@@ -173,14 +173,19 @@ var changeRequestSeq atomic.Uint64
 // publish sends changes to the contract registry as one batch and returns once
 // the registry has applied all of them, so the change is visible to contract
 // lookups when the registry operation that made it returns. A refused batch
-// leaves the contract registry unchanged.
+// leaves the contract registry unchanged. The wait follows the listener's
+// context, as filesystem registration does, rather than imposing an inner cap.
+// Listener shutdown can interrupt confirmation after application.
 func (m *Manager) publish(ctx context.Context, changes contract.Changes) error {
 	path := "di.changes/" + strconv.FormatUint(changeRequestSeq.Add(1), 10)
 	await := event.GetAwaitService(ctx)
 	if await == nil {
 		return NewContractPlaneError(path, len(changes), ErrAwaitServiceNotAvailable)
 	}
-	waiter, err := await.Prepare(ctx, contract.System, contractPlaneResponses, path, event.DefaultAwaitTimeout)
+	if !m.bus.HasSubscribers(contract.System, contract.ApplyChanges) {
+		return NewContractPlaneError(path, len(changes), ErrContractRegistryNotAvailable)
+	}
+	waiter, err := await.Prepare(ctx, contract.System, contractPlaneResponses, path, event.ContextBoundAwait)
 	if err != nil {
 		return NewContractPlaneError(path, len(changes), err)
 	}
@@ -217,10 +222,10 @@ func (m *Manager) Begin(context.Context) error {
 // Commit validates the complete staged state and publishes it to the contract
 // registry as one batch, which the registry applies whole or not at all. It
 // returns once the batch is applied. On a validation failure or a refused
-// batch neither the manager nor the contract registry changes; a batch whose
-// reply never arrives (timeout or shutdown) has no confirmed outcome and is
-// reported as unapplied. Staging remains live while the registry runner
-// dispatches inverse operations before Discard.
+// batch neither the manager nor the contract registry changes. The boot router
+// supplies the listener lifetime context; cancellation of a transition is
+// handled by the runner's separately bounded rollback and Discard. If the
+// listener context or await service stops, application may be unconfirmed.
 func (m *Manager) Commit(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

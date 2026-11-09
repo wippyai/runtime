@@ -136,7 +136,7 @@ func TestManager_RefusedCommitLeavesContractsUnchanged(t *testing.T) {
 	plane.reply(plane.next(t), contract.ContractReject, "invalid binding payload")
 	select {
 	case err := <-done:
-		requireAPIError(t, err, apierror.Unavailable, "contract registry did not apply change batch")
+		requireAPIError(t, err, apierror.Unavailable, "contract registry did not confirm change batch")
 		assert.Contains(t, err.Error(), "invalid binding payload")
 	case <-time.After(5 * time.Second):
 		t.Fatal("Commit did not return after the batch was refused")
