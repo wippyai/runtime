@@ -90,15 +90,15 @@ func newContractTransitionFixture(t *testing.T) *contractTransitionFixture {
 }
 
 type contractTransitionOutcome struct {
-	state registry.State
 	err   error
+	state registry.State
 }
 
 func (f *contractTransitionFixture) beginCreate(ctx context.Context, id registry.ID) <-chan contractTransitionOutcome {
 	done := make(chan contractTransitionOutcome, 1)
 	go func() {
 		state, err := f.runner.Transition(ctx, nil, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: definitionEntry(id, "method1")}}, nil)
-		done <- contractTransitionOutcome{state, err}
+		done <- contractTransitionOutcome{err: err, state: state}
 	}()
 	return done
 }
