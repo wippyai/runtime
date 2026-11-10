@@ -47,6 +47,7 @@ func All() []boot.Component {
 		UUID(),
 		WebSocket(),
 		Workflow(),
+		XML(),
 		YAML(),
 		LSP(),
 		PG(),
