@@ -18,13 +18,34 @@ func specExample(t *testing.T) string {
 	t.Helper()
 	spec, err := os.ReadFile("spec.md")
 	require.NoError(t, err)
-	_, example, ok := strings.Cut(string(spec), "## Example")
-	require.True(t, ok)
-	_, code, ok := strings.Cut(example, "```lua\n")
-	require.True(t, ok)
-	code, _, ok = strings.Cut(code, "```")
-	require.True(t, ok)
+	code, ok := exampleCode(string(spec))
+	require.True(t, ok, "spec.md has a Lua example")
 	return code
+}
+
+// exampleCode extracts the first Lua block of the Example section. Checkouts may use
+// CRLF line endings, so lines are compared without their terminators.
+func exampleCode(spec string) (string, bool) {
+	spec = strings.ReplaceAll(spec, "\r\n", "\n")
+	_, example, ok := strings.Cut(spec, "## Example")
+	if !ok {
+		return "", false
+	}
+	_, code, ok := strings.Cut(example, "```lua\n")
+	if !ok {
+		return "", false
+	}
+	code, _, ok = strings.Cut(code, "```")
+	return code, ok
+}
+
+func TestExampleCodeAcceptsEitherLineEnding(t *testing.T) {
+	const spec = "# x\n\n## Example\n\n```lua\nlocal a = 1\nreturn a\n```\n"
+	for name, doc := range map[string]string{"lf": spec, "crlf": strings.ReplaceAll(spec, "\n", "\r\n")} {
+		code, ok := exampleCode(doc)
+		require.True(t, ok, name)
+		assert.Equal(t, "local a = 1\nreturn a\n", code, name)
+	}
 }
 
 func TestSpecExampleRuns(t *testing.T) {
