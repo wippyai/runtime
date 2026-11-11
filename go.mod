@@ -234,3 +234,5 @@ require (
 // Keep the canonical import path so extensions share one driver registration.
 
 tool go.uber.org/mock/mockgen
+
+replace github.com/tetratelabs/wazero => github.com/wippyai/wazero v1.12.1-wippy.1.0.20261111214415-0a22951fb697
