@@ -642,18 +642,29 @@ func luaSplitterMarkdown(l *lua.LState) int {
 	return 2
 }
 
+func splitterOptionInt(value lua.LValue) (int, bool) {
+	switch number := value.(type) {
+	case lua.LInteger:
+		return int(number), true
+	case lua.LNumber:
+		return int(number), true
+	default:
+		return 0, false
+	}
+}
+
 func parseRecursiveOptions(table *lua.LTable) []textsplitter.Option {
 	var options []textsplitter.Option
 
 	table.ForEach(func(key, val lua.LValue) {
 		switch key.String() {
 		case "chunk_size":
-			if val.Type() == lua.LTNumber || val.Type() == lua.LTInteger {
-				options = append(options, textsplitter.WithChunkSize(int(lua.LVAsNumber(val))))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkSize(number))
 			}
 		case "chunk_overlap":
-			if val.Type() == lua.LTNumber || val.Type() == lua.LTInteger {
-				options = append(options, textsplitter.WithChunkOverlap(int(lua.LVAsNumber(val))))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkOverlap(number))
 			}
 		case "keep_separator":
 			if b, ok := val.(lua.LBool); ok {
@@ -678,12 +689,12 @@ func parseMarkdownOptions(table *lua.LTable) []textsplitter.Option {
 	table.ForEach(func(key, val lua.LValue) {
 		switch key.String() {
 		case "chunk_size":
-			if val.Type() == lua.LTNumber || val.Type() == lua.LTInteger {
-				options = append(options, textsplitter.WithChunkSize(int(lua.LVAsNumber(val))))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkSize(number))
 			}
 		case "chunk_overlap":
-			if val.Type() == lua.LTNumber || val.Type() == lua.LTInteger {
-				options = append(options, textsplitter.WithChunkOverlap(int(lua.LVAsNumber(val))))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkOverlap(number))
 			}
 		case "code_blocks":
 			if b, ok := val.(lua.LBool); ok {

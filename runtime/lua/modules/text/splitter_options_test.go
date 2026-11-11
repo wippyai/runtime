@@ -58,3 +58,28 @@ func TestSplitterZeroOverlapPreservesText(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSplitterIntegerOptionsPreservePrecision(t *testing.T) {
+	sizes := []int{int(^uint(0) >> 1)}
+	if strconv.IntSize == 64 {
+		large := int64(1<<53 + 1)
+		sizes = append(sizes, int(large))
+	}
+	for _, size := range sizes {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			options := l.NewTable()
+			options.RawSetString("chunk_size", lua.LInteger(size))
+			options.RawSetString("chunk_overlap", lua.LInteger(size-1))
+			recursive := textsplitter.NewRecursiveCharacter(parseRecursiveOptions(options)...)
+			if recursive.ChunkSize != size || recursive.ChunkOverlap != size-1 {
+				t.Errorf("recursive options lost integer precision: size=%d overlap=%d; want size=%d overlap=%d", recursive.ChunkSize, recursive.ChunkOverlap, size, size-1)
+			}
+			markdown := textsplitter.NewMarkdownTextSplitter(parseMarkdownOptions(options)...)
+			if markdown.ChunkSize != size || markdown.ChunkOverlap != size-1 {
+				t.Errorf("markdown options lost integer precision: size=%d overlap=%d; want size=%d overlap=%d", markdown.ChunkSize, markdown.ChunkOverlap, size, size-1)
+			}
+		})
+	}
+}
