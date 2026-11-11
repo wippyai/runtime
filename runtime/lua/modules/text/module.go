@@ -635,6 +635,7 @@ func luaSplitterMarkdown(l *lua.LState) int {
 	if l.GetTop() > 0 && l.Get(1).Type() == lua.LTTable {
 		options = parseMarkdownOptions(l.CheckTable(1))
 	}
+	options = append(options, markdownParagraphSplitter(options))
 
 	splitter := textsplitter.NewMarkdownTextSplitter(options...)
 	value.PushTypedUserData(l, &Splitter{splitter: splitter}, typeSplitter)
@@ -651,6 +652,22 @@ func splitterOptionInt(value lua.LValue) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// markdownParagraphSplitter splits markdown snippets longer than the chunk size
+// at the configured separators. The default separators end with "", so text
+// without any separator is cut at the chunk size.
+func markdownParagraphSplitter(options []textsplitter.Option) textsplitter.Option {
+	resolved := textsplitter.DefaultOptions()
+	for _, option := range options {
+		option(&resolved)
+	}
+	return textsplitter.WithSecondSplitter(textsplitter.NewRecursiveCharacter(
+		textsplitter.WithChunkSize(resolved.ChunkSize),
+		textsplitter.WithChunkOverlap(resolved.ChunkOverlap),
+		textsplitter.WithSeparators(resolved.Separators),
+		textsplitter.WithLenFunc(resolved.LenFunc),
+	))
 }
 
 func parseRecursiveOptions(table *lua.LTable) []textsplitter.Option {
