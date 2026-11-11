@@ -3,9 +3,11 @@
 package text
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/tmc/langchaingo/textsplitter"
 	lua "github.com/wippyai/go-lua"
 )
 
@@ -83,5 +85,60 @@ func TestSplitterMarkdownSplitsParagraphsAtConfiguredSeparators(t *testing.T) {
 		if (len(chunk)+1)%10 != 0 || chunk[0] != 'a' || chunk[len(chunk)-1] != 'i' {
 			t.Fatalf("chunk %d %q splits inside a segment between separators", i, chunk)
 		}
+	}
+}
+
+func TestSplitterMarkdownUnicodeFallbackPreservesText(t *testing.T) {
+	input := strings.Repeat("é猫🙂", 800)
+	chunks := splitMarkdown(t, map[string]lua.LValue{
+		"chunk_size":    lua.LNumber(200),
+		"chunk_overlap": lua.LNumber(0),
+	}, input)
+	for i, chunk := range chunks {
+		if size := len([]rune(chunk)); size > 200 {
+			t.Fatalf("chunk %d has %d characters, want at most 200", i, size)
+		}
+	}
+	if got := strings.Join(chunks, ""); got != input {
+		t.Fatal("zero-overlap Unicode fallback changes the source text")
+	}
+}
+
+func TestSplitterMarkdownPreservesExistingFormatOptions(t *testing.T) {
+	input := "# Parent\n\n" + strings.Repeat("alpha beta gamma delta. ", 20) +
+		"\n\n## Child\n\n> Quote\n\n- First\n- Second\n\n" +
+		"```lua\nreturn 42\n```\n\n[link][ref]\n\n[ref]: https://example.test\n\n" +
+		"| Name | Value |\n| --- | --- |\n| First | 1 |\n| Second | 2 |\n"
+	flags := []string{"code_blocks", "reference_links", "heading_hierarchy", "join_table_rows"}
+	for mask := range 1 << len(flags) {
+		t.Run(strconv.Itoa(mask), func(t *testing.T) {
+			options := map[string]lua.LValue{
+				"chunk_size":    lua.LNumber(64),
+				"chunk_overlap": lua.LNumber(8),
+			}
+			l := lua.NewState()
+			defer l.Close()
+			table := l.NewTable()
+			for i, name := range flags {
+				options[name] = lua.LBool(mask&(1<<i) != 0)
+			}
+			for name, value := range options {
+				table.RawSetString(name, value)
+			}
+			previous := textsplitter.NewMarkdownTextSplitter(parseMarkdownOptions(table)...)
+			want, err := previous.SplitText(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := splitMarkdown(t, options, input)
+			if len(got) != len(want) {
+				t.Fatalf("chunk count = %d, want previous behavior's %d", len(got), len(want))
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("chunk %d changes existing formatting: got %q, want %q", i, got[i], want[i])
+				}
+			}
+		})
 	}
 }
