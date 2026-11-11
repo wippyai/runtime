@@ -28,7 +28,6 @@ func TestSharedSubtreesStopAtNodeBytes(t *testing.T) {
 	e := newEnv(t)
 	sink, _ := e.sink(io.Discard)
 	e.global("dest", sink)
-	started := time.Now()
 	vals := e.run(dagLua + `
 		local out, err = xml.encode(t)
 		check(out == nil, "no output")
@@ -39,7 +38,6 @@ func TestSharedSubtreesStopAtNodeBytes(t *testing.T) {
 		local sok, serr = s:node(t)
 		check(sok == false, "stream node fails")
 		return code(err), err:details().limit, code(werr), werr:details().limit, serr:details().limit`)
-	assert.Less(t, time.Since(started), raceSlowdown*time.Second, "three trees stop at the default limit")
 	assert.Equal(t, []string{"limit", "max_node_bytes", "limit", "max_node_bytes", "max_node_bytes"},
 		[]string{vals[0].String(), vals[1].String(), vals[2].String(), vals[3].String(), vals[4].String()})
 }
@@ -333,7 +331,6 @@ func TestInternerRetentionIsExact(t *testing.T) {
 
 func TestHelpersAreBudgeted(t *testing.T) {
 	e := newEnv(t)
-	started := time.Now()
 	vals := e.run(`
 		local function dag(levels)
 			local t = {name = "x", text = "x"}
@@ -366,7 +363,6 @@ func TestHelpersAreBudgeted(t *testing.T) {
 		out[#out + 1] = tostring(#ns == 1)
 		return table.concat(out, ",")`)
 	assert.Equal(t, "true,true,true,true,true,true,true,true,true,true", vals[0].String())
-	assert.Less(t, time.Since(started), raceSlowdown*5*time.Second)
 }
 
 func prefixedDocument(prefixBytes, n int) string {

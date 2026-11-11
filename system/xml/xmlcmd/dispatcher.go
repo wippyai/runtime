@@ -28,12 +28,20 @@ func WithWorkers(n int) Option {
 
 // Dispatcher executes XML stream commands on a worker pool.
 type Dispatcher struct {
-	ctx     context.Context
-	jobs    chan job
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	workers int
+	ctx       context.Context
+	jobs      chan job
+	cancel    context.CancelFunc
+	lifecycle sync.Mutex
+	mu        sync.RWMutex
+	wg        sync.WaitGroup
+	workers   int
+	stopped   bool
 }
+
+var (
+	errDispatcherStopped = apierror.WithDetails(apierror.Unavailable, "xml dispatcher is stopped", attrs.Bag{"code": "state"})
+	errDispatcherBusy    = apierror.WithDetails(apierror.Unavailable, "xml dispatcher queue is full", attrs.Bag{"code": "io"})
+)
 
 type job struct {
 	ctx      context.Context
@@ -53,47 +61,71 @@ func NewDispatcher(opts ...Option) *Dispatcher {
 
 // Start initializes the worker pool.
 func (d *Dispatcher) Start(ctx context.Context) error {
+	d.lifecycle.Lock()
+	defer d.lifecycle.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.jobs != nil {
+		return nil
+	}
 	d.ctx, d.cancel = context.WithCancel(ctx)
 	d.jobs = make(chan job, d.workers*2)
+	d.stopped = false
 	for i := 0; i < d.workers; i++ {
 		d.wg.Add(1)
-		go d.worker()
+		go d.worker(d.jobs)
 	}
 	return nil
 }
 
 // Stop shuts down the dispatcher and drains pending jobs.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	d.lifecycle.Lock()
+	defer d.lifecycle.Unlock()
+	d.mu.Lock()
+	d.stopped = true
 	if d.cancel != nil {
 		d.cancel()
 	}
 	if d.jobs != nil {
 		close(d.jobs)
 	}
-	d.wg.Wait()
 	d.jobs = nil
 	d.cancel = nil
+	d.ctx = nil
+	d.mu.Unlock()
+	d.wg.Wait()
 	return nil
 }
 
-func (d *Dispatcher) worker() {
+func (d *Dispatcher) worker(jobs <-chan job) {
 	defer d.wg.Done()
-	for j := range d.jobs {
+	for j := range jobs {
 		d.execute(j)
 	}
 }
 
-func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) {
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	j := job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}
+	d.mu.RLock()
 	if d.jobs == nil {
+		stopped := d.stopped
+		d.mu.RUnlock()
+		if stopped {
+			return errDispatcherStopped
+		}
 		d.execute(j)
-		return
+		return nil
+	}
+	defer d.mu.RUnlock()
+	if err := d.ctx.Err(); err != nil {
+		return apierror.SetCause(apierror.WithDetails(apierror.Canceled, err.Error(), attrs.Bag{"code": "canceled"}), err)
 	}
 	select {
 	case d.jobs <- j:
-	case <-d.ctx.Done():
+		return nil
 	default:
-		d.execute(j)
+		return errDispatcherBusy
 	}
 }
 
@@ -155,8 +187,7 @@ func run(ctx context.Context, cmd dispatcher.Command) error {
 }
 
 func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
-	d.submit(ctx, cmd, tag, receiver)
-	return nil
+	return d.submit(ctx, cmd, tag, receiver)
 }
 
 // RegisterAll registers all XML handlers.

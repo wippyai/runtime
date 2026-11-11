@@ -40,20 +40,23 @@ func eachOption(l *lua.LState, t *lua.LTable, visit func(key string, v lua.LValu
 }
 
 func integerOption(l *lua.LState, key string, v lua.LValue, minimum int64) (int64, *lua.Error) {
+	maximum := int64(math.MaxInt32)
+	if key == "max_bytes" {
+		maximum = 1 << 53
+	}
 	var n float64
 	switch x := v.(type) {
 	case lua.LInteger:
-		n = float64(x)
+		if int64(x) < minimum || int64(x) > maximum {
+			return 0, argument(l, key+" is out of range")
+		}
+		return int64(x), nil
 	case lua.LNumber:
 		n = float64(x)
 	default:
 		return 0, argument(l, key+" must be an integer")
 	}
-	maximum := float64(math.MaxInt32)
-	if key == "max_bytes" {
-		maximum = 1 << 53
-	}
-	if n != math.Trunc(n) || n < float64(minimum) || n > maximum {
+	if n != math.Trunc(n) || n < float64(minimum) || n > float64(maximum) {
 		return 0, argument(l, key+" is out of range")
 	}
 	return int64(n), nil
