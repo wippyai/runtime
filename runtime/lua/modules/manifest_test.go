@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/queue"
 	"github.com/wippyai/runtime/runtime/lua/modules/store"
 	"github.com/wippyai/runtime/runtime/lua/modules/websocket"
+	"github.com/wippyai/runtime/runtime/lua/modules/xml"
 )
 
 type methodCheck struct {
@@ -92,6 +93,25 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "metrics.gauge_inc", manifest: metrics.ModuleTypes(), method: "gauge_inc"},
 		{name: "metrics.gauge_dec", manifest: metrics.ModuleTypes(), method: "gauge_dec"},
 		{name: "metrics.histogram", manifest: metrics.ModuleTypes(), method: "histogram"},
+		{name: "xml.decode", manifest: xml.ModuleTypes(), method: "decode"},
+		{name: "xml.encode", manifest: xml.ModuleTypes(), method: "encode"},
+		{name: "xml.find", manifest: xml.ModuleTypes(), method: "find"},
+		{name: "xml.reader", manifest: xml.ModuleTypes(), method: "reader"},
+		{name: "xml.writer", manifest: xml.ModuleTypes(), method: "writer"},
+		{name: "xml.Reader.select", manifest: xml.ModuleTypes(), typeName: "Reader", method: "select"},
+		{name: "xml.Reader.next", manifest: xml.ModuleTypes(), typeName: "Reader", method: "next"},
+		{name: "xml.Reader.node", manifest: xml.ModuleTypes(), typeName: "Reader", method: "node"},
+		{name: "xml.Reader.skip", manifest: xml.ModuleTypes(), typeName: "Reader", method: "skip"},
+		{name: "xml.Reader.copy", manifest: xml.ModuleTypes(), typeName: "Reader", method: "copy"},
+		{name: "xml.Records.read", manifest: xml.ModuleTypes(), typeName: "Records", method: "read"},
+		{name: "xml.Writer.start_element", manifest: xml.ModuleTypes(), typeName: "Writer", method: "start_element"},
+		{name: "xml.Writer.end_element", manifest: xml.ModuleTypes(), typeName: "Writer", method: "end_element"},
+		{name: "xml.Writer.text", manifest: xml.ModuleTypes(), typeName: "Writer", method: "text"},
+		{name: "xml.Writer.element", manifest: xml.ModuleTypes(), typeName: "Writer", method: "element"},
+		{name: "xml.Writer.node", manifest: xml.ModuleTypes(), typeName: "Writer", method: "node"},
+		{name: "xml.Writer.comment", manifest: xml.ModuleTypes(), typeName: "Writer", method: "comment"},
+		{name: "xml.Writer.flush", manifest: xml.ModuleTypes(), typeName: "Writer", method: "flush"},
+		{name: "xml.Writer.finish", manifest: xml.ModuleTypes(), typeName: "Writer", method: "finish"},
 	}
 
 	for _, tc := range checks {
