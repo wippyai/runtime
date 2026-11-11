@@ -78,28 +78,32 @@ func TestDispatcherRejectsCommandsAfterServiceCancellation(t *testing.T) {
 	require.Empty(t, result.ch, "a rejected command must not also complete a yield")
 }
 
-type countingReceiver struct{ completed atomic.Int64 }
+type pairingReceiver struct{ completed []atomic.Int64 }
 
-func (r *countingReceiver) CompleteYield(uint64, any, error) { r.completed.Add(1) }
+func (r *pairingReceiver) CompleteYield(tag uint64, _ any, _ error) {
+	r.completed[tag].Add(1)
+}
 
 func TestDispatcherStopCompletesEveryAcceptedCommand(t *testing.T) {
 	ctx, _ := frame(t)
 	d := NewDispatcher(WithWorkers(2))
 	require.NoError(t, d.Start(ctx))
-	result := &countingReceiver{}
-	var accepted atomic.Int64
+	const callersCount, commandsPerCaller = 8, 500
+	result := &pairingReceiver{completed: make([]atomic.Int64, 1+callersCount*commandsPerCaller)}
+	accepted := make([]atomic.Bool, len(result.completed))
 	require.NoError(t, d.handle(ctx, xmlapi.FillCmd{Reader: 1}, 0, result))
-	accepted.Add(1)
+	accepted[0].Store(true)
 	var callers sync.WaitGroup
 	start := make(chan struct{})
-	for range 8 {
+	for caller := range callersCount {
 		callers.Add(1)
 		go func() {
 			defer callers.Done()
 			<-start
-			for tag := range 500 {
+			for command := range commandsPerCaller {
+				tag := 1 + caller*commandsPerCaller + command
 				if d.handle(ctx, xmlapi.FillCmd{Reader: 1}, uint64(tag), result) == nil {
-					accepted.Add(1)
+					accepted[tag].Store(true)
 				}
 			}
 		}()
@@ -107,6 +111,12 @@ func TestDispatcherStopCompletesEveryAcceptedCommand(t *testing.T) {
 	close(start)
 	require.NoError(t, d.Stop(context.Background()))
 	callers.Wait()
-	require.Equal(t, accepted.Load(), result.completed.Load())
+	for tag := range accepted {
+		want := int64(0)
+		if accepted[tag].Load() {
+			want = 1
+		}
+		require.Equal(t, want, result.completed[tag].Load(), "completion count for command %d", tag)
+	}
 	require.NoError(t, d.Stop(context.Background()), "stop is idempotent")
 }
