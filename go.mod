@@ -52,7 +52,7 @@ require (
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
-	github.com/tetratelabs/wazero v1.12.1-wippy.1
+	github.com/tetratelabs/wazero v1.12.0
 	github.com/tmc/langchaingo v0.1.15
 	github.com/tree-sitter-grammars/tree-sitter-lua v0.5.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
@@ -235,4 +235,4 @@ require (
 
 tool go.uber.org/mock/mockgen
 
-replace github.com/tetratelabs/wazero => github.com/wippyai/wazero v1.12.1-wippy.1
+replace github.com/tetratelabs/wazero => github.com/wippyai/wazero v1.12.1-wippy.1.0.20261111214415-0a22951fb697
