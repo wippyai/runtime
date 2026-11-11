@@ -643,6 +643,17 @@ func luaSplitterMarkdown(l *lua.LState) int {
 	return 2
 }
 
+func splitterOptionInt(value lua.LValue) (int, bool) {
+	switch number := value.(type) {
+	case lua.LInteger:
+		return int(number), true
+	case lua.LNumber:
+		return int(number), true
+	default:
+		return 0, false
+	}
+}
+
 // markdownParagraphSplitter splits markdown snippets longer than the chunk size
 // at the configured separators. The default separators end with "", so text
 // without any separator is cut at the chunk size.
@@ -665,12 +676,12 @@ func parseRecursiveOptions(table *lua.LTable) []textsplitter.Option {
 	table.ForEach(func(key, val lua.LValue) {
 		switch key.String() {
 		case "chunk_size":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkSize(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkSize(number))
 			}
 		case "chunk_overlap":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkOverlap(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkOverlap(number))
 			}
 		case "keep_separator":
 			if b, ok := val.(lua.LBool); ok {
@@ -695,12 +706,12 @@ func parseMarkdownOptions(table *lua.LTable) []textsplitter.Option {
 	table.ForEach(func(key, val lua.LValue) {
 		switch key.String() {
 		case "chunk_size":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkSize(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkSize(number))
 			}
 		case "chunk_overlap":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkOverlap(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkOverlap(number))
 			}
 		case "code_blocks":
 			if b, ok := val.(lua.LBool); ok {
