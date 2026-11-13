@@ -90,7 +90,7 @@ Computes SHA-512 hash of input data.
 
 ### fnv32(data: string) → number, error
 
-Computes FNV-1a 32-bit hash of input data.
+Computes FNV-1 32-bit hash of input data.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
