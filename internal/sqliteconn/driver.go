@@ -14,7 +14,7 @@ import (
 func NewDriver() *sqlite3.SQLiteDriver {
 	return &sqlite3.SQLiteDriver{ConnectHook: func(conn *sqlite3.SQLiteConn) error {
 		// Commits never checkpoint inline: an automatic checkpoint runs on the
-		// committing connection and its cost grows with the database file.
+		// committing connection and copies WAL pages on that commit path.
 		// The connector's background checkpointer owns checkpointing. This is
 		// connection-local: a one-time pool Exec would not cover connection
 		// recycling.

@@ -10,21 +10,23 @@ This is a SQLite driver dependency, not the rqlite server or Raft subsystem.
 Every physical connection uses `wal_autocheckpoint=0`, including replacement
 connections and read-only CDC snapshot connections, so a commit never runs a
 checkpoint. An automatic checkpoint runs inline on the committing connection,
-and its cost grows with the database file; with the single-writer application
-pool every large transaction would pay it on the commit path.
+copying dirty WAL pages and performing storage synchronization; with the
+single-writer application pool that work delays the next transaction too.
 
 Checkpointing belongs to a background checkpointer owned by the connector of
 each writable database file (SQL pools and registry history). It runs on its
-own connection, stops when the pool closes and runs a final TRUNCATE
+own connection, stops when the pool closes and attempts a final TRUNCATE
 checkpoint before closing:
 
 - every `checkpoint.interval` (default `1s`) it runs a PASSIVE checkpoint,
   which never blocks readers or writers;
 - when the WAL file exceeds `checkpoint.max_wal_pages` pages
-  (default 16384), it runs TRUNCATE through the writer pool, which waits through the
-  busy handler for readers to leave the WAL and resets the WAL file to zero
-  bytes. A reader that outlives the busy timeout prevents truncation; the worker
-  retries on later intervals. The threshold is not a hard disk-space limit.
+  (default 16384), it reserves a connection from the writer pool and attempts
+  TRUNCATE on its dedicated connection. The checkpoint waits at most 50ms for
+  busy locks, allowing brief snapshots to finish; application queries keep
+  their configured busy timeout.
+  The worker retries on later intervals. The threshold is not a hard disk-space
+  limit: a continuously pinned reader can still prevent truncation.
 
 ```yaml
 kind: db.sql.sqlite

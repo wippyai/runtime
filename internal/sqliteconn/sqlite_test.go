@@ -6,6 +6,7 @@ package sqliteconn
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -96,4 +97,13 @@ func TestConnectorRejectsInvalidCheckpointPolicy(t *testing.T) {
 	require.ErrorContains(t, err, "interval")
 	_, err = NewConnector(dsn, sqlapi.SQLiteCheckpointConfig{Interval: time.Second})
 	require.ErrorContains(t, err, "max WAL pages")
+}
+
+func TestCloseUnusedPoolKeepsOpenLazy(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "unused.db")
+	db, err := Open("file:"+file+"?_journal_mode=WAL", defaultCheckpoint())
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	_, err = os.Stat(file)
+	require.True(t, os.IsNotExist(err), "closing an unused pool must not create the database")
 }

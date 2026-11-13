@@ -40,7 +40,7 @@ func NewConnector(dsn string, checkpoint sqlapi.SQLiteCheckpointConfig) (*Connec
 	if !writable {
 		return c, nil
 	}
-	cp, err := newCheckpointer(&Connector{driver: c.driver, dsn: dsn}, checkpoint)
+	cp, err := newCheckpointer(c, checkpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,11 @@ func (c *Connector) Attach(pool *sql.DB) {
 
 // Connect opens one physical connection.
 func (c *Connector) Connect(context.Context) (driver.Conn, error) {
-	return c.driver.Open(c.dsn)
+	conn, err := c.driver.Open(c.dsn)
+	if err == nil && c.checkpointer != nil {
+		c.checkpointer.opened.Store(true)
+	}
+	return conn, err
 }
 
 // Driver returns the pool-owned driver.
