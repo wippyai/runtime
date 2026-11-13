@@ -25,6 +25,7 @@ const (
 	HTTPName         = "lua.http"
 	HubName          = "lua.hub"
 	MetricsName      = "lua.metrics"
+	MinHashName      = "lua.minhash"
 	JSONName         = "lua.json"
 	PayloadName      = "lua.payload"
 	RegistryName     = "lua.registry"

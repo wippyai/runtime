@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/hash"
 	"github.com/wippyai/runtime/runtime/lua/modules/httpclient"
 	"github.com/wippyai/runtime/runtime/lua/modules/metrics"
+	"github.com/wippyai/runtime/runtime/lua/modules/minhash"
 	"github.com/wippyai/runtime/runtime/lua/modules/payload"
 	"github.com/wippyai/runtime/runtime/lua/modules/queue"
 	"github.com/wippyai/runtime/runtime/lua/modules/store"
@@ -93,6 +94,10 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "metrics.gauge_inc", manifest: metrics.ModuleTypes(), method: "gauge_inc"},
 		{name: "metrics.gauge_dec", manifest: metrics.ModuleTypes(), method: "gauge_dec"},
 		{name: "metrics.histogram", manifest: metrics.ModuleTypes(), method: "histogram"},
+		{name: "minhash.sketch", manifest: minhash.ModuleTypes(), method: "sketch"},
+		{name: "minhash.signature", manifest: minhash.ModuleTypes(), method: "signature"},
+		{name: "minhash.bands", manifest: minhash.ModuleTypes(), method: "bands"},
+		{name: "minhash.estimate", manifest: minhash.ModuleTypes(), method: "estimate"},
 		{name: "xml.decode", manifest: xml.ModuleTypes(), method: "decode"},
 		{name: "xml.encode", manifest: xml.ModuleTypes(), method: "encode"},
 		{name: "xml.find", manifest: xml.ModuleTypes(), method: "find"},

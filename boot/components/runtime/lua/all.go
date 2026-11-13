@@ -30,6 +30,7 @@ func All() []boot.Component {
 		JSON(),
 		Logger(),
 		Metrics(),
+		MinHash(),
 		Payload(),
 		Queue(),
 		Registry(),

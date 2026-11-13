@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.minhash
+
+entries:
+  - name: signature
+    kind: function.lua
+    meta:
+      type: test
+      suite: minhash
+      description: minhash.signature/sketch/bands/estimate functions
+    source: file://signature.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - minhash
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: minhash
+      description: minhash error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - minhash
