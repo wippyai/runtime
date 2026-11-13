@@ -44,29 +44,55 @@ func TestSQLiteWALPolicySurvivesConnectionReplacement(t *testing.T) {
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode))
 		require.Equal(t, "wal", mode)
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA wal_autocheckpoint").Scan(&checkpoint))
-		require.Equal(t, 1000, checkpoint)
+		require.Equal(t, 0, checkpoint, "writer connections never checkpoint inline")
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&synchronous))
 		require.Equal(t, 1, synchronous, "preserve NORMAL synchronization")
 		// A pool-level initialization would be lost with this connection.
-		_, err = conn.ExecContext(ctx, "PRAGMA wal_autocheckpoint=0")
+		_, err = conn.ExecContext(ctx, "PRAGMA wal_autocheckpoint=1000")
 		require.NoError(t, err)
 		require.ErrorIs(t, conn.Raw(func(any) error { return driver.ErrBadConn }), driver.ErrBadConn)
 		_ = conn.Close()
 	}
 }
 
-func TestSQLiteWALCheckpointProgress(t *testing.T) {
-	opened, file := openCheckpointDB(t)
+// writeLargeTransaction commits rows that dirty well over SQLite's default
+// 1000-page autocheckpoint threshold in a single transaction.
+func writeLargeTransaction(t *testing.T, opened sqlservice.OpenedDB, rows int) {
+	t.Helper()
 	ctx := context.Background()
-	_, err := opened.DB.ExecContext(ctx, "CREATE TABLE items (id INTEGER PRIMARY KEY, value BLOB)")
+	_, err := opened.DB.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, value BLOB)")
 	require.NoError(t, err)
-	for i := 0; i < 1500; i++ {
-		_, err = opened.DB.ExecContext(ctx, "INSERT INTO items (value) VALUES (zeroblob(4096))")
+	tx, err := opened.DB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	for i := 0; i < rows; i++ {
+		_, err = tx.ExecContext(ctx, "INSERT INTO items (value) VALUES (zeroblob(4096))")
 		require.NoError(t, err)
 	}
-	// This controlled workload has no pinned readers or large transactions.
-	// Check before close (which checkpoints too), not after a manual checkpoint.
-	info, err := os.Stat(file + "-wal")
+	require.NoError(t, tx.Commit())
+}
+
+func fileSize(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return 0
+	}
 	require.NoError(t, err)
-	require.Less(t, info.Size(), int64(8<<20), "automatic checkpoints must recycle this WAL while the pool stays open")
+	return info.Size()
+}
+
+func TestSQLiteCommitLeavesCheckpointToBackgroundCheckpointer(t *testing.T) {
+	opened, file := openCheckpointDB(t)
+	writeLargeTransaction(t, opened, 1000)
+
+	// The committed pages live only in the WAL: the commit path copied none of
+	// them into the database file.
+	require.Less(t, fileSize(t, file), int64(1<<20), "commit must not checkpoint inline")
+	require.Greater(t, fileSize(t, file+"-wal"), int64(4<<20))
+
+	// The background checkpointer backfills the database file while the pool
+	// stays open.
+	require.Eventually(t, func() bool {
+		return fileSize(t, file) > 4<<20
+	}, 10*time.Second, 10*time.Millisecond, "background checkpointer must drain the WAL")
 }
