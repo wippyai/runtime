@@ -25,9 +25,9 @@ import (
 // backfill) it escalates to TRUNCATE on the writer pool: the checkpoint takes
 // the writer's turn instead of racing it for the write lock, waits through the
 // busy handler for readers to leave the WAL and resets the WAL file to zero
-// bytes. Writers queue behind it, so the WAL cannot grow without bound under
-// sustained writes; it overshoots the bound by at most the writes of one
-// interval and one checkpoint.
+// bytes. Writers queue behind it while it runs. Readers that outlive the busy
+// timeout can still prevent truncation; later intervals retry. The configured
+// threshold is not a hard size limit.
 type checkpointer struct {
 	failure  error
 	closeErr error

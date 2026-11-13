@@ -171,3 +171,22 @@ func TestCheckpointerBoundsWALUnderSustainedWrites(t *testing.T) {
 	t.Logf("peak WAL %d bytes, %d bytes written", peak, written)
 	require.Less(t, peak, bound, "the WAL must not grow with the written volume")
 }
+
+func TestCloseStopsCheckpointerWaitingForWriter(t *testing.T) {
+	db, file := openCheckpointed(t, sqlapi.SQLiteCheckpointConfig{Interval: time.Millisecond, MaxWALPages: 1})
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	// Hold the only writer connection while the worker requests its turn.
+	conn, err := db.Conn(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+	require.Eventually(t, func() bool { return db.Stats().WaitCount > 0 }, 5*time.Second, time.Millisecond)
+	closed := make(chan error, 1)
+	go func() { closed <- db.Close() }()
+	select {
+	case err := <-closed:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not stop the checkpointer waiting for the writer")
+	}
+	require.Zero(t, sizeOf(t, file+"-wal"), "shutdown checkpoints on the dedicated connection")
+}

@@ -20,10 +20,11 @@ checkpoint before closing:
 
 - every `checkpoint.interval` (default `1s`) it runs a PASSIVE checkpoint,
   which never blocks readers or writers;
-- when the WAL still holds more than `checkpoint.max_wal_pages` pages
-  (default 16384) afterwards, it escalates to TRUNCATE, which waits through the
+- when the WAL file exceeds `checkpoint.max_wal_pages` pages
+  (default 16384), it runs TRUNCATE through the writer pool, which waits through the
   busy handler for readers to leave the WAL and resets the WAL file to zero
-  bytes. This bounds the WAL under sustained writes and pinned readers.
+  bytes. A reader that outlives the busy timeout prevents truncation; the worker
+  retries on later intervals. The threshold is not a hard disk-space limit.
 
 ```yaml
 kind: db.sql.sqlite
