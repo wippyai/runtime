@@ -21,9 +21,9 @@ import (
 )
 
 type contextErrorConn struct {
-	probeErrorConn
 	err         error
 	beforeError func(context.Context)
+	probeErrorConn
 }
 
 func (c *contextErrorConn) QueryContext(ctx context.Context, _ string, _ []driver.NamedValue) (driver.Rows, error) {
@@ -89,15 +89,15 @@ func testSQLStoreDoneContext(t *testing.T, dbResource resource.Resource[any]) {
 
 func TestSQLStoreOperationErrors(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
 		err    error
+		name   string
 		faults int
 	}{
-		{"canceled", context.Canceled, 0},
-		{"deadline", context.DeadlineExceeded, 0},
-		{"wrapped_canceled", fmt.Errorf("query: %w", context.Canceled), 0},
-		{"wrapped_deadline", fmt.Errorf("query: %w", context.DeadlineExceeded), 0},
-		{"fault", errors.New("database unavailable"), 1},
+		{context.Canceled, "canceled", 0},
+		{context.DeadlineExceeded, "deadline", 0},
+		{fmt.Errorf("query: %w", context.Canceled), "wrapped_canceled", 0},
+		{fmt.Errorf("query: %w", context.DeadlineExceeded), "wrapped_deadline", 0},
+		{errors.New("database unavailable"), "fault", 1},
 	} {
 		for name, op := range storeOperations() {
 			for _, stage := range []string{"query", "acquire", "resource", "write"} {
@@ -123,7 +123,9 @@ func TestSQLStoreOperationErrors(t *testing.T) {
 					ctx := createTranscoderContext(createContext(reg))
 					core, observed := observer.New(zap.ErrorLevel)
 					s := NewStore(registry.ParseID("test:store"), cfg, zap.New(core))
-					require.True(t, tc.err == op(ctx, s), "store errors are returned unchanged")
+					got := op(ctx, s)
+					require.ErrorIs(t, got, tc.err)
+					require.Equal(t, tc.err, got, "store errors are returned unchanged")
 					require.Len(t, observed.All(), tc.faults)
 				})
 			}
