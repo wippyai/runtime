@@ -21,14 +21,14 @@ import (
 // Module is the hash module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "hash",
-	Description: "Cryptographic hash functions, streaming hashers, HMAC, and PBKDF2",
+	Description: "Cryptographic hash functions, streaming hashers, HMAC, PBKDF2, and MinHash sketches",
 	Class:       []string{luaapi.ClassEncoding, luaapi.ClassSecurity, luaapi.ClassDeterministic},
 	Build:       buildModule,
 	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 12)
+	mod := lua.CreateTable(0, 13)
 	mod.RawSetString("md5", lua.LGoFunc(hashMD5))
 	mod.RawSetString("sha1", lua.LGoFunc(hashSHA1))
 	mod.RawSetString("sha256", lua.LGoFunc(hashSHA256))
@@ -41,6 +41,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("hmac_md5", lua.LGoFunc(hmacMD5))
 	mod.RawSetString("pbkdf2", lua.LGoFunc(pbkdf2Derive))
 	mod.RawSetString("new", lua.LGoFunc(hashNew))
+	mod.RawSetString("minhash", minhashTable())
 	mod.Immutable = true
 	return mod, nil
 }
