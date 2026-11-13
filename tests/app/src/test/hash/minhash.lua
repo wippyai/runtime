@@ -13,9 +13,9 @@ local function main()
 	local sketch = sig.sketch
 	if not sketch then error("sketch expected") end
 	assert.eq(#sketch, 512, "128 bins of 4 bytes")
-	assert.eq(string.sub(sketch, 1, 4), "\000\109\244\226", "bin value 7206114 big-endian")
-	assert.eq(sig.bands[1], "d62554cb38bcce38", "first band key")
-	assert.eq(sig.bands[16], "7a46a8962ebcf026", "last band key")
+	assert.eq(string.sub(sketch, 1, 4), "\054\250\113\104", "full shingle hash 922382696 big-endian")
+	assert.eq(sig.bands[1], "1323ba36e6c3cf7c", "first band key")
+	assert.eq(sig.bands[16], "9db1073e93b38b13", "last band key")
 
 	local keys = hash.minhash.bands(sketch, { domain = "curriculum.lsh.v1" })
 	assert.eq(keys[1], sig.bands[1], "bands agree with signature")
@@ -26,8 +26,8 @@ local function main()
 	local long = hash.minhash.signature(string.rep("X", 70000) .. " end", { domain = "curriculum.lsh.v1" })
 	assert.eq(long.tokens, 2, "long token is whole")
 	assert.eq(long.normalized, "6f90f9395933e4d31878cccd1b475626d71c256b085b2b094dc1d7048b934d63", "long normalized digest")
-	assert.eq(long.bands[1], "9073b43f9806ec67", "long first band key")
-	assert.eq(long.bands[16], "4ac019fd7f992638", "long last band key")
+	assert.eq(long.bands[1], "080c0bf773a0e945", "long first band key")
+	assert.eq(long.bands[16], "2f42637946149fdf", "long last band key")
 
 	local empty = hash.minhash.signature(" ,;")
 	assert.eq(empty.tokens, 0, "no tokens")
@@ -40,6 +40,7 @@ local function main()
 	local j = hash.minhash.similarity(a, b)
 	assert.ok(j > 0 and j < 1, "near texts estimate between 0 and 1")
 	assert.eq(hash.minhash.similarity(a, a), 1, "identical sketches estimate 1")
+	assert.eq(hash.minhash.similarity(hash.minhash.sketch("a"), hash.minhash.sketch("b")), 0, "different singleton tokens remain distinct")
 
 	-- Streaming equals one-shot when chunks split tokens.
 	local text = string.rep("local function fold(state, event) return apply(state, event) end\n", 200)

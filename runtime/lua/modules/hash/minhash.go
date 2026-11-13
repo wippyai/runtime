@@ -69,8 +69,11 @@ func (c MinHashConfig) validateSketch() error {
 
 // validateBands answers why the banding of c cannot cover a sketch of k bins, or nil.
 func (c MinHashConfig) validateBands(k int) error {
-	if c.Bands < 1 || c.Rows < 1 {
-		return errors.New("bands and rows must be positive")
+	if k < 1 || k > MinHashMaxK {
+		return fmt.Errorf("sketch size must be in 1..%d", MinHashMaxK)
+	}
+	if c.Bands < 1 || c.Bands > k || c.Rows < 1 || c.Rows > k {
+		return errors.New("bands and rows must be positive and no larger than the sketch size")
 	}
 	if c.Bands*c.Rows != k {
 		return fmt.Errorf("bands * rows must equal the sketch size %d", k)
@@ -248,7 +251,10 @@ func (m *MinHasher) add(t uint64) {
 
 func (m *MinHasher) insert(s uint64) {
 	k := uint64(len(m.bins))
-	b, v := s%k, uint32(s/k)
+	// Keep the full hash: densification can copy from different source bins.
+	// Keeping only the quotient would make adjacent hashes in different bins
+	// indistinguishable (including the singleton inputs "a" and "b").
+	b, v := s%k, uint32(s)
 	if v < m.bins[b] {
 		m.bins[b] = v
 	}
@@ -284,24 +290,39 @@ func (m *MinHasher) Sum() MinHashResult {
 	return out
 }
 
-// densify fills every empty bin i with the first non-empty bin of the probe
-// sequence ((i+1)*C mod M + stride*a) mod k, a = 1..k.
+// densify fills bins in place using the original non-empty bins. It preserves
+// the probe sequence ((i+1)*C mod M + stride*a) mod k, a = 1..k.
+// Since stride and k are coprime, the probe visits one cycle of all bins.
+// Precomputing its next occupied value makes sparse sketches linear in k.
 func densify(bins []uint32) []uint32 {
 	k := uint64(len(bins))
-	out := make([]uint32, len(bins))
+	first := -1
+	for i, v := range bins {
+		if v != emptyBin {
+			first = i
+			break
+		}
+	}
+	if first < 0 {
+		return bins
+	}
+	next := make([]uint32, len(bins))
+	pos, found := uint64(first), bins[first]
+	step := minhashStride % k
+	for range bins {
+		if bins[pos] != emptyBin {
+			found = bins[pos]
+		}
+		next[pos] = found
+		pos = (pos + k - step) % k
+	}
 	for i, v := range bins {
 		if v == emptyBin {
-			start := (uint64(i+1) * minhashProbe) % minhashModulus
-			for a := uint64(1); a <= k; a++ {
-				if found := bins[(start+minhashStride*a)%k]; found != emptyBin {
-					v = found
-					break
-				}
-			}
+			start := ((uint64(i+1)*minhashProbe)%minhashModulus + minhashStride) % k
+			bins[i] = next[start]
 		}
-		out[i] = v
 	}
-	return out
+	return bins
 }
 
 // MinHashBands answers the band keys of sketch: band b covers bins
@@ -365,6 +386,9 @@ func EncodeMinHashSketch(sketch []uint32) []byte {
 func DecodeMinHashSketch(data []byte) ([]uint32, error) {
 	if len(data) == 0 || len(data)%4 != 0 {
 		return nil, errors.New("sketch must be a non-empty sequence of 32-bit words")
+	}
+	if len(data)/4 > MinHashMaxK {
+		return nil, fmt.Errorf("sketch size must be at most %d", MinHashMaxK)
 	}
 	out := make([]uint32, len(data)/4)
 	for i := range out {

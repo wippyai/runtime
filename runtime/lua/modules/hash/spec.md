@@ -237,7 +237,7 @@ Derives a key using PBKDF2-HMAC.
 
 ## minhash
 
-`hash.minhash` computes one-permutation MinHash sketches with optimal densification over
+`hash.minhash` computes one-permutation MinHash sketches with deterministic probe densification over
 token shingles, their LSH band keys and Jaccard estimates. Every output is bit-exact across
 platforms and implementations of the algorithm below; no value passes through a float
 except the similarity.
@@ -267,7 +267,8 @@ Fixed constants: M = 2147483647 (2^31-1), P = 1000003, C = 2654435761, stride = 
    `0x01000193`, multiply then xor) modulo M. A shingle is `shingle` consecutive tokens, or
    one shingle of all tokens when there are fewer; its hash is
    `((t1*P + t2)*P + ... + tn) mod M`.
-4. **Sketch.** Bin `s mod k` keeps the least `s div k` over all shingle hashes `s`. An empty
+4. **Sketch.** Bin `s mod k` keeps the least full shingle hash `s`. The full hash preserves
+   its source-bin identity after densification. An empty
    bin `i` (0-based) takes the value the first non-empty bin of the probe sequence
    `j(a) = (((i+1)*C mod M) + stride*a) mod k`, `a = 1..k`, held before densification.
    Input without tokens has no sketch.
@@ -279,7 +280,8 @@ Fixed constants: M = 2147483647 (2^31-1), P = 1000003, C = 2654435761, stride = 
    share of equal bins of their sketches.
 
 A sketch crosses the Lua boundary as `4*k` bytes: its bins as consecutive 32-bit big-endian
-words.
+words, with at most 65536 bins. Compare sketches made with the same tokenizer, shingle
+width and algorithm; the serialized words do not carry those parameters.
 
 ### minhash.signature(input: string | {string}, options?: MinHashOptions) → MinHashSignature, error
 

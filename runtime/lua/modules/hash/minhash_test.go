@@ -241,7 +241,7 @@ func literalSignature(tokens [][]byte, k, shingle int) MinHashResult {
 		for _, h := range hashes[start : start+width] {
 			s = (s*p + h) % m
 		}
-		b, v := s%uint64(k), int64(s/uint64(k))
+		b, v := s%uint64(k), int64(s)
 		if bins[b] < 0 || v < bins[b] {
 			bins[b] = v
 		}
