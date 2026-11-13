@@ -31,8 +31,9 @@ const defaultAutoCheckpointPages = 1000
 
 // NewConnector returns a connector for dsn. Writable file databases get a
 // background checkpointer configured by checkpoint; in-memory and read-only
-// main databases retain automatic checkpoints for writable attachments. The caller opens the pool
-// over the connector (or a wrapper delegating to it) and passes it to Attach.
+// main databases retain automatic checkpoints for writable attachments. The
+// caller opens the pool over the connector (or a wrapper delegating to it) and
+// passes it to Attach.
 func NewConnector(dsn string, checkpoint sqlapi.SQLiteCheckpointConfig) (*Connector, error) {
 	c := &Connector{dsn: dsn}
 	writable, err := writableFile(dsn)

@@ -115,6 +115,6 @@ multi-subscriber throughput evidence.
 
 Checkpoint regressions cover physical connection replacement, commits that
 leave checkpointing to the background checkpointer, WAL truncation after a
-pinned snapshot releases its frames, bounded WAL under sustained writes, the
+pinned snapshot releases its frames, checkpoint progress during sustained writes, the
 final checkpoint on close, unchanged synchronization and read-only opens. CI runs the SQL/history tests
 with and without observation on Linux, macOS and Windows.
