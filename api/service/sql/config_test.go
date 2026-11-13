@@ -319,7 +319,35 @@ func TestSQLiteConfig_InitDefaults(t *testing.T) {
 	assert.Equal(t, DefaultMaxLifetime, config.Pool.MaxLifetime)
 	assert.Equal(t, DefaultMaxMutationChanges, config.MaxMutationChanges)
 	assert.Equal(t, DefaultMaxMutationBytes, config.MaxMutationBytes)
+	assert.Equal(t, DefaultCheckpointInterval, config.Checkpoint.Interval)
+	assert.Equal(t, DefaultCheckpointMaxWALPages, config.Checkpoint.MaxWALPages)
 	assert.NotNil(t, config.Options)
+}
+
+func TestSQLiteConfig_CheckpointJSON(t *testing.T) {
+	var cfg SQLiteConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"file":"app.db","checkpoint":{"interval":"250ms","max_wal_pages":2048}}`), &cfg))
+	cfg.InitDefaults()
+	require.NoError(t, cfg.Validate())
+	assert.Equal(t, 250*time.Millisecond, cfg.Checkpoint.Interval)
+	assert.Equal(t, 2048, cfg.Checkpoint.MaxWALPages)
+
+	out, err := json.Marshal(&cfg.Checkpoint)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"interval":"250ms","max_wal_pages":2048}`, string(out))
+
+	require.ErrorContains(t, json.Unmarshal([]byte(`{"checkpoint":{"interval":"soon"}}`), &cfg), "invalid checkpoint interval")
+}
+
+func TestSQLiteConfig_RejectsNegativeCheckpointSettings(t *testing.T) {
+	base := SQLiteConfig{File: ":memory:", Pool: PoolConfig{MaxLifetime: time.Hour}}
+	base.Checkpoint.Interval = -time.Second
+	assert.ErrorIs(t, base.Validate(), ErrInvalidCheckpointInterval)
+	base.Checkpoint.Interval = 0
+	base.Checkpoint.MaxWALPages = -1
+	assert.ErrorIs(t, base.Validate(), ErrInvalidCheckpointMaxWALPages)
+	base.InitDefaults()
+	assert.Equal(t, -1, base.Checkpoint.MaxWALPages, "negative settings must not be silently defaulted")
 }
 
 func TestSQLiteConfig_RejectsNegativeMutationLimits(t *testing.T) {

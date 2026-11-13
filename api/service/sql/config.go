@@ -43,6 +43,13 @@ const (
 	// pre-update hook, so one row can transiently materialize before the bound
 	// rejects the candidate.
 	DefaultMaxMutationBytes = 64 * 1024 * 1024
+
+	// DefaultCheckpointInterval is how often the SQLite background
+	// checkpointer runs a PASSIVE checkpoint.
+	DefaultCheckpointInterval = time.Second
+	// DefaultCheckpointMaxWALPages is the WAL length, in pages, above which the
+	// SQLite background checkpointer escalates to a TRUNCATE checkpoint.
+	DefaultCheckpointMaxWALPages = 16384
 )
 
 // EngineConfig is the contract every engine configuration satisfies, letting the
@@ -82,8 +89,18 @@ type (
 		MaxMutationChanges int                        `json:"max_mutation_changes,omitempty"`
 		// MaxMutationBytes is a conservative retained logical-byte bound. A
 		// native SQLite row is materialized before the observer can reject it.
-		MaxMutationBytes int  `json:"max_mutation_bytes,omitempty"`
-		ForeignKeys      bool `json:"foreign_keys"` // Enforce foreign keys on every connection; defaults to false
+		MaxMutationBytes int                    `json:"max_mutation_bytes,omitempty"`
+		Checkpoint       SQLiteCheckpointConfig `json:"checkpoint"`
+		ForeignKeys      bool                   `json:"foreign_keys"` // Enforce foreign keys on every connection; defaults to false
+	}
+
+	// SQLiteCheckpointConfig tunes the background WAL checkpointer. Writer
+	// connections never checkpoint on commit; a dedicated connection runs a
+	// PASSIVE checkpoint every Interval and escalates to TRUNCATE when the WAL
+	// holds more than MaxWALPages pages.
+	SQLiteCheckpointConfig struct {
+		Interval    time.Duration `json:"interval,omitzero"`
+		MaxWALPages int           `json:"max_wal_pages,omitempty"`
 	}
 )
 
@@ -132,6 +149,64 @@ func (c *SQLiteConfig) InitDefaults() {
 	if c.MaxMutationBytes == 0 {
 		c.MaxMutationBytes = DefaultMaxMutationBytes
 	}
+	c.Checkpoint.InitDefaults()
+}
+
+// InitDefaults fills omitted checkpoint settings. Negative values are kept so
+// Validate rejects them.
+func (c *SQLiteCheckpointConfig) InitDefaults() {
+	if c.Interval == 0 {
+		c.Interval = DefaultCheckpointInterval
+	}
+	if c.MaxWALPages == 0 {
+		c.MaxWALPages = DefaultCheckpointMaxWALPages
+	}
+}
+
+// Validate rejects negative checkpoint settings.
+func (c *SQLiteCheckpointConfig) Validate() error {
+	if c.Interval < 0 {
+		return ErrInvalidCheckpointInterval
+	}
+	if c.MaxWALPages < 0 {
+		return ErrInvalidCheckpointMaxWALPages
+	}
+	return nil
+}
+
+// MarshalJSON outputs the interval as a duration string.
+func (c *SQLiteCheckpointConfig) MarshalJSON() ([]byte, error) {
+	type alias struct {
+		Interval    string `json:"interval,omitempty"`
+		MaxWALPages int    `json:"max_wal_pages,omitempty"`
+	}
+	a := alias{MaxWALPages: c.MaxWALPages}
+	if c.Interval != 0 {
+		a.Interval = c.Interval.String()
+	}
+	return json.Marshal(a)
+}
+
+// UnmarshalJSON parses the interval as a duration string.
+func (c *SQLiteCheckpointConfig) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		Interval    string `json:"interval"`
+		MaxWALPages int    `json:"max_wal_pages"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	c.MaxWALPages = a.MaxWALPages
+	c.Interval = 0
+	if a.Interval != "" {
+		d, err := time.ParseDuration(a.Interval)
+		if err != nil {
+			return fmt.Errorf("invalid checkpoint interval: %w", err)
+		}
+		c.Interval = d
+	}
+	return nil
 }
 
 // LifecycleConfig returns the supervisor lifecycle settings for the database.
@@ -195,6 +270,9 @@ func (c *SQLiteConfig) Validate() error {
 	}
 	if c.MaxMutationBytes < 0 {
 		return ErrInvalidMaxMutationBytes
+	}
+	if err := c.Checkpoint.Validate(); err != nil {
+		return err
 	}
 
 	return nil

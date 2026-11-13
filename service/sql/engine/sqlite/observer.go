@@ -36,24 +36,18 @@ const (
 	valueStructuralBytes     = 24
 )
 
-// sqliteConnector keeps the SQLite driver and its connection state owned by
+// sqliteConnector keeps the SQLite connector and its connection state owned by
 // one SQL pool. It intentionally uses sql.OpenDB instead of sql.Register, so
 // no process-global driver name or file-path registry is involved.
 type sqliteConnector struct {
-	driver  *sqlite3.SQLiteDriver
+	base    *sqliteconn.Connector
 	backend *sqliteBackend
-	dsn     string
 }
 
-func (c *sqliteConnector) Connect(context.Context) (driver.Conn, error) {
-	raw, err := c.driver.Open(c.dsn)
+func (c *sqliteConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	raw, err := c.base.Connect(ctx)
 	if err != nil {
 		return nil, err
-	}
-	// Snapshot connections share driver configuration but do not participate
-	// in mutation observation: their DSN enforces read-only access.
-	if c.backend == nil {
-		return raw, nil
 	}
 	sqliteConn, ok := raw.(*sqlite3.SQLiteConn)
 	if !ok {
@@ -78,17 +72,21 @@ func (c *sqliteConnector) Connect(context.Context) (driver.Conn, error) {
 	return conn, nil
 }
 
-func (c *sqliteConnector) Driver() driver.Driver { return c.driver }
+func (c *sqliteConnector) Driver() driver.Driver { return c.base.Driver() }
 
-func openSQLite(_ context.Context, dsn string, limits ...int) (*sql.DB, sqlapi.CommittedMutationSource, error) {
+// Close stops the base connector's checkpointer; database/sql calls it from
+// DB.Close.
+func (c *sqliteConnector) Close() error { return c.base.Close() }
+
+func openSQLite(_ context.Context, dsn string, checkpoint sqlapi.SQLiteCheckpointConfig, limits ...int) (*sql.DB, sqlapi.CommittedMutationSource, error) {
 	maxChanges, maxBytes := observerLimits(limits)
-	backend := newSQLiteBackend(maxChanges, maxBytes)
-	connector := &sqliteConnector{
-		dsn:     dsn,
-		driver:  sqliteconn.NewDriver(),
-		backend: backend,
+	base, err := sqliteconn.NewConnector(dsn, checkpoint)
+	if err != nil {
+		return nil, nil, err
 	}
-	db := sql.OpenDB(connector)
+	backend := newSQLiteBackend(maxChanges, maxBytes)
+	db := sql.OpenDB(&sqliteConnector{base: base, backend: backend})
+	base.Attach(db)
 	backend.db = db
 	if dsn != ":memory:" {
 		readDSN, err := url.Parse(dsn)
@@ -101,7 +99,15 @@ func openSQLite(_ context.Context, dsn string, limits ...int) (*sql.DB, sqlapi.C
 		if params.Get("mode") != "memory" {
 			params.Set("mode", "ro")
 			readDSN.RawQuery = params.Encode()
-			readDB := sql.OpenDB(&sqliteConnector{driver: connector.driver, dsn: readDSN.String()})
+			// Snapshot connections share the connection policy but do not
+			// participate in mutation observation: their DSN enforces
+			// read-only access, so they own no checkpointer.
+			readDB, err := sqliteconn.Open(readDSN.String(), checkpoint)
+			if err != nil {
+				_ = backend.Close()
+				_ = db.Close()
+				return nil, nil, err
+			}
 			// One scan at a time bounds snapshot connections independently of
 			// the application's single writer. Opening remains lazy until CDC
 			// requests a snapshot; ordinary SQL adds no physical connection.

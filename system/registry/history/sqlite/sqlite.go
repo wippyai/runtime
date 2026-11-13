@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/internal/sqliteconn"
 	"github.com/wippyai/runtime/internal/version"
 	historyschema "github.com/wippyai/runtime/system/registry/history/schema"
@@ -82,7 +83,12 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 		}
 	}
 
-	db := sqliteconn.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dbPath))
+	var checkpoint sqlapi.SQLiteCheckpointConfig
+	checkpoint.InitDefaults()
+	db, err := sqliteconn.Open(fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dbPath), checkpoint)
+	if err != nil {
+		return nil, NewConnectError(err)
+	}
 	db.SetMaxOpenConns(1)
 
 	ctx := context.Background()

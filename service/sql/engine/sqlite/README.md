@@ -7,17 +7,33 @@ This is a SQLite driver dependency, not the rqlite server or Raft subsystem.
 
 ## WAL checkpoints and durability
 
-Every physical connection uses `wal_autocheckpoint=1000`, including replacement
-connections and read-only CDC snapshot connections. This retains SQLite's
-ordinary checkpoint policy even though the rqlite fork disables it by default
-for its own Raft snapshot machinery. Automatic checkpoints use PASSIVE mode:
-they do not wait for readers and do not replace commit, rollback or pre-update
-hooks. The runtime does not add a checkpoint worker or truncate WAL on each write.
+Every physical connection uses `wal_autocheckpoint=0`, including replacement
+connections and read-only CDC snapshot connections, so a commit never runs a
+checkpoint. An automatic checkpoint runs inline on the committing connection,
+and its cost grows with the database file; with the single-writer application
+pool every large transaction would pay it on the commit path.
 
-The 1000-page threshold is a trigger, not a WAL size limit. Long-lived readers
-and large transactions can grow the WAL; checkpointing and recycling resume
-when readers release their snapshots. Recycling reuses the WAL's allocated space
-and does not necessarily shrink the file. Ordinary close-time cleanup is retained.
+Checkpointing belongs to a background checkpointer owned by the connector of
+each writable database file (SQL pools and registry history). It runs on its
+own connection, stops when the pool closes and runs a final TRUNCATE
+checkpoint before closing:
+
+- every `checkpoint.interval` (default `1s`) it runs a PASSIVE checkpoint,
+  which never blocks readers or writers;
+- when the WAL still holds more than `checkpoint.max_wal_pages` pages
+  (default 16384) afterwards, it escalates to TRUNCATE, which waits through the
+  busy handler for readers to leave the WAL and resets the WAL file to zero
+  bytes. This bounds the WAL under sustained writes and pinned readers.
+
+```yaml
+kind: db.sql.sqlite
+file: data/app.db
+checkpoint:
+  interval: 500ms
+  max_wal_pages: 8192
+```
+
+In-memory and read-only databases have no checkpointer.
 
 Synchronization is unchanged. Application SQLite and registry history use the
 driver's default `synchronous=NORMAL` in WAL mode: commits survive a process
@@ -59,7 +75,7 @@ observation, not an audit trail of every statement.
   omits shared cache. Shared-cache-dependent applications are not equivalent;
   private in-memory resources must retain one physical connection.
 - The runtime does not create SQLite Sessions. Explicit connection initialization
-  preserves the checkpoint policy used before the v1.53 driver update.
+  applies the runtime's checkpoint policy on every physical connection.
 - Native observation remains local to the observed connection pool, bounded,
   and non-durable. A driver replacement does not add replay or external-writer
   capture.
@@ -86,7 +102,8 @@ The reducer model test checks 500 deterministic generated transaction histories.
 commit delivery separately. It is an in-memory microbenchmark, not disk or
 multi-subscriber throughput evidence.
 
-Checkpoint regressions cover physical connection replacement, controlled WAL
-growth before close, unchanged synchronization, read-only opens, and progress
-after a pinned snapshot releases its WAL frames. CI runs the SQL/history tests
+Checkpoint regressions cover physical connection replacement, commits that
+leave checkpointing to the background checkpointer, WAL truncation after a
+pinned snapshot releases its frames, bounded WAL under sustained writes, the
+final checkpoint on close, unchanged synchronization and read-only opens. CI runs the SQL/history tests
 with and without observation on Linux, macOS and Windows.

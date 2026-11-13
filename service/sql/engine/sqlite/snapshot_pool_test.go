@@ -5,6 +5,7 @@ package sqlite
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -59,8 +60,9 @@ func TestSnapshotConnectionWaitDoesNotBlockWriterAndCancels(t *testing.T) {
 	require.ErrorIs(t, <-done, context.Canceled)
 }
 
-func TestSnapshotPinnedReaderDefersAutomaticCheckpoint(t *testing.T) {
-	o, err := openObservedDB(t, filepath.Join(t.TempDir(), "checkpoint.db"))
+func TestSnapshotPinnedReaderDefersBackgroundCheckpoint(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "checkpoint.db")
+	o, err := openObservedDB(t, file)
 	require.NoError(t, err)
 	defer o.Close()
 	b := o.opened.Observer.(*sqliteBackend)
@@ -73,31 +75,42 @@ func TestSnapshotPinnedReaderDefersAutomaticCheckpoint(t *testing.T) {
 	defer reader.Rollback()
 	var count, checkpoint int
 	require.NoError(t, reader.QueryRowContext(ctx, "PRAGMA wal_autocheckpoint").Scan(&checkpoint))
-	require.Equal(t, 1000, checkpoint, "read-only snapshot connections share initialization")
+	require.Equal(t, 0, checkpoint, "read-only snapshot connections share initialization")
 	require.NoError(t, reader.QueryRowContext(ctx, "SELECT COUNT(*) FROM items").Scan(&count))
 	require.Zero(t, count)
 	for i := 0; i < 1200; i++ {
 		_, err = o.opened.DB.ExecContext(ctx, "INSERT INTO items (value) VALUES (zeroblob(4096))")
-		require.NoError(t, err, "checkpoints must not wait for the snapshot reader")
+		require.NoError(t, err, "writes within the WAL bound must not wait for the snapshot reader")
 	}
 	require.NoError(t, reader.QueryRowContext(ctx, "SELECT COUNT(*) FROM items").Scan(&count))
 	require.Zero(t, count, "the pinned snapshot must remain unchanged")
-	var busy, logged, checkpointed int
-	require.NoError(t, o.opened.DB.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &logged, &checkpointed))
-	require.Zero(t, busy)
-	require.Greater(t, logged, 1000)
-	require.Less(t, checkpointed, logged, "PASSIVE can be incomplete even when busy is zero")
+	info, err := os.Stat(file)
+	require.NoError(t, err)
+	require.Less(t, info.Size(), int64(1<<20), "the pinned snapshot holds the frames in the WAL")
 	require.NoError(t, reader.Rollback())
-	// The first commit can now finish the automatic checkpoint; the next one
-	// can recycle its frames. No explicit checkpoint runs between these writes.
-	for i := 0; i < 2; i++ {
-		_, err = o.opened.DB.ExecContext(ctx, "INSERT INTO items (value) VALUES (zeroblob(4096))")
-		require.NoError(t, err)
+
+	// The background checkpointer backfills the released frames; a write
+	// after a complete backfill restarts the WAL from its beginning.
+	require.Eventually(t, func() bool {
+		info, err := os.Stat(file)
+		return err == nil && info.Size() > 1200*4096
+	}, 10*time.Second, 10*time.Millisecond, "checkpointing must resume after the snapshot releases its WAL frames")
+	// A busy result means the background checkpointer holds the checkpoint
+	// lock at that moment.
+	walState := func() (busy, logged, checkpointed int) {
+		require.NoError(t, o.opened.DB.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &logged, &checkpointed))
+		return busy, logged, checkpointed
 	}
-	require.NoError(t, o.opened.DB.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &logged, &checkpointed))
-	require.Zero(t, busy)
-	require.Less(t, logged, 1000, "automatic checkpointing must resume after the snapshot releases its WAL frames")
-	require.Equal(t, logged, checkpointed)
+	require.Eventually(t, func() bool {
+		busy, logged, checkpointed := walState()
+		return busy == 0 && logged == checkpointed
+	}, 10*time.Second, 10*time.Millisecond)
+	_, err = o.opened.DB.ExecContext(ctx, "INSERT INTO items (value) VALUES (zeroblob(4096))")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		busy, logged, _ := walState()
+		return busy == 0 && logged < 1000
+	}, 10*time.Second, 10*time.Millisecond, "the WAL restarts once its frames are backfilled")
 	require.NoError(t, o.opened.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM items").Scan(&count))
-	require.Equal(t, 1202, count)
+	require.Equal(t, 1201, count)
 }
