@@ -91,7 +91,7 @@ Computes SHA-512 hash of input data.
 
 ### fnv32(data: string) → number, error
 
-Computes FNV-1a 32-bit hash of input data.
+Computes FNV-1 32-bit hash of input data.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
@@ -107,16 +107,17 @@ Computes FNV-1a 32-bit hash of input data.
 |-----------|------|-----------|
 | data not a string | errors.INVALID | no |
 
-### fnv64(data: string) → number, error
+### fnv64(data: string, raw?: boolean) → string, error
 
-Computes FNV-1a 64-bit hash of input data.
+Computes FNV-1 64-bit hash of input data. The result is a string because a 64-bit value does not fit a Lua number without losing precision.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | data | string | yes | - | String to hash |
+| raw | boolean | no | false | Return 8 big-endian bytes instead of 16 hex characters |
 
 **Returns:**
-- Success: number (64-bit unsigned integer)
+- Success: string (16 hex characters, or 8 bytes if raw)
 - Error: `nil, error` - structured error
 
 **Errors (structured):**

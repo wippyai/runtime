@@ -109,7 +109,7 @@ Lists objects in storage with optional filtering.
 | Condition | Kind |
 |-----------|------|
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until operation completes
 
@@ -167,7 +167,7 @@ provider has set it on upload).
 | key empty | errors.INVALID |
 | storage released | errors.INVALID |
 | object not found | errors.NOT_FOUND |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 ```lua
 local head, err = storage:head_object("uploads/photo.jpg")
@@ -206,7 +206,7 @@ Downloads an object to an io.Writer (typically fs.File).
 | writer not io.Writer | errors.INVALID |
 | object not found | errors.NOT_FOUND |
 | if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until download completes
 
@@ -261,7 +261,7 @@ preconditions.
 | content nil | errors.INVALID |
 | storage released | errors.INVALID |
 | if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until upload completes
 
@@ -309,7 +309,7 @@ Deletes multiple objects.
 | Condition | Kind |
 |-----------|------|
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until deletion completes
 
@@ -346,7 +346,7 @@ Generates a presigned URL for downloading an object without credentials.
 |-----------|------|
 | key empty | errors.INVALID |
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until URL generation completes
 
@@ -388,7 +388,7 @@ Generates a presigned URL for uploading an object without credentials.
 |-----------|------|
 | key empty | errors.INVALID |
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until URL generation completes
 
@@ -617,7 +617,51 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.CONFLICT`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.CONFLICT`,
+`errors.PERMISSION_DENIED`, `errors.UNAVAILABLE`, `errors.RATE_LIMITED`,
+`errors.TIMEOUT`, `errors.CANCELED`, `errors.INTERNAL`
+
+### Provider errors
+
+Every storage method that reaches the provider classifies its failures the
+same way, so a caller can tell a missing bucket from rejected credentials or
+an unreachable endpoint without reading the message.
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| missing key, bucket, upload or version | errors.NOT_FOUND (message `not_found`) | no |
+| if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) | no |
+| credentials rejected, expired or lacking permission | errors.PERMISSION_DENIED | no |
+| conflicting concurrent operation | errors.CONFLICT | no |
+| request rejected as malformed | errors.INVALID | no |
+| provider throttles the request | errors.RATE_LIMITED | yes |
+| provider server error or endpoint unreachable | errors.UNAVAILABLE | yes |
+| provider or transport timeout | errors.TIMEOUT | yes |
+| caller deadline expired | errors.TIMEOUT | no |
+| caller canceled | errors.CANCELED | no |
+| anything else | errors.INTERNAL | no |
+
+Retryability follows the AWS SDK retry policy where it has a verdict (for
+example a DNS name that does not exist is `errors.UNAVAILABLE` but not
+retryable). Provider-reported failures carry `err:details()` with `code`
+(provider error code, e.g. `NoSuchBucket`, `InvalidAccessKeyId`),
+`status_code`, `request_id`, `operation` and `bucket` when known.
+`delete_objects` failures reported per key carry `failed` (key count) and
+take the kind shared by every key, or `errors.INTERNAL` when keys fail for
+different reasons.
+
+```lua
+local result, err = storage:list_objects()
+if err then
+    if err:kind() == errors.NOT_FOUND then
+        -- err:details().code == "NoSuchBucket"
+    elseif err:kind() == errors.PERMISSION_DENIED then
+        -- credentials rejected
+    elseif err:retryable() then
+        -- transient: unavailable, throttled or timed out
+    end
+end
+```
 
 ## Example
 
@@ -694,6 +738,17 @@ The most important caveats:
   header conventions.
 
 ## Changelog
+
+### Classified provider errors
+
+- Every provider-reaching method returns errors with a kind, a retryable flag
+  and provider details (see [Provider errors](#provider-errors)); failures that
+  previously arrived without a kind now report `errors.PERMISSION_DENIED`,
+  `errors.UNAVAILABLE`, `errors.RATE_LIMITED`, `errors.TIMEOUT`,
+  `errors.CANCELED`, `errors.INVALID` or `errors.INTERNAL`.
+- `list_objects` on a missing bucket returns `errors.NOT_FOUND` (message
+  `not_found`, `details.code == "NoSuchBucket"`).
+- `not_found` and `precondition_failed` errors carry the provider details.
 
 ### Presigned multipart uploads + ranged random-access reader
 

@@ -13,7 +13,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
-	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -87,8 +86,7 @@ func (s *Storage) listObjectsV2(ctx context.Context, opts *cloudstorage.ListObje
 
 	output, err := s.client.ListObjectsV2(ctx, input)
 	if err != nil {
-		s.log.Error("list objects failed", zap.Error(err))
-		return nil, err
+		return nil, s.fail(ctx, "list objects", "", err)
 	}
 
 	result := &cloudstorage.ListObjectsResult{
@@ -139,8 +137,7 @@ func (s *Storage) listObjectVersions(ctx context.Context, opts *cloudstorage.Lis
 
 	output, err := s.client.ListObjectVersions(ctx, input)
 	if err != nil {
-		s.log.Error("list object versions failed", zap.Error(err))
-		return nil, err
+		return nil, s.fail(ctx, "list object versions", "", err)
 	}
 
 	result := &cloudstorage.ListObjectsResult{
@@ -185,13 +182,7 @@ func (s *Storage) HeadObject(ctx context.Context, key string) (*cloudstorage.Hea
 		})
 	})
 	if err != nil {
-		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrNotFound) {
-			return nil, mapped
-		}
-		s.log.Error("head object failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return nil, err
+		return nil, s.fail(ctx, "head object", key, err)
 	}
 
 	res := &cloudstorage.HeadObjectResult{
@@ -239,22 +230,12 @@ func (s *Storage) DownloadObject(ctx context.Context, key string, w io.Writer, o
 
 	output, err := s.client.GetObject(ctx, input)
 	if err != nil {
-		mapped := mapKnownError(err)
-		if errors.Is(mapped, cloudstorage.ErrPreconditionFailed) || errors.Is(mapped, cloudstorage.ErrNotFound) {
-			return mapped
-		}
-		s.log.Error("download object failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return err
+		return s.fail(ctx, "download object", key, err)
 	}
 	defer func() { _ = output.Body.Close() }()
 
 	if _, err = io.Copy(w, output.Body); err != nil {
-		s.log.Error("write object data failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return err
+		return s.fail(ctx, "download object", key, err)
 	}
 
 	return nil
@@ -324,13 +305,7 @@ func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reade
 
 	_, err := uploader.Upload(ctx, input) //nolint:staticcheck
 	if err != nil {
-		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
-			return mapped
-		}
-		s.log.Error("upload object failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return err
+		return s.fail(ctx, "upload object", key, err)
 	}
 
 	return nil
@@ -373,28 +348,12 @@ func (s *Storage) DeleteObjects(ctx context.Context, keys []string) error {
 
 	output, err := s.client.DeleteObjects(ctx, input)
 	if err != nil {
-		s.log.Error("delete objects failed",
-			zap.Int("keyCount", len(keys)),
-			zap.Error(err))
-		return err
+		return s.fail(ctx, "delete objects", "", err)
 	}
 	if len(output.Errors) == 0 {
 		return nil
 	}
-
-	var message strings.Builder
-	message.WriteString("delete objects failed: ")
-	for i, failure := range output.Errors {
-		if i > 0 {
-			message.WriteString("; ")
-		}
-		message.WriteString("key \"")
-		message.WriteString(aws.ToString(failure.Key))
-		message.WriteString("\" [")
-		message.WriteString(aws.ToString(failure.Code))
-		message.WriteByte(']')
-	}
-	return errors.New(message.String())
+	return deleteObjectsError(s.bucket, output.Errors)
 }
 
 // PresignedGetURL generates a presigned URL for downloading an object from S3.
@@ -415,10 +374,7 @@ func (s *Storage) PresignedGetURL(ctx context.Context, key string, opts *cloudst
 		options.Expires = expiration
 	})
 	if err != nil {
-		s.log.Error("generate pre-signed get URL failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return "", err
+		return "", s.fail(ctx, "presign get object", key, err)
 	}
 
 	return result.URL, nil
@@ -450,10 +406,7 @@ func (s *Storage) PresignedPutURL(ctx context.Context, key string, opts *cloudst
 		options.Expires = expiration
 	})
 	if err != nil {
-		s.log.Error("generate pre-signed put URL failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return "", err
+		return "", s.fail(ctx, "presign put object", key, err)
 	}
 
 	return result.URL, nil
@@ -557,35 +510,12 @@ func flattenHeaders(h http.Header) map[string]string {
 	return out
 }
 
-// mapKnownError translates S3 SDK errors into the typed sentinels exposed by
-// the cloudstorage package: 404 / NoSuchKey / NotFound → ErrNotFound,
-// 412 / 304 → ErrPreconditionFailed. Other errors pass through unchanged.
-func mapKnownError(err error) error {
-	if err == nil {
-		return nil
+// fail classifies a failed provider call. Failures other than a missing object
+// or an unmet precondition are logged.
+func (s *Storage) fail(ctx context.Context, action, key string, err error) error {
+	classified := storageError(ctx, s.bucket, action, err)
+	if !errors.Is(classified, cloudstorage.ErrNotFound) && !errors.Is(classified, cloudstorage.ErrPreconditionFailed) {
+		s.log.Error(action+" failed", zap.String("key", key), zap.Error(err))
 	}
-
-	var noSuchKey *types.NoSuchKey
-	if errors.As(err, &noSuchKey) {
-		return cloudstorage.ErrNotFound
-	}
-	var notFound *types.NotFound
-	if errors.As(err, &notFound) {
-		return cloudstorage.ErrNotFound
-	}
-	var noSuchUpload *types.NoSuchUpload
-	if errors.As(err, &noSuchUpload) {
-		return cloudstorage.ErrNotFound
-	}
-
-	var respErr *awshttp.ResponseError
-	if errors.As(err, &respErr) {
-		switch respErr.HTTPStatusCode() {
-		case http.StatusNotFound:
-			return cloudstorage.ErrNotFound
-		case http.StatusPreconditionFailed, http.StatusNotModified:
-			return cloudstorage.ErrPreconditionFailed
-		}
-	}
-	return err
+	return classified
 }

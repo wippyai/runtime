@@ -36,6 +36,34 @@ entries:
     config: app.test.cloudstorage:aws_config
     endpoint: http://localhost:9000
 
+  # AWS config with static credentials the endpoint does not know
+  - name: aws_config_rejected
+    kind: config.aws
+    region: us-east-1
+    access_key_id: rejected-access-key
+    secret_access_key: rejected-secret-key
+
+  # Storage bound to a bucket that does not exist
+  - name: minio_missing_bucket
+    kind: cloudstorage.s3
+    bucket: missing-bucket
+    config: app.test.cloudstorage:aws_config
+    endpoint: http://localhost:9000
+
+  # Storage whose credentials the endpoint rejects
+  - name: minio_rejected
+    kind: cloudstorage.s3
+    bucket: test-bucket
+    config: app.test.cloudstorage:aws_config_rejected
+    endpoint: http://localhost:9000
+
+  # Storage whose endpoint host does not resolve (RFC 2606 .invalid)
+  - name: minio_unreachable
+    kind: cloudstorage.s3
+    bucket: test-bucket
+    config: app.test.cloudstorage:aws_config
+    endpoint: http://cloudstorage-endpoint.invalid:9000
+
   # Basic operations test
   - name: basic
     kind: function.lua
@@ -209,5 +237,19 @@ entries:
       - cloudstorage
       - archive
       - fs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Provider failures carry kinds
+  - name: provider_errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: provider failures are classified by kind, retryability and details
+    source: file://provider_errors.lua
+    method: main
+    modules:
+      - cloudstorage
     imports:
       assert_primitives: app.lib:assert
