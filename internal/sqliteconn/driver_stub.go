@@ -10,3 +10,6 @@ import "github.com/rqlite/go-sqlite3"
 func NewDriver() *sqlite3.SQLiteDriver { return &sqlite3.SQLiteDriver{} }
 
 func newDriver(int) *sqlite3.SQLiteDriver { return NewDriver() }
+
+func checkpointBusy(error) bool     { return false }
+func checkpointReadOnly(error) bool { return false }

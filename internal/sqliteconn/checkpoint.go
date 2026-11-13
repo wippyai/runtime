@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/rqlite/go-sqlite3"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
@@ -151,8 +150,7 @@ func checkpointAttachments(ctx context.Context, conn *sql.Conn) error {
 	}
 	for _, schema := range schemas {
 		if err := execSchema(ctx, conn, schema, "PASSIVE"); err != nil {
-			var native sqlite3.Error
-			if errors.As(err, &native) && native.Code == sqlite3.ErrReadonly {
+			if checkpointReadOnly(err) {
 				continue
 			}
 			return err
@@ -227,11 +225,6 @@ func (c *checkpointer) record(err error) {
 		c.failure = err
 	}
 	c.mu.Unlock()
-}
-
-func checkpointBusy(err error) bool {
-	var native sqlite3.Error
-	return errors.As(err, &native) && (native.Code == sqlite3.ErrBusy || native.Code == sqlite3.ErrLocked)
 }
 
 // Close stops the worker, attempts a final TRUNCATE checkpoint on its own
