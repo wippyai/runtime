@@ -94,8 +94,8 @@ type (
 		ForeignKeys      bool                   `json:"foreign_keys"` // Enforce foreign keys on every connection; defaults to false
 	}
 
-	// SQLiteCheckpointConfig tunes the background WAL checkpointer. Writer
-	// connections never checkpoint on commit; a dedicated connection runs a
+	// SQLiteCheckpointConfig tunes the background WAL checkpointer. Managed
+	// writable-file connections never checkpoint main on commit; a dedicated connection runs a
 	// PASSIVE checkpoint every Interval and escalates to TRUNCATE when the WAL
 	// holds more than MaxWALPages pages.
 	SQLiteCheckpointConfig struct {

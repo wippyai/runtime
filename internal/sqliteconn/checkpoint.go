@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rqlite/go-sqlite3"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
@@ -22,13 +23,13 @@ import (
 // connections run with wal_autocheckpoint=0, so a commit never copies WAL
 // frames into the database file; this worker does it instead.
 //
-// Every interval it checks the WAL file. Within the bound it runs a PASSIVE
-// checkpoint on its own connection, which never blocks readers or writers.
+// Every interval it runs a PASSIVE checkpoint on its own connection, then
+// checks the WAL size and maintains application-attached databases.
 // Over the bound (readers pin old snapshots, or writers outpace PASSIVE
 // backfill) it reserves a writer turn and attempts TRUNCATE on its own
 // connection. A pinned reader makes it defer after a short maintenance wait
-// instead of occupying the writer pool for the application's busy timeout. Later intervals retry;
-// the configured threshold is not a hard size limit.
+// instead of occupying the writer pool for the application's busy timeout.
+// Later intervals retry; the configured threshold is not a hard size limit.
 type checkpointer struct {
 	failure  error
 	closeErr error
@@ -109,23 +110,55 @@ func (c *checkpointer) checkpoint(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if over {
-		return c.truncate(ctx)
-	}
-	return nil
-}
-
-// truncate reserves the next writer turn while attempting TRUNCATE on the
-// dedicated connection. Without a connection there is no turn to take: the pool is closing
-// (DB.Close closes the pool before it closes the connector) or cannot open a
-// connection, which its own callers observe; the next run retries.
-func (c *checkpointer) truncate(ctx context.Context) error {
 	conn, err := c.writer.Conn(ctx)
 	if err != nil {
+		// The application pool owns connection/open errors. A closing pool
+		// cannot lend a connection; cancellation stops this wait on shutdown.
 		return nil
 	}
 	defer conn.Close()
-	return exec(ctx, c.own, "TRUNCATE")
+	if over {
+		if err := exec(ctx, c.own, "TRUNCATE"); err != nil {
+			return err
+		}
+	}
+	return checkpointAttachments(ctx, conn)
+}
+
+// checkpointAttachments uses the application connection because attachments
+// belong to that physical connection. PASSIVE retains the ordinary SQLite
+// checkpoint policy without waiting on readers through the app's busy handler.
+func checkpointAttachments(ctx context.Context, conn *sql.Conn) error {
+	rows, err := conn.QueryContext(ctx, "PRAGMA database_list")
+	if err != nil {
+		return err
+	}
+	var schemas []string
+	for rows.Next() {
+		var index int
+		var schema, file string
+		if err := rows.Scan(&index, &schema, &file); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if schema != "main" && schema != "temp" && file != "" {
+			schemas = append(schemas, schema)
+		}
+	}
+	err = errors.Join(rows.Err(), rows.Close())
+	if err != nil {
+		return err
+	}
+	for _, schema := range schemas {
+		if err := execSchema(ctx, conn, schema, "PASSIVE"); err != nil {
+			var native sqlite3.Error
+			if errors.As(err, &native) && native.Code == sqlite3.ErrReadonly {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 // overBound reports whether the WAL file holds more than maxPages frames.
@@ -169,20 +202,36 @@ type queryer interface {
 // exec runs one checkpoint on db. A busy result is not a failure: the next
 // run retries.
 func exec(ctx context.Context, db queryer, mode string) error {
+	return execSchema(ctx, db, "main", mode)
+}
+
+func execSchema(ctx context.Context, db queryer, schema, mode string) error {
 	var busy, frames, backfilled int
-	err := db.QueryRowContext(ctx, "PRAGMA wal_checkpoint("+mode+")").Scan(&busy, &frames, &backfilled)
+	quoted := `"` + strings.ReplaceAll(schema, `"`, `""`) + `"`
+	err := db.QueryRowContext(ctx, "PRAGMA "+quoted+".wal_checkpoint("+mode+")").Scan(&busy, &frames, &backfilled)
 	if err != nil {
+		if checkpointBusy(err) {
+			return nil
+		}
 		return fmt.Errorf("sqlite %s checkpoint: %w", mode, err)
 	}
 	return nil
 }
 
 func (c *checkpointer) record(err error) {
+	if checkpointBusy(err) {
+		return
+	}
 	c.mu.Lock()
 	if c.failure == nil {
 		c.failure = err
 	}
 	c.mu.Unlock()
+}
+
+func checkpointBusy(err error) bool {
+	var native sqlite3.Error
+	return errors.As(err, &native) && (native.Code == sqlite3.ErrBusy || native.Code == sqlite3.ErrLocked)
 }
 
 // Close stops the worker, attempts a final TRUNCATE checkpoint on its own

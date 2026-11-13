@@ -75,7 +75,7 @@ func TestSnapshotPinnedReaderDefersBackgroundCheckpoint(t *testing.T) {
 	defer reader.Rollback()
 	var count, checkpoint int
 	require.NoError(t, reader.QueryRowContext(ctx, "PRAGMA wal_autocheckpoint").Scan(&checkpoint))
-	require.Equal(t, 0, checkpoint, "read-only snapshot connections share initialization")
+	require.Equal(t, 1000, checkpoint, "unmanaged read-only connections retain SQLite's automatic policy")
 	require.NoError(t, reader.QueryRowContext(ctx, "SELECT COUNT(*) FROM items").Scan(&count))
 	require.Zero(t, count)
 	for i := 0; i < 1200; i++ {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,13 +34,7 @@ func openCheckpointed(t *testing.T, cfg sqlapi.SQLiteCheckpointConfig) (*sql.DB,
 // insertRows commits rows of one page each in a single transaction.
 func insertRows(t *testing.T, db *sql.DB, rows int) {
 	t.Helper()
-	tx, err := db.BeginTx(context.Background(), nil)
-	require.NoError(t, err)
-	for i := 0; i < rows; i++ {
-		_, err = tx.ExecContext(context.Background(), "INSERT INTO items (value) VALUES (zeroblob(3000))")
-		require.NoError(t, err)
-	}
-	require.NoError(t, tx.Commit())
+	require.NoError(t, writeCheckpointRows(db, rows))
 }
 
 func sizeOf(t *testing.T, path string) int64 {
@@ -110,15 +105,69 @@ func TestCheckpointerTruncatesWALOverBoundAfterReaderReleases(t *testing.T) {
 }
 
 func TestCheckpointerBoundsWALUnderSustainedWrites(t *testing.T) {
-	testCheckpointerSustainedWrites(t, false)
+	const maxPages, seedRows, batchRows = 512, 1024, 64
+	file := filepath.Join(t.TempDir(), "app.db")
+	c, err := NewConnector("file:"+file+"?_journal_mode=WAL&_busy_timeout=5000", sqlapi.SQLiteCheckpointConfig{Interval: 5 * time.Millisecond, MaxWALPages: maxPages})
+	require.NoError(t, err)
+	db := sql.OpenDB(c)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.ExecContext(context.Background(), "CREATE TABLE items (id INTEGER PRIMARY KEY, value BLOB)")
+	require.NoError(t, err)
+	// Establish an oversized WAL before starting the worker. The later
+	// below-threshold observation must therefore demonstrate actual progress.
+	insertRows(t, db, seedRows)
+	threshold := int64(walHeaderSize + maxPages*(walFrameHeaderSize+testPageSize))
+	require.Greater(t, sizeOf(t, file+"-wal"), threshold)
+	stop := make(chan struct{})
+	var active atomic.Bool
+	var commits atomic.Int64
+	var wg sync.WaitGroup
+	active.Store(true)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer active.Store(false)
+		for range 1000 {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if err := writeCheckpointRows(db, batchRows); err != nil {
+				t.Errorf("write batch: %v", err)
+				return
+			}
+			commits.Add(1)
+		}
+	}()
+	stopWriter := sync.OnceFunc(func() { close(stop); wg.Wait() })
+	t.Cleanup(stopWriter)
+	c.Attach(db)
+	require.Eventually(t, func() bool {
+		return commits.Load() > 0 && active.Load() && sizeOf(t, file+"-wal") <= threshold
+	}, 10*time.Second, time.Millisecond, "checkpoint must make progress while the writer is still committing")
+	stopWriter()
+	var rows int64
+	require.NoError(t, db.QueryRowContext(context.Background(), "SELECT count(*) FROM items").Scan(&rows))
+	require.Equal(t, int64(seedRows)+commits.Load()*batchRows, rows)
+}
+
+func writeCheckpointRows(db *sql.DB, rows int) error {
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for range rows {
+		if _, err := tx.ExecContext(context.Background(), "INSERT INTO items (value) VALUES (zeroblob(3000))"); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func TestCheckpointerRecoversAfterRepeatedSnapshots(t *testing.T) {
-	testCheckpointerSustainedWrites(t, true)
-}
-
-func testCheckpointerSustainedWrites(t *testing.T, readers bool) {
-	t.Helper()
 	const (
 		maxPages = 512
 		txRows   = 64
@@ -131,40 +180,38 @@ func testCheckpointerSustainedWrites(t *testing.T, readers bool) {
 	// WAL from its beginning and PASSIVE checkpoints alone cannot bound it.
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	if readers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			reader, err := Open("file:"+file+"?mode=ro&_busy_timeout=5000", defaultCheckpoint())
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		reader, err := Open("file:"+file+"?mode=ro&_busy_timeout=5000", defaultCheckpoint())
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer reader.Close()
+		ctx := context.Background()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			tx, err := reader.BeginTx(ctx, nil)
 			if err != nil {
 				t.Error(err)
 				return
 			}
-			defer reader.Close()
-			ctx := context.Background()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				tx, err := reader.BeginTx(ctx, nil)
-				if err != nil {
-					t.Error(err)
-					return
-				}
-				var count int
-				if err := tx.QueryRowContext(context.Background(), "SELECT count(*) FROM items").Scan(&count); err != nil {
-					t.Error(err)
-					_ = tx.Rollback()
-					return
-				}
-				time.Sleep(10 * time.Millisecond)
+			var count int
+			if err := tx.QueryRowContext(context.Background(), "SELECT count(*) FROM items").Scan(&count); err != nil {
+				t.Error(err)
 				_ = tx.Rollback()
-				time.Sleep(2 * time.Millisecond)
+				return
 			}
-		}()
-	}
+			time.Sleep(10 * time.Millisecond)
+			_ = tx.Rollback()
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
 	stopReaders := sync.OnceFunc(func() {
 		close(stop)
 		wg.Wait()
@@ -182,21 +229,12 @@ func testCheckpointerSustainedWrites(t *testing.T, readers bool) {
 	var rows int
 	require.NoError(t, db.QueryRowContext(context.Background(), "SELECT count(*) FROM items").Scan(&rows))
 	require.Equal(t, commits*txRows, rows, "all writes survive checkpoint contention")
-	if readers {
-		// Reader churn can repeatedly defer a bounded checkpoint attempt.
-		// Once readers leave, the worker must return below its threshold without
-		// another write. PASSIVE can retain a non-empty WAL below the threshold.
-		t.Logf("peak WAL with readers %d bytes, %d bytes written", peak, written)
-		threshold := int64(walHeaderSize + maxPages*(walFrameHeaderSize+testPageSize))
-		require.Eventually(t, func() bool { return sizeOf(t, file+"-wal") <= threshold }, 10*time.Second, 10*time.Millisecond)
-		return
-	}
-	// The WAL overshoots maxPages by the writes of one interval and one
-	// checkpoint, which depends on scheduling; without escalation it grows
-	// with the written volume.
-	bound := written / 3
-	t.Logf("peak WAL %d bytes, %d bytes written", peak, written)
-	require.Less(t, peak, bound, "the WAL must not grow with the written volume")
+	// Reader churn can repeatedly defer a bounded checkpoint attempt.
+	// Once readers leave, the worker must return below its threshold without
+	// another write. PASSIVE can retain a non-empty WAL below the threshold.
+	t.Logf("peak WAL with readers %d bytes, %d bytes written", peak, written)
+	threshold := int64(walHeaderSize + maxPages*(walFrameHeaderSize+testPageSize))
+	require.Eventually(t, func() bool { return sizeOf(t, file+"-wal") <= threshold }, 10*time.Second, 10*time.Millisecond)
 }
 
 func TestCloseStopsCheckpointerWaitingForWriter(t *testing.T) {

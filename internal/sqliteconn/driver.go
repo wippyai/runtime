@@ -12,13 +12,16 @@ import (
 
 // NewDriver returns a pool-owned driver with Wippy's connection policy.
 func NewDriver() *sqlite3.SQLiteDriver {
+	return newDriver(defaultAutoCheckpointPages)
+}
+
+func newDriver(autocheckpointPages int) *sqlite3.SQLiteDriver {
+	policy := fmt.Sprintf("PRAGMA wal_autocheckpoint=%d", autocheckpointPages)
 	return &sqlite3.SQLiteDriver{ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-		// Commits never checkpoint inline: an automatic checkpoint runs on the
-		// committing connection and copies WAL pages on that commit path.
-		// The connector's background checkpointer owns checkpointing. This is
-		// connection-local: a one-time pool Exec would not cover connection
-		// recycling.
-		if _, err := conn.Exec("PRAGMA wal_autocheckpoint=0", nil); err != nil {
+		// Apply the pool's policy to replacements too. Managed writable pools
+		// use zero; other connections keep SQLite's normal policy, including
+		// for writable databases attached to an in-memory or read-only main.
+		if _, err := conn.Exec(policy, nil); err != nil {
 			return fmt.Errorf("configure sqlite WAL autocheckpoint: %w", err)
 		}
 		return nil

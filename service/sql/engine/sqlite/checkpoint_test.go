@@ -15,10 +15,13 @@ import (
 	sqlservice "github.com/wippyai/runtime/service/sql"
 )
 
-func openCheckpointDB(t *testing.T) (sqlservice.OpenedDB, string) {
+func openCheckpointDB(t *testing.T, policies ...config.SQLiteCheckpointConfig) (sqlservice.OpenedDB, string) {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "checkpoint.db")
 	cfg := &config.SQLiteConfig{File: file, Pool: config.PoolConfig{MaxLifetime: time.Hour}}
+	if len(policies) > 0 {
+		cfg.Checkpoint = policies[0]
+	}
 	opened, err := (engine{}).Open(context.Background(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -82,14 +85,18 @@ func fileSize(t *testing.T, path string) int64 {
 }
 
 func TestSQLiteCommitLeavesCheckpointToBackgroundCheckpointer(t *testing.T) {
-	opened, file := openCheckpointDB(t)
+	opened, file := openCheckpointDB(t, config.SQLiteCheckpointConfig{Interval: time.Hour})
 	writeLargeTransaction(t, opened, 1000)
 
 	// The committed pages live only in the WAL: the commit path copied none of
 	// them into the database file.
 	require.Less(t, fileSize(t, file), int64(1<<20), "commit must not checkpoint inline")
 	require.Greater(t, fileSize(t, file+"-wal"), int64(4<<20))
+}
 
+func TestSQLiteBackgroundCheckpointMakesProgress(t *testing.T) {
+	opened, file := openCheckpointDB(t, config.SQLiteCheckpointConfig{Interval: 10 * time.Millisecond})
+	writeLargeTransaction(t, opened, 1000)
 	// The background checkpointer backfills the database file while the pool
 	// stays open.
 	require.Eventually(t, func() bool {

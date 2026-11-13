@@ -60,7 +60,7 @@ func TestOpenReadOnly(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		var checkpoint int
 		require.NoError(t, reader.QueryRowContext(ctx, "PRAGMA wal_autocheckpoint").Scan(&checkpoint))
-		require.Equal(t, 0, checkpoint)
+		require.Equal(t, defaultAutoCheckpointPages, checkpoint)
 		_, err = reader.ExecContext(ctx, "INSERT INTO items VALUES (1)")
 		require.ErrorContains(t, err, "readonly")
 		reader.SetMaxIdleConns(0)

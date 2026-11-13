@@ -7,9 +7,9 @@ This is a SQLite driver dependency, not the rqlite server or Raft subsystem.
 
 ## WAL checkpoints and durability
 
-Every physical connection uses `wal_autocheckpoint=0`, including replacement
-connections and read-only CDC snapshot connections, so a commit never runs a
-checkpoint. An automatic checkpoint runs inline on the committing connection,
+Managed writable-file connections use `wal_autocheckpoint=0`, including
+replacements, so their main database commits leave checkpointing to the worker.
+An automatic checkpoint runs inline on the committing connection,
 copying dirty WAL pages and performing storage synchronization; with the
 single-writer application pool that work delays the next transaction too.
 
@@ -18,7 +18,7 @@ each writable database file (SQL pools and registry history). It runs on its
 own connection, stops when the pool closes and attempts a final TRUNCATE
 checkpoint before closing:
 
-- every `checkpoint.interval` (default `1s`) it runs a PASSIVE checkpoint,
+- every `checkpoint.interval` (default `1s`) it runs a PASSIVE checkpoint for main,
   which never blocks readers or writers;
 - when the WAL file exceeds `checkpoint.max_wal_pages` pages
   (default 16384), it reserves a connection from the writer pool and attempts
@@ -36,7 +36,15 @@ checkpoint:
   max_wal_pages: 8192
 ```
 
-In-memory and read-only databases have no checkpointer.
+Each interval also borrows an application connection to inspect attached
+databases and PASSIVE-checkpoint them on that connection. Attachments are
+connection-local and retain PASSIVE behavior, including pinned-reader deferral.
+This adds one schema-list query per interval without adding connections for
+attachments. Busy/locked maintenance results defer to a later interval;
+read-only attachments are skipped. Other failures remain visible on close.
+
+In-memory and read-only main databases have no worker and retain the ordinary
+1000-page automatic policy, which also covers writable attached databases.
 
 Synchronization is unchanged. Application SQLite and registry history use the
 driver's default `synchronous=NORMAL` in WAL mode: commits survive a process
