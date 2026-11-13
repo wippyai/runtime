@@ -61,8 +61,7 @@ func (s *Store) acquireDB(ctx context.Context) (*dbHandle, error) {
 	reg := resource.GetRegistry(ctx)
 	res, err := reg.Acquire(ctx, s.config.Database, resource.ModeNormal)
 	if err != nil {
-		s.log.Error("failed to acquire database resource",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to acquire database resource", err,
 			zap.String("resource", s.config.Database.Name))
 		return nil, err
 	}
@@ -70,8 +69,7 @@ func (s *Store) acquireDB(ctx context.Context) (*dbHandle, error) {
 	conn, err := res.Get()
 	if err != nil {
 		res.Release()
-		s.log.Error("failed to get database connection",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to get database connection", err,
 			zap.String("resource", s.config.Database.Name))
 		return nil, err
 	}
@@ -87,6 +85,13 @@ func (s *Store) acquireDB(ctx context.Context) (*dbHandle, error) {
 		dbType:  dbRes.Type,
 		release: res.Release,
 	}, nil
+}
+
+func (s *Store) logError(ctx context.Context, message string, err error, fields ...zap.Field) {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	s.log.Error(message, append([]zap.Field{zap.String("error", err.Error())}, fields...)...)
 }
 
 // NewStore creates a new SQL-based key-value store
@@ -136,8 +141,7 @@ func (s *Store) Get(ctx context.Context, key registry.ID) (payload.Payload, erro
 
 	querySQL, args, err := query.ToSql()
 	if err != nil {
-		s.log.Error("failed to build get query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to build get query", err,
 			zap.String("key", key.String()))
 		return nil, err
 	}
@@ -148,8 +152,7 @@ func (s *Store) Get(ctx context.Context, key registry.ID) (payload.Payload, erro
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, store.ErrKeyNotFound
 		}
-		s.log.Error("failed to execute get query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to execute get query", err,
 			zap.String("key", key.String()))
 		return nil, err
 	}
@@ -194,8 +197,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 
 	existsSQL, existsArgs, err := existsQuery.ToSql()
 	if err != nil {
-		s.log.Error("failed to build exists query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to build exists query", err,
 			zap.String("key", entry.Key.String()))
 		return err
 	}
@@ -203,8 +205,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	t := payload.GetTranscoder(ctx)
 	value, err := t.Transcode(entry.Value, payload.JSON)
 	if err != nil {
-		s.log.Error("failed to Transcode payload",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to Transcode payload", err,
 			zap.String("resource", s.config.Database.Name))
 		return err
 	}
@@ -220,8 +221,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	var exists bool
 	err = h.db.QueryRowContext(ctx, existsSQL, existsArgs...).Scan(&exists)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		s.log.Error("failed to probe entry existence",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to probe entry existence", err,
 			zap.String("key", entry.Key.String()))
 		return err
 	}
@@ -239,8 +239,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 
 		querySQL, args, err = insertQuery.ToSql()
 		if err != nil {
-			s.log.Error("failed to build insert query",
-				zap.String("error", err.Error()),
+			s.logError(ctx, "failed to build insert query", err,
 				zap.String("key", entry.Key.String()))
 			return err
 		}
@@ -254,8 +253,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 
 		querySQL, args, err = updateQuery.ToSql()
 		if err != nil {
-			s.log.Error("failed to build update query",
-				zap.String("error", err.Error()),
+			s.logError(ctx, "failed to build update query", err,
 				zap.String("key", entry.Key.String()))
 			return err
 		}
@@ -264,8 +262,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	// Execute the query
 	_, err = h.db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
-		s.log.Error("failed to execute set query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to execute set query", err,
 			zap.String("key", entry.Key.String()))
 	}
 
@@ -313,16 +310,14 @@ func (s *Store) Delete(ctx context.Context, key registry.ID) error {
 
 	querySQL, args, err := deleteQuery.ToSql()
 	if err != nil {
-		s.log.Error("failed to build delete query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to build delete query", err,
 			zap.String("key", key.String()))
 		return err
 	}
 
 	result, err := h.db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
-		s.log.Error("failed to execute delete query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to execute delete query", err,
 			zap.String("key", key.String()))
 		return err
 	}
@@ -368,8 +363,7 @@ func (s *Store) Has(ctx context.Context, key registry.ID) (bool, error) {
 
 	querySQL, args, err := query.ToSql()
 	if err != nil {
-		s.log.Error("failed to build has query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to build has query", err,
 			zap.String("key", key.String()))
 		return false, err
 	}
@@ -380,8 +374,7 @@ func (s *Store) Has(ctx context.Context, key registry.ID) (bool, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
-		s.log.Error("failed to execute has query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to execute has query", err,
 			zap.String("key", key.String()))
 		return false, err
 	}
@@ -429,13 +422,13 @@ func (s *Store) List(ctx context.Context, opts store.ListOptions) (store.Page, e
 
 	querySQL, args, err := query.ToSql()
 	if err != nil {
-		s.log.Error("failed to build list query", zap.String("error", err.Error()))
+		s.logError(ctx, "failed to build list query", err)
 		return store.Page{}, err
 	}
 
 	rows, err := h.db.QueryContext(ctx, querySQL, args...)
 	if err != nil {
-		s.log.Error("failed to execute list query", zap.String("error", err.Error()))
+		s.logError(ctx, "failed to execute list query", err)
 		return store.Page{}, err
 	}
 	defer func() { _ = rows.Close() }()
@@ -570,16 +563,14 @@ func (s *Store) cleanup(ctx context.Context) {
 
 	querySQL, args, err := cleanupQuery.ToSql()
 	if err != nil {
-		s.log.Error("failed to build cleanup query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to build cleanup query", err,
 			zap.String("resource", s.config.Database.Name))
 		return
 	}
 
 	ret, err := h.db.ExecContext(ctx, querySQL, args...)
 	if err != nil {
-		s.log.Error("failed to execute cleanup query",
-			zap.String("error", err.Error()),
+		s.logError(ctx, "failed to execute cleanup query", err,
 			zap.String("resource", s.config.Database.Name))
 		return
 	}
