@@ -93,6 +93,8 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "metrics.gauge_inc", manifest: metrics.ModuleTypes(), method: "gauge_inc"},
 		{name: "metrics.gauge_dec", manifest: metrics.ModuleTypes(), method: "gauge_dec"},
 		{name: "metrics.histogram", manifest: metrics.ModuleTypes(), method: "histogram"},
+		{name: "hash.MinHasher.update", manifest: hash.ModuleTypes(), typeName: "MinHasher", method: "update"},
+		{name: "hash.MinHasher.sum", manifest: hash.ModuleTypes(), typeName: "MinHasher", method: "sum"},
 		{name: "xml.decode", manifest: xml.ModuleTypes(), method: "decode"},
 		{name: "xml.encode", manifest: xml.ModuleTypes(), method: "encode"},
 		{name: "xml.find", manifest: xml.ModuleTypes(), method: "find"},
@@ -123,8 +125,13 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 	}
 }
 
-func TestCryptoSubmodules_ReturnsWithError(t *testing.T) {
+func TestSubmodules_ReturnsWithError(t *testing.T) {
 	checks := []recordFieldCheck{
+		{name: "hash.minhash.signature", manifest: hash.ModuleTypes(), field: "minhash", method: "signature"},
+		{name: "hash.minhash.sketch", manifest: hash.ModuleTypes(), field: "minhash", method: "sketch"},
+		{name: "hash.minhash.bands", manifest: hash.ModuleTypes(), field: "minhash", method: "bands"},
+		{name: "hash.minhash.similarity", manifest: hash.ModuleTypes(), field: "minhash", method: "similarity"},
+		{name: "hash.minhash.new", manifest: hash.ModuleTypes(), field: "minhash", method: "new"},
 		{name: "crypto.random.bytes", manifest: crypto.ModuleTypes(), field: "random", method: "bytes"},
 		{name: "crypto.random.string", manifest: crypto.ModuleTypes(), field: "random", method: "string"},
 		{name: "crypto.random.uuid", manifest: crypto.ModuleTypes(), field: "random", method: "uuid"},
