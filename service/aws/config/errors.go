@@ -19,14 +19,15 @@ func NewConfigAlreadyExistsError(id string) error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"id": id}))
 }
 
-func NewDecodeConfigError(cause error) error {
-	apiErr := apierror.New(apierror.Invalid, "failed to decode config").
+func NewDecodeConfigError(id string, cause error) error {
+	details := attrs.Bag{"id": id}
+	apiErr := apierror.New(apierror.Invalid, "failed to decode config "+id).
 		WithRetryable(apierror.False)
 	if cause != nil {
-		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
-			WithCause(cause)
+		details["cause"] = cause.Error()
+		apiErr = apiErr.WithCause(cause)
 	}
-	return apiErr
+	return apiErr.WithDetails(details)
 }
 
 func NewCreateAWSConfigError(cause error) error {

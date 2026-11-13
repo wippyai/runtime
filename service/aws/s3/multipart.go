@@ -4,7 +4,6 @@ package s3
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go/middleware"
 	"github.com/wippyai/runtime/api/cloudstorage"
-	"go.uber.org/zap"
 )
 
 var _ cloudstorage.MultipartStorage = (*Storage)(nil)
@@ -56,10 +54,7 @@ func (s *Storage) CreateMultipartUpload(ctx context.Context, key string, opts *c
 
 	output, err := s.client.CreateMultipartUpload(ctx, input, apiOptions...)
 	if err != nil {
-		s.log.Error("create multipart upload failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return nil, err
+		return nil, s.fail(ctx, "create multipart upload", key, err)
 	}
 
 	return &cloudstorage.CreateMultipartUploadResult{
@@ -69,14 +64,14 @@ func (s *Storage) CreateMultipartUpload(ctx context.Context, key string, opts *c
 
 func (s *Storage) PresignedUploadPartURLs(ctx context.Context, key, uploadID string, opts *cloudstorage.PresignedUploadPartOptions) ([]cloudstorage.PresignedPartURL, error) {
 	if uploadID == "" {
-		return nil, errors.New("upload ID is required")
+		return nil, NewInvalidRequestError("upload ID is required")
 	}
 	if opts == nil || len(opts.PartNumbers) == 0 {
-		return nil, errors.New("at least one part number is required")
+		return nil, NewInvalidRequestError("at least one part number is required")
 	}
 	if len(opts.PartNumbers) > cloudstorage.MaxPresignPartBatch {
-		return nil, fmt.Errorf("at most %d part URLs per call, got %d",
-			cloudstorage.MaxPresignPartBatch, len(opts.PartNumbers))
+		return nil, NewInvalidRequestError(fmt.Sprintf("at most %d part URLs per call, got %d",
+			cloudstorage.MaxPresignPartBatch, len(opts.PartNumbers)))
 	}
 
 	expiration := DefaultPresignExpiration
@@ -90,11 +85,11 @@ func (s *Storage) PresignedUploadPartURLs(ctx context.Context, key, uploadID str
 	seen := make(map[int32]struct{}, len(opts.PartNumbers))
 	for _, partNumber := range opts.PartNumbers {
 		if partNumber < 1 || partNumber > cloudstorage.MaxPartNumber {
-			return nil, fmt.Errorf("part number %d out of range [1, %d]",
-				partNumber, cloudstorage.MaxPartNumber)
+			return nil, NewInvalidRequestError(fmt.Sprintf("part number %d out of range [1, %d]",
+				partNumber, cloudstorage.MaxPartNumber))
 		}
 		if _, duplicate := seen[partNumber]; duplicate {
-			return nil, fmt.Errorf("part number %d is duplicated", partNumber)
+			return nil, NewInvalidRequestError(fmt.Sprintf("part number %d is duplicated", partNumber))
 		}
 		seen[partNumber] = struct{}{}
 
@@ -117,11 +112,7 @@ func (s *Storage) PresignedUploadPartURLs(ctx context.Context, key, uploadID str
 			}
 		})
 		if err != nil {
-			s.log.Error("generate pre-signed upload part URL failed",
-				zap.String("key", key),
-				zap.Int32("partNumber", partNumber),
-				zap.Error(err))
-			return nil, err
+			return nil, s.fail(ctx, "presign upload part", key, err)
 		}
 
 		urls = append(urls, cloudstorage.PresignedPartURL{
@@ -135,24 +126,24 @@ func (s *Storage) PresignedUploadPartURLs(ctx context.Context, key, uploadID str
 
 func (s *Storage) CompleteMultipartUpload(ctx context.Context, key, uploadID string, parts []cloudstorage.CompletedPart) (*cloudstorage.CompleteMultipartUploadResult, error) {
 	if uploadID == "" {
-		return nil, errors.New("upload ID is required")
+		return nil, NewInvalidRequestError("upload ID is required")
 	}
 	if len(parts) == 0 {
-		return nil, errors.New("at least one completed part is required")
+		return nil, NewInvalidRequestError("at least one completed part is required")
 	}
 
 	completed := make([]types.CompletedPart, len(parts))
 	seen := make(map[int32]struct{}, len(parts))
 	for i, p := range parts {
 		if p.PartNumber < 1 || p.PartNumber > cloudstorage.MaxPartNumber {
-			return nil, fmt.Errorf("part number %d out of range [1, %d]",
-				p.PartNumber, cloudstorage.MaxPartNumber)
+			return nil, NewInvalidRequestError(fmt.Sprintf("part number %d out of range [1, %d]",
+				p.PartNumber, cloudstorage.MaxPartNumber))
 		}
 		if p.ETag == "" {
-			return nil, fmt.Errorf("part %d is missing its etag", p.PartNumber)
+			return nil, NewInvalidRequestError(fmt.Sprintf("part %d is missing its etag", p.PartNumber))
 		}
 		if _, duplicate := seen[p.PartNumber]; duplicate {
-			return nil, fmt.Errorf("part number %d is duplicated", p.PartNumber)
+			return nil, NewInvalidRequestError(fmt.Sprintf("part number %d is duplicated", p.PartNumber))
 		}
 		seen[p.PartNumber] = struct{}{}
 		completed[i] = types.CompletedPart{
@@ -176,13 +167,7 @@ func (s *Storage) CompleteMultipartUpload(ctx context.Context, key, uploadID str
 
 	output, err := s.client.CompleteMultipartUpload(ctx, input)
 	if err != nil {
-		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrNotFound) {
-			return nil, mapped
-		}
-		s.log.Error("complete multipart upload failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return nil, err
+		return nil, s.fail(ctx, "complete multipart upload", key, err)
 	}
 
 	return &cloudstorage.CompleteMultipartUploadResult{
@@ -194,7 +179,7 @@ func (s *Storage) CompleteMultipartUpload(ctx context.Context, key, uploadID str
 
 func (s *Storage) AbortMultipartUpload(ctx context.Context, key, uploadID string) error {
 	if uploadID == "" {
-		return errors.New("upload ID is required")
+		return NewInvalidRequestError("upload ID is required")
 	}
 
 	input := &s3.AbortMultipartUploadInput{
@@ -204,13 +189,7 @@ func (s *Storage) AbortMultipartUpload(ctx context.Context, key, uploadID string
 	}
 
 	if _, err := s.client.AbortMultipartUpload(ctx, input); err != nil {
-		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrNotFound) {
-			return mapped
-		}
-		s.log.Error("abort multipart upload failed",
-			zap.String("key", key),
-			zap.Error(err))
-		return err
+		return s.fail(ctx, "abort multipart upload", key, err)
 	}
 
 	return nil

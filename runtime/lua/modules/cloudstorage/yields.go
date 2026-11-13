@@ -12,20 +12,24 @@ import (
 	lua "github.com/wippyai/go-lua"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 // wrapStorageError translates known cloudstorage errors into structured Lua errors.
-// Unknown errors fall back to lua.WrapErrorWithLua.
+// Other errors keep the kind, retryability and details they declare through
+// lua.WrapErrorWithLua.
 func wrapStorageError(l *lua.LState, err error, op string) lua.LValue {
 	if errors.Is(err, csapi.ErrPreconditionFailed) {
 		return lua.NewLuaError(l, "precondition_failed").
 			WithKind(lua.Conflict).
-			WithRetryable(false)
+			WithRetryable(false).
+			WithDetails(providerDetails(err))
 	}
 	if errors.Is(err, csapi.ErrNotFound) {
 		return lua.NewLuaError(l, "not_found").
 			WithKind(lua.NotFound).
-			WithRetryable(false)
+			WithRetryable(false).
+			WithDetails(providerDetails(err))
 	}
 	if errors.Is(err, csapi.ErrMultipartUnsupported) {
 		return lua.NewLuaError(l, "multipart uploads not supported by this storage provider").
@@ -43,6 +47,15 @@ func wrapStorageError(l *lua.LState, err error, op string) lua.LValue {
 			WithRetryable(false)
 	}
 	return lua.WrapErrorWithLua(l, err, op)
+}
+
+// providerDetails returns the details the provider error declares, such as the
+// provider error code that tells a missing bucket from a missing key.
+func providerDetails(err error) map[string]any {
+	if root := apierror.BuildChain(err).Root(); root != nil {
+		return root.Details
+	}
+	return nil
 }
 
 // ListObjectsYield wraps ListObjectsCmd for Lua.
