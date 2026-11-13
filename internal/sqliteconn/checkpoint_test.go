@@ -184,9 +184,11 @@ func testCheckpointerSustainedWrites(t *testing.T, readers bool) {
 	require.Equal(t, commits*txRows, rows, "all writes survive checkpoint contention")
 	if readers {
 		// Reader churn can repeatedly defer a bounded checkpoint attempt.
-		// Once readers leave, the worker must truncate without another write.
+		// Once readers leave, the worker must return below its threshold without
+		// another write. PASSIVE can retain a non-empty WAL below the threshold.
 		t.Logf("peak WAL with readers %d bytes, %d bytes written", peak, written)
-		require.Eventually(t, func() bool { return sizeOf(t, file+"-wal") == 0 }, 10*time.Second, 10*time.Millisecond)
+		threshold := int64(walHeaderSize + maxPages*(walFrameHeaderSize+testPageSize))
+		require.Eventually(t, func() bool { return sizeOf(t, file+"-wal") <= threshold }, 10*time.Second, 10*time.Millisecond)
 		return
 	}
 	// The WAL overshoots maxPages by the writes of one interval and one
