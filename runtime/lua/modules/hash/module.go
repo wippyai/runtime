@@ -215,9 +215,8 @@ func hashFNV64(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
 		return invalidError(l, "data must be a string")
 	}
-	h := fnv.New64()
-	_, _ = h.Write([]byte(l.ToString(1)))
-	l.Push(lua.LNumber(h.Sum64()))
+	raw := l.GetTop() >= 2 && l.ToBool(2)
+	l.Push(computeHash(fnv.New64(), l.ToString(1), raw))
 	l.Push(lua.LNil)
 	return 2
 }

@@ -14,8 +14,8 @@ func ModuleTypes() *io.Manifest {
 	// hash function type: (data: string, raw?: boolean): string, Error?
 	hashFn := typ.Func().Param("data", typ.String).OptParam("raw", typ.Boolean).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
 
-	// fnv hash returns number: (data: string): number, Error?
-	fnvFn := typ.Func().Param("data", typ.String).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()
+	// fnv32 returns number: (data: string): number, Error?
+	fnv32Fn := typ.Func().Param("data", typ.String).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()
 
 	// hmac function type: (data: string, secret: string, raw?: boolean): string, Error?
 	hmacFn := typ.Func().Param("data", typ.String).Param("secret", typ.String).OptParam("raw", typ.Boolean).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
@@ -37,8 +37,8 @@ func ModuleTypes() *io.Manifest {
 		{Name: "sha1", Type: hashFn},
 		{Name: "sha256", Type: hashFn},
 		{Name: "sha512", Type: hashFn},
-		{Name: "fnv32", Type: fnvFn},
-		{Name: "fnv64", Type: fnvFn},
+		{Name: "fnv32", Type: fnv32Fn},
+		{Name: "fnv64", Type: hashFn},
 		{Name: "hmac_sha256", Type: hmacFn},
 		{Name: "hmac_sha512", Type: hmacFn},
 		{Name: "hmac_sha1", Type: hmacFn},
