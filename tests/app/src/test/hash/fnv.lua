@@ -19,7 +19,8 @@ local function main()
 
 	-- FNV64 tests
 	result = hash.fnv64("hello")
-	assert.eq(type(result), "number", "fnv64 returns number")
+	assert.eq(type(result), "string", "fnv64 returns hex string")
+	assert.eq(hash.fnv64("a"), "af63bd4c8601b7be", "fnv64 known vector")
 
 	h1 = hash.fnv64("test")
 	h2 = hash.fnv64("test")
