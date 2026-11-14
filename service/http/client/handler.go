@@ -6,6 +6,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -183,7 +184,7 @@ func checkOverlayPrivateIP(ctx context.Context, rawURL string) error {
 
 	if isPrivateHTTPIP(ip) {
 		if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
-			return fmt.Errorf("not allowed: private IP %s via overlay network", host)
+			return newDeniedError(host, "not allowed: private IP %s via overlay network", host)
 		}
 	}
 	return nil
@@ -200,13 +201,17 @@ func redirectClient(ctx context.Context, base *gohttp.Client, overlay bool) *goh
 		if contextapi.AppFromContext(ctx) != nil {
 			target := req.URL.String()
 			if !security.IsAllowed(ctx, "http_client.request", target, nil) {
-				return fmt.Errorf("not allowed: %s", target)
+				return newDeniedError(target, "not allowed: %s", target)
 			}
 			var err error
 			if overlay {
 				err = checkOverlayPrivateIP(ctx, target)
 			} else {
 				err = checkClearnetPrivateIP(ctx, target)
+			}
+			var denied *deniedError
+			if errors.As(err, &denied) {
+				return &deniedError{target: target, message: denied.message}
 			}
 			if err != nil {
 				return err
@@ -231,7 +236,7 @@ func checkClearnetPrivateIP(ctx context.Context, rawURL string) error {
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
-			return fmt.Errorf("not allowed: private IP %s", host)
+			return newDeniedError(host, "not allowed: private IP %s", host)
 		}
 		return nil
 	}
@@ -241,7 +246,7 @@ func checkClearnetPrivateIP(ctx context.Context, rawURL string) error {
 	}
 	for _, ip := range ips {
 		if isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
-			return fmt.Errorf("not allowed: private IP %s", ip.String())
+			return newDeniedError(ip.String(), "not allowed: private IP %s", ip.String())
 		}
 	}
 	return nil
@@ -288,9 +293,19 @@ func authorizeHTTPPeer(ctx context.Context, address net.Addr) error {
 	}
 	ip := net.ParseIP(host)
 	if ip != nil && isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
-		return fmt.Errorf("not allowed: private IP %s", ip.String())
+		return newDeniedError(ip.String(), "not allowed: private IP %s", ip.String())
 	}
 	return nil
+}
+
+// errorResponse converts a request failure into a Response, keeping security
+// policy denials structured so callers can tell them from transport errors.
+func errorResponse(err error) httpapi.Response {
+	var denied *deniedError
+	if errors.As(err, &denied) {
+		return httpapi.Response{Error: err.Error(), Denied: true, DeniedTarget: denied.target}
+	}
+	return httpapi.Response{Error: err.Error()}
 }
 
 func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRegistry, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
@@ -376,7 +391,7 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 		overlayID = netapi.GetDefaultNetwork(ctx)
 	}
 	if overlayID == "" && req.UnixSocket != "" && !security.IsAllowed(ctx, "http_client.unix_socket", req.UnixSocket, nil) {
-		return httpapi.Response{Error: "not allowed: unix socket " + req.UnixSocket}
+		return httpapi.Response{Error: "not allowed: unix socket " + req.UnixSocket, Denied: true, DeniedTarget: req.UnixSocket}
 	}
 
 	var client *gohttp.Client
@@ -391,7 +406,7 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 		// SSRF protection: overlay dialers resolve DNS internally, so check
 		// the target URL against private IP ranges before handing off.
 		if err := checkOverlayPrivateIP(ctx, reqURL); err != nil {
-			return httpapi.Response{Error: err.Error()}
+			return errorResponse(err)
 		}
 
 		nid := registry.ParseID(overlayID)
@@ -432,12 +447,12 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		return httpapi.Response{Error: authorizationErr.Error()}
+		return errorResponse(authorizationErr)
 	}
 	if err != nil {
 		// A non-nil response is only returned for CheckRedirect failures, and
 		// net/http has already closed its body before returning it.
-		return httpapi.Response{Error: err.Error()}
+		return errorResponse(err)
 	}
 
 	headers := make(map[string][]string, len(resp.Header))
