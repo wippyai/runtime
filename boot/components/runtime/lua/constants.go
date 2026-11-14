@@ -27,6 +27,7 @@ const (
 	MetricsName      = "lua.metrics"
 	JSONName         = "lua.json"
 	PayloadName      = "lua.payload"
+	ReplayerName     = "lua.replayer"
 	RegistryName     = "lua.registry"
 	SecurityName     = "lua.security"
 	SQLName          = "lua.sql"
