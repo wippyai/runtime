@@ -141,6 +141,14 @@ Validates a JSON string against a JSON Schema without decoding it first.
 | schema compile error | errors.INVALID | no | Invalid JSON Schema |
 | validation failed | errors.INVALID | no | JSON doesn't match schema |
 
+**Validation failure format:** the message is `validation failed: <instance path>: <keyword>: <text>` for the
+most specific violated rule. `if`/`not`/`contains` sub-results are conditions, not violations; `$ref`, `allOf`,
+`anyOf`, `oneOf`, `properties` and `items` wrappers are descended to their leaf rules. For `required` the instance
+path is the missing property (`/a/b`, keyword `required`); `dependentRequired` likewise reports one leaf per missing property; for `additionalProperties` it is the extra property; for `propertyNames` it is the offending property name with the failing sub-schema keyword.
+`err:details()` returns `{errors = [{instance_path, keyword, message, schema_path}], total = n}`, ordered most
+specific first (`required`, `additionalProperties`/`unevaluatedProperties`, `enum`/`const`, `type`, others; then
+deepest path first) and holding at most 50 entries; `total` is the full leaf count. The root path is `/`.
+
 ## Errors
 
 This module returns structured errors. Check kind with `errors.*` constants:
