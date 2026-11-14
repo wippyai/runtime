@@ -17,9 +17,9 @@ type leafErr struct {
 }
 
 type validateOutcome struct {
-	leaves  []leafErr
 	message string
 	kind    string
+	leaves  []leafErr
 	total   int
 }
 
