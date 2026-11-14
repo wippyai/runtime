@@ -748,3 +748,89 @@ func TestService_StopDoesNotConsumeRestartAsCompletion(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded, "a pending restart is not an exited process")
 	require.Len(t, node.sent, 1, "stop sends normal cancellation to the live incarnation")
 }
+
+func TestService_RejectedOutdatedErrorWaitsForReplacement(t *testing.T) {
+	svc := newTestService()
+	svc.config.Lifecycle.Startup = supervisor.StartupComplete
+	svc.SetGate(bootpkg.NewReadiness().RegisterGate("service"))
+	node := &mockNode{}
+	manager := &mockProcessManager{startedPID: pid.PID{UniqID: "first"}}
+	ctx, cancel := context.WithCancel(setupTestContext(node, &mockTopology{}, manager))
+	defer cancel()
+	status, err := svc.Start(ctx)
+	require.NoError(t, err)
+	completion := svc.completion
+	node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+		payload.New(&topologyapi.ExitEvent{From: svc.childPID, Kind: topologyapi.OutdatedRejected}))
+	select {
+	case reason := <-status:
+		require.Equal(t, supervisor.Restart{Graceful: true}, reason)
+	case <-time.After(time.Second):
+		t.Fatal("rejected update does not request replacement")
+	}
+	node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+		payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{Error: errors.New("old code failed"), Outdated: true}}))
+	select {
+	case <-svc.doneCh:
+	case <-time.After(time.Second):
+		t.Fatal("old incarnation does not finish")
+	}
+	waitCtx, stop := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer stop()
+	require.ErrorIs(t, completion.Wait(waitCtx), context.DeadlineExceeded)
+	require.ErrorIs(t, svc.gate.Wait(waitCtx), context.DeadlineExceeded)
+	manager.startedPID = pid.PID{UniqID: "second"}
+	_, err = svc.Start(ctx)
+	require.NoError(t, err)
+	node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+		payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
+	require.NoError(t, svc.WaitCompletion(ctx))
+	require.NoError(t, completion.Wait(ctx))
+	require.NoError(t, svc.gate.Wait(ctx))
+	<-svc.doneCh
+}
+
+func TestService_StopWaitsForRacingTerminalEvent(t *testing.T) {
+	for _, admissionErr := range []error{processapi.ErrProcessNotFound, processapi.ErrProcessClosed} {
+		t.Run(admissionErr.Error(), func(t *testing.T) {
+			svc := newTestService()
+			node := &mockNode{sendErr: admissionErr}
+			ctx, cancel := context.WithTimeout(setupTestContext(node, &mockTopology{}, &mockProcessManager{}), time.Second)
+			defer cancel()
+			_, err := svc.Start(ctx)
+			require.NoError(t, err)
+			stopped := make(chan error, 1)
+			go func() { stopped <- svc.Stop(ctx) }()
+			require.Eventually(t, func() bool {
+				node.mu.Lock()
+				defer node.mu.Unlock()
+				return len(node.sent) == 1
+			}, time.Second, time.Millisecond)
+			select {
+			case err := <-stopped:
+				t.Fatalf("stop resolves before terminal acknowledgement: %v", err)
+			default:
+			}
+			node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+				payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
+			require.NoError(t, <-stopped)
+		})
+	}
+}
+
+func TestService_StopMissingProcessRequiresTerminalAcknowledgement(t *testing.T) {
+	svc := newTestService()
+	node := &mockNode{sendErr: processapi.ErrProcessNotFound}
+	ctx, cancel := context.WithCancel(setupTestContext(node, &mockTopology{}, &mockProcessManager{}))
+	defer cancel()
+	_, err := svc.Start(ctx)
+	require.NoError(t, err)
+	stopCtx, stop := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer stop()
+	err = svc.Stop(stopCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, processapi.ErrProcessNotFound)
+	node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+		payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
+	<-svc.doneCh
+}

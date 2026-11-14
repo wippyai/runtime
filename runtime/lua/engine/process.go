@@ -733,7 +733,13 @@ func (p *Process) extractMethod(method string) error {
 // Step advances the process by one iteration.
 // events contains yield completions and messages from the scheduler.
 // out is the scheduler-owned buffer where the process writes yields and status.
-func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
+func (p *Process) Step(events []process.Event, out *process.StepOutput) (stepErr error) {
+	defer func() {
+		if (out.IsDone() || stepErr != nil) && (p.outdatedDelivered || p.outdatedRejected || p.pendingOutdated != nil) {
+			out.DoneOutdated(out.Result())
+		}
+	}()
+
 	// Distribute completions before admitting messages, as before. Two passes
 	// preserve that ordering without an intermediate package slice per Step.
 	for _, ev := range events {
@@ -865,9 +871,6 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		execErr := p.execErr
 		p.clearExecution()
 		out.Done(result)
-		if execErr == nil && p.outdatedDelivered {
-			out.DoneOutdated(result)
-		}
 		return toAPIError(execErr)
 	}
 

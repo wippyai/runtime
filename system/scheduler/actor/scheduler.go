@@ -401,11 +401,31 @@ func (s *Scheduler) completeNoPool(proc *Processor, result *process.StepOutput, 
 
 func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput, err error, allowPool bool) {
 	res := &runtime.Result{Error: err}
-	if err == nil && result != nil {
+	if result != nil {
 		res.Outdated = result.IsOutdated()
 	}
-	if result != nil && result.Result() != nil {
+	if err == nil && result != nil && result.Result() != nil {
 		res.Value = result.Result()
+	}
+
+	for _, pending := range proc.queue.DrainAndClose() {
+		if discard, ok := pending.Data.(process.EventDiscarder); ok {
+			discard.DiscardEvent()
+		} else if pending.Type == process.EventMessage {
+			if pkg, ok := pending.Data.(*relay.Package); ok {
+				for _, msg := range pkg.Messages {
+					if msg == nil || msg.Topic != topology.TopicEvents {
+						continue
+					}
+					for _, pl := range msg.Payloads {
+						if _, ok := pl.Data().(*topology.OutdatedEvent); ok {
+							res.Outdated = true
+						}
+					}
+				}
+				relay.ReleasePackage(pkg)
+			}
+		}
 	}
 
 	s.byPID.Delete(proc.pid.String())

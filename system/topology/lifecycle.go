@@ -104,7 +104,9 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) e
 func (t *Lifecycle) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	notifyResult := result
 	if result.Error != nil && errors.Is(result.Error, supervisor.ErrExit) {
-		notifyResult = &runtime.Result{Value: result.Value}
+		completed := *result
+		completed.Error = nil
+		notifyResult = &completed
 	}
 
 	if t.pidReg != nil {

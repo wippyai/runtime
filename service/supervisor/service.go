@@ -196,13 +196,16 @@ func (svc *Service) Stop(ctx context.Context) error {
 	}
 
 	cancelPkg := topologyapi.CancelPackage(svc.supervisorPID, svc.childPID, "service stopping")
-	if err := node.Send(cancelPkg); err != nil {
+	cancelErr := node.Send(cancelPkg)
+	if cancelErr != nil {
 		select {
 		case <-svc.doneCh:
 			return nil
 		default:
 		}
-		return newSendCancelError(err)
+		if !errors.Is(cancelErr, processapi.ErrProcessNotFound) && !errors.Is(cancelErr, processapi.ErrProcessClosed) {
+			return newSendCancelError(cancelErr)
+		}
 	}
 
 	// Wait for completion without consuming the controller's terminal status.
@@ -210,6 +213,9 @@ func (svc *Service) Stop(ctx context.Context) error {
 	case <-svc.doneCh:
 		return nil
 	case <-ctx.Done():
+		if cancelErr != nil {
+			return errors.Join(ctx.Err(), newSendCancelError(cancelErr))
+		}
 		return ctx.Err()
 	}
 }
@@ -282,14 +288,16 @@ func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package, c
 						continue
 					}
 
-					if event.Kind == topologyapi.Exit && event.Result != nil && event.Result.Error == nil {
-						if event.Result.Outdated && !restartRequested.Load() {
+					if event.Kind == topologyapi.Exit && (restartRequested.Load() || event.Result != nil && event.Result.Outdated) {
+						if !restartRequested.Load() {
 							svc.completionMu.Lock()
 							svc.restartCompletion = completion
 							svc.completionMu.Unlock()
 							statusCh <- supervisor.Restart{}
-							return
 						}
+						return
+					}
+					if event.Kind == topologyapi.Exit && event.Result != nil && event.Result.Error == nil {
 						if !restartRequested.Load() {
 							completion.Ready()
 						}
