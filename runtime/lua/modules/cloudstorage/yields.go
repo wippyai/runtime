@@ -36,6 +36,11 @@ func wrapStorageError(l *lua.LState, err error, op string) lua.LValue {
 			WithKind(lua.Unavailable).
 			WithRetryable(false)
 	}
+	if errors.Is(err, csapi.ErrCopyUnsupported) {
+		return lua.NewLuaError(l, "server-side copy not supported by this storage provider").
+			WithKind(lua.Unavailable).
+			WithRetryable(false)
+	}
 	if errors.Is(err, csapi.ErrNilUploadContent) {
 		return lua.NewLuaError(l, "upload content is not a readable source").
 			WithKind(lua.Invalid).
@@ -450,6 +455,52 @@ func headObjectResultToLua(l *lua.LState, result *csapi.HeadObjectResult) lua.LV
 	}
 	t.RawSetString("headers", headersTbl)
 	return t
+}
+
+// CopyObjectYield wraps CopyObjectCmd for Lua.
+type CopyObjectYield struct {
+	*csapi.CopyObjectCmd
+}
+
+var copyObjectYieldPool = sync.Pool{New: func() any { return &CopyObjectYield{} }}
+
+func AcquireCopyObjectYield() *CopyObjectYield {
+	y := copyObjectYieldPool.Get().(*CopyObjectYield)
+	y.CopyObjectCmd = csapi.AcquireCopyObjectCmd()
+	return y
+}
+
+func ReleaseCopyObjectYield(y *CopyObjectYield) {
+	if y.CopyObjectCmd != nil {
+		y.CopyObjectCmd.Release()
+		y.CopyObjectCmd = nil
+	}
+	copyObjectYieldPool.Put(y)
+}
+
+func (y *CopyObjectYield) String() string                { return "<cloudstorage_copy_object_yield>" }
+func (y *CopyObjectYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *CopyObjectYield) CmdID() dispatcher.CommandID   { return csapi.CopyObject }
+func (y *CopyObjectYield) ToCommand() dispatcher.Command { return y.CopyObjectCmd }
+func (y *CopyObjectYield) Release()                      { ReleaseCopyObjectYield(y) }
+
+func (y *CopyObjectYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "copy_object")}
+	}
+	resp, ok := data.(csapi.CopyObjectResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "copy_object")}
+	}
+	t := l.CreateTable(0, 2)
+	t.RawSetString("etag", lua.LString(resp.Result.ETag))
+	if !resp.Result.LastModified.IsZero() {
+		t.RawSetString("last_modified", lua.LNumber(resp.Result.LastModified.Unix()))
+	}
+	return []lua.LValue{t, lua.LNil}
 }
 
 // CreateMultipartUploadYield wraps CreateMultipartUploadCmd for Lua.

@@ -44,6 +44,7 @@ var Module = &luaapi.ModuleDef{
 			{Sample: &CompleteMultipartUploadYield{}, CmdID: csapi.CompleteMultipartUpload},
 			{Sample: &AbortMultipartUploadYield{}, CmdID: csapi.AbortMultipartUpload},
 			{Sample: &OpenReaderYield{}, CmdID: csapi.OpenReader},
+			{Sample: &CopyObjectYield{}, CmdID: csapi.CopyObject},
 		}
 	},
 	Types: ModuleTypes,
@@ -69,6 +70,7 @@ var storageMethods = map[string]lua.LGoFunc{
 	"complete_multipart_upload": storageCompleteMultipartUpload,
 	"abort_multipart_upload":    storageAbortMultipartUpload,
 	"open_reader":               storageOpenReader,
+	"copy_object":               storageCopyObject,
 	"release":                   storageRelease,
 }
 
@@ -375,6 +377,76 @@ func storageUploadObject(l *lua.LState) int {
 		}
 		yield.Options = uo
 	}
+
+	l.Push(yield)
+	return -1
+}
+
+func storageCopyObject(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	srcKey := l.CheckString(2)
+	if srcKey == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "source key is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	dstKey := l.CheckString(3)
+	if dstKey == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "destination key is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	var opts *csapi.CopyOptions
+	if l.Get(4) != lua.LNil {
+		optsTable := l.CheckTable(4)
+		opts = &csapi.CopyOptions{}
+
+		if v := optsTable.RawGetString("metadata_directive"); v != lua.LNil {
+			directive := csapi.MetadataDirective(v.String())
+			if directive != csapi.MetadataDirectiveCopy && directive != csapi.MetadataDirectiveReplace {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "metadata_directive must be \"COPY\" or \"REPLACE\"").WithKind(lua.Invalid).WithRetryable(false))
+				return 2
+			}
+			opts.MetadataDirective = directive
+		}
+		if v := optsTable.RawGetString("content_type"); v != lua.LNil {
+			opts.ContentType = v.String()
+		}
+		if v := optsTable.RawGetString("if_match"); v != lua.LNil {
+			opts.IfMatch = v.String()
+		}
+		if v := optsTable.RawGetString("if_none_match"); v != lua.LNil {
+			opts.IfNoneMatch = v.String()
+		}
+		if v := optsTable.RawGetString("metadata"); v != lua.LNil {
+			if mt, ok := v.(*lua.LTable); ok {
+				opts.Metadata = make(map[string]string, mt.Len())
+				mt.ForEach(func(k, mv lua.LValue) {
+					if ks, kok := k.(lua.LString); kok {
+						opts.Metadata[string(ks)] = mv.String()
+					}
+				})
+			}
+		}
+	}
+
+	yield := AcquireCopyObjectYield()
+	yield.Storage = wrapper.storage
+	yield.SrcKey = srcKey
+	yield.DstKey = dstKey
+	yield.Options = opts
 
 	l.Push(yield)
 	return -1

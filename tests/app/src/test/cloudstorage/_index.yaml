@@ -181,6 +181,21 @@ entries:
     imports:
       assert_primitives: app.lib:assert
 
+  # server-side copy_object
+  - name: copy
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage copy_object, preconditions, and self copy with REPLACE
+    source: file://copy.lua
+    method: main
+    modules:
+      - cloudstorage
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
   # list_objects with include_versions on a versioned bucket
   - name: versions
     kind: function.lua
