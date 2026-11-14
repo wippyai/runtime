@@ -5,6 +5,7 @@
 package sqliteconn
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/rqlite/go-sqlite3"
@@ -12,12 +13,26 @@ import (
 
 // NewDriver returns a pool-owned driver with Wippy's connection policy.
 func NewDriver() *sqlite3.SQLiteDriver {
+	return newDriver(defaultAutoCheckpointPages)
+}
+
+func checkpointBusy(err error) bool {
+	var native sqlite3.Error
+	return errors.As(err, &native) && (native.Code == sqlite3.ErrBusy || native.Code == sqlite3.ErrLocked)
+}
+
+func checkpointReadOnly(err error) bool {
+	var native sqlite3.Error
+	return errors.As(err, &native) && native.Code == sqlite3.ErrReadonly
+}
+
+func newDriver(autocheckpointPages int) *sqlite3.SQLiteDriver {
+	policy := fmt.Sprintf("PRAGMA wal_autocheckpoint=%d", autocheckpointPages)
 	return &sqlite3.SQLiteDriver{ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-		// rqlite's fork disables automatic checkpoints for its Raft snapshot
-		// machinery. Wippy uses SQLite directly and retains SQLite's ordinary
-		// 1000-page PASSIVE checkpoint trigger. This is connection-local: a
-		// one-time pool Exec would not cover connection recycling.
-		if _, err := conn.Exec("PRAGMA wal_autocheckpoint=1000", nil); err != nil {
+		// Apply the pool's policy to replacements too. Managed writable pools
+		// use zero; other connections keep SQLite's normal policy, including
+		// for writable databases attached to an in-memory or read-only main.
+		if _, err := conn.Exec(policy, nil); err != nil {
 			return fmt.Errorf("configure sqlite WAL autocheckpoint: %w", err)
 		}
 		return nil

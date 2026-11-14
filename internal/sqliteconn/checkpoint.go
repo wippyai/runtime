@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package sqliteconn
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
+)
+
+// checkpointer owns WAL checkpointing for one database file. Writer
+// connections run with wal_autocheckpoint=0, so a commit never copies WAL
+// frames into the database file; this worker does it instead.
+//
+// Every interval it runs a PASSIVE checkpoint on its own connection, then
+// checks the WAL size and maintains application-attached databases.
+// Over the bound (readers pin old snapshots, or writers outpace PASSIVE
+// backfill) it reserves a writer turn and attempts TRUNCATE on its own
+// connection. A pinned reader makes it defer after a short maintenance wait
+// instead of occupying the writer pool for the application's busy timeout.
+// Later intervals retry; the configured threshold is not a hard size limit.
+type checkpointer struct {
+	failure  error
+	closeErr error
+	own      *sql.DB
+	writer   *sql.DB
+	cancel   context.CancelFunc
+	done     chan struct{}
+	walPath  string
+	interval time.Duration
+	maxPages int
+	opened   atomic.Bool
+	once     sync.Once
+	mu       sync.Mutex
+}
+
+func newCheckpointer(conn *Connector, cfg sqlapi.SQLiteCheckpointConfig) (*checkpointer, error) {
+	if cfg.Interval <= 0 {
+		return nil, fmt.Errorf("sqlite checkpoint interval must be positive, got %s", cfg.Interval)
+	}
+	if cfg.MaxWALPages <= 0 {
+		return nil, fmt.Errorf("sqlite checkpoint max WAL pages must be positive, got %d", cfg.MaxWALPages)
+	}
+	// Bound the maintenance wait independently of application queries. A short
+	// wait lets brief reader snapshots leave without allowing long readers to
+	// occupy the writer turn for the application's busy timeout.
+	// Keep this policy separate from application connections,
+	// including when the DSN uses go-sqlite3's _timeout alias.
+	path, query, _ := strings.Cut(conn.dsn, "?")
+	params, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, fmt.Errorf("parse sqlite checkpoint DSN: %w", err)
+	}
+	params.Del("_timeout")
+	params.Set("_busy_timeout", fmt.Sprint(checkpointBusyTimeout.Milliseconds()))
+	own := sql.OpenDB(&Connector{driver: conn.driver, dsn: path + "?" + params.Encode()})
+	own.SetMaxOpenConns(1)
+	own.SetMaxIdleConns(1)
+	return &checkpointer{own: own, interval: cfg.Interval, maxPages: cfg.MaxWALPages}, nil
+}
+
+// start runs the worker against the writer pool that owns this checkpointer.
+func (c *checkpointer) start(writer *sql.DB) {
+	ctx, cancel := context.WithCancel(context.Background())
+	c.writer = writer
+	c.cancel = cancel
+	c.done = make(chan struct{})
+	go c.run(ctx)
+}
+
+func (c *checkpointer) run(ctx context.Context) {
+	defer close(c.done)
+	ticker := time.NewTicker(c.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !c.opened.Load() {
+				continue
+			}
+			if err := c.checkpoint(ctx); err != nil && ctx.Err() == nil {
+				c.record(err)
+			}
+		}
+	}
+}
+
+// checkpoint backfills the WAL without blocking while it is within the bound
+// and truncates it through the writer pool when it exceeds the bound.
+func (c *checkpointer) checkpoint(ctx context.Context) error {
+	// Copy frames without reserving a writer turn. A later TRUNCATE then
+	// mostly resets the WAL instead of doing all backfill on the writer pool.
+	if err := exec(ctx, c.own, "PASSIVE"); err != nil {
+		return err
+	}
+	over, err := c.overBound(ctx)
+	if err != nil {
+		return err
+	}
+	conn, err := c.writer.Conn(ctx)
+	if err != nil {
+		// The application pool owns connection/open errors. A closing pool
+		// cannot lend a connection; cancellation stops this wait on shutdown.
+		return nil
+	}
+	defer conn.Close()
+	if over {
+		if err := exec(ctx, c.own, "TRUNCATE"); err != nil {
+			return err
+		}
+	}
+	return checkpointAttachments(ctx, conn)
+}
+
+// checkpointAttachments uses the application connection because attachments
+// belong to that physical connection. PASSIVE retains the ordinary SQLite
+// checkpoint policy without waiting on readers through the app's busy handler.
+func checkpointAttachments(ctx context.Context, conn *sql.Conn) error {
+	rows, err := conn.QueryContext(ctx, "PRAGMA database_list")
+	if err != nil {
+		return err
+	}
+	var schemas []string
+	for rows.Next() {
+		var index int
+		var schema, file string
+		if err := rows.Scan(&index, &schema, &file); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if schema != "main" && schema != "temp" && file != "" {
+			schemas = append(schemas, schema)
+		}
+	}
+	err = errors.Join(rows.Err(), rows.Close())
+	if err != nil {
+		return err
+	}
+	for _, schema := range schemas {
+		if err := execSchema(ctx, conn, schema, "PASSIVE"); err != nil {
+			if checkpointReadOnly(err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// overBound reports whether the WAL file holds more than maxPages frames.
+func (c *checkpointer) overBound(ctx context.Context) (bool, error) {
+	if c.walPath == "" {
+		var file string
+		err := c.own.QueryRowContext(ctx, "SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&file)
+		if err != nil {
+			return false, fmt.Errorf("sqlite checkpoint database path: %w", err)
+		}
+		c.walPath = file + "-wal"
+	}
+	var pageSize int64
+	if err := c.own.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		return false, fmt.Errorf("sqlite checkpoint page size: %w", err)
+	}
+	info, err := os.Stat(c.walPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("sqlite checkpoint WAL size: %w", err)
+	}
+	return info.Size() > walHeaderSize+int64(c.maxPages)*(walFrameHeaderSize+pageSize), nil
+}
+
+// WAL file layout: https://www.sqlite.org/fileformat.html#the_write_ahead_log
+const (
+	walHeaderSize      = 32
+	walFrameHeaderSize = 24
+)
+
+// A bounded wait lets short snapshots finish rather than starving truncation
+// under sustained traffic. The writer pool's normal busy timeout is unchanged.
+const checkpointBusyTimeout = 50 * time.Millisecond
+
+type queryer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// exec runs one checkpoint on db. A busy result is not a failure: the next
+// run retries.
+func exec(ctx context.Context, db queryer, mode string) error {
+	return execSchema(ctx, db, "main", mode)
+}
+
+func execSchema(ctx context.Context, db queryer, schema, mode string) error {
+	var busy, frames, backfilled int
+	quoted := `"` + strings.ReplaceAll(schema, `"`, `""`) + `"`
+	err := db.QueryRowContext(ctx, "PRAGMA "+quoted+".wal_checkpoint("+mode+")").Scan(&busy, &frames, &backfilled)
+	if err != nil {
+		if checkpointBusy(err) {
+			return nil
+		}
+		return fmt.Errorf("sqlite %s checkpoint: %w", mode, err)
+	}
+	return nil
+}
+
+func (c *checkpointer) record(err error) {
+	if checkpointBusy(err) {
+		return
+	}
+	c.mu.Lock()
+	if c.failure == nil {
+		c.failure = err
+	}
+	c.mu.Unlock()
+}
+
+// Close stops the worker, attempts a final TRUNCATE checkpoint on its own
+// connection (the writer pool is closing) and closes that connection. It
+// returns the first background failure, if any, together with any shutdown
+// failure.
+func (c *checkpointer) Close() error {
+	c.once.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+			<-c.done
+		}
+		var final error
+		if c.opened.Load() {
+			final = exec(context.Background(), c.own, "TRUNCATE")
+		}
+		c.mu.Lock()
+		failure := c.failure
+		c.mu.Unlock()
+		c.closeErr = errors.Join(failure, final, c.own.Close())
+	})
+	return c.closeErr
+}
