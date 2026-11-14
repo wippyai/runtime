@@ -4,6 +4,7 @@ package json
 
 import (
 	"cmp"
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -26,13 +27,13 @@ type schemaLeaf struct {
 var wrapperKeywords = map[string]bool{
 	"properties": true, "patternProperties": true, "additionalProperties": true,
 	"unevaluatedProperties": true, "items": true, "prefixItems": true, "additionalItems": true,
-	"unevaluatedItems": true, "allOf": true, "anyOf": true, "oneOf": true,
+	"unevaluatedItems": true, "propertyNames": true, "allOf": true, "anyOf": true, "oneOf": true,
 	"$ref": true, "$dynamicRef": true, "then": true, "else": true, "dependentSchemas": true,
 }
 
 // conditionKeywords evaluate sub-schemas whose failure is not a violation.
 var conditionKeywords = map[string]bool{
-	"if": true, "not": true, "contains": true, "propertyNames": true,
+	"if": true, "not": true, "contains": true,
 }
 
 var propertyKeywords = map[string]bool{
@@ -102,12 +103,47 @@ func collectNodeLeaves(node *jsonschema.EvaluationResult, basePath, schemaBase s
 			}
 			continue
 		}
+		if keyword == "dependentRequired" {
+			leaves = append(leaves, dependentRequiredLeaves(evalErr, instancePath, schemaBase)...)
+			continue
+		}
 		leaves = append(leaves, schemaLeaf{
 			instancePath: instancePath,
 			keyword:      keyword,
 			message:      message,
 			schemaPath:   schemaBase + "/" + keyword,
 		})
+	}
+	return leaves
+}
+
+// dependentRequiredLeaves yields one leaf per missing dependent property.
+func dependentRequiredLeaves(evalErr *jsonschema.EvaluationError, instancePath, schemaBase string) []schemaLeaf {
+	raw, _ := evalErr.Params["missing_properties"].(string)
+	var missing map[string][]string
+	if err := json.Unmarshal([]byte(raw), &missing); err != nil || len(missing) == 0 {
+		return []schemaLeaf{{
+			instancePath: instancePath,
+			keyword:      "dependentRequired",
+			message:      evalErr.Localize(nil),
+			schemaPath:   schemaBase + "/dependentRequired",
+		}}
+	}
+	triggers := make([]string, 0, len(missing))
+	for trigger := range missing {
+		triggers = append(triggers, trigger)
+	}
+	slices.Sort(triggers)
+	var leaves []schemaLeaf
+	for _, trigger := range triggers {
+		for _, name := range missing[trigger] {
+			leaves = append(leaves, schemaLeaf{
+				instancePath: joinPointer(instancePath, name),
+				keyword:      "dependentRequired",
+				message:      "Property '" + name + "' is required when '" + trigger + "' is present",
+				schemaPath:   schemaBase + "/dependentRequired",
+			})
+		}
 	}
 	return leaves
 }

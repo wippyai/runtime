@@ -203,3 +203,35 @@ func TestValidateErrorsDetailsBounded(t *testing.T) {
 		t.Fatalf("message = %s", out.message)
 	}
 }
+
+func TestValidateErrorsDependentRequired(t *testing.T) {
+	schema := `{"type":"object","dependentRequired":{"summary":["solution","notes"]}}`
+	out := runValidate(t, "validate_string", schema, `{"summary":"s"}`)
+	if out.total != 2 {
+		t.Fatalf("leaves = %+v", out.leaves)
+	}
+	sol := findLeaf(t, out, "/solution", "dependentRequired")
+	findLeaf(t, out, "/notes", "dependentRequired")
+	if !strings.Contains(sol.message, "'solution'") || !strings.Contains(sol.message, "'summary'") {
+		t.Fatalf("message = %s", sol.message)
+	}
+	if sol.schema != "#/dependentRequired" {
+		t.Fatalf("schema path = %s", sol.schema)
+	}
+	if !strings.HasPrefix(out.message, "validation failed: /") || !strings.Contains(out.message, ": dependentRequired: ") {
+		t.Fatalf("message = %s", out.message)
+	}
+}
+
+func TestValidateErrorsPropertyNames(t *testing.T) {
+	schema := `{"type":"object","properties":{"env":{"type":"object","propertyNames":{"pattern":"^[a-z]+$"}}}}`
+	out := runValidate(t, "validate_string", schema, `{"env":{"Runtime":1,"ok":2,"Bad":3}}`)
+	if out.total != 2 {
+		t.Fatalf("leaves = %+v", out.leaves)
+	}
+	leaf := findLeaf(t, out, "/env/Runtime", "pattern")
+	findLeaf(t, out, "/env/Bad", "pattern")
+	if !strings.Contains(leaf.schema, "propertyNames") {
+		t.Fatalf("schema path = %s", leaf.schema)
+	}
+}
