@@ -52,6 +52,7 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "cloudstorage.Storage.list_objects", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "list_objects"},
 		{name: "cloudstorage.Storage.download_object", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "download_object"},
 		{name: "cloudstorage.Storage.upload_object", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "upload_object"},
+		{name: "cloudstorage.Storage.copy_object", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "copy_object"},
 		{name: "cloudstorage.Storage.delete_objects", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "delete_objects"},
 		{name: "cloudstorage.Storage.presigned_get_url", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "presigned_get_url"},
 		{name: "cloudstorage.Storage.presigned_put_url", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "presigned_put_url"},

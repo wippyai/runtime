@@ -98,7 +98,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 
 	d.RegisterAll(register)
 
-	assert.Len(t, registered, 12)
+	assert.Len(t, registered, 13)
 	assert.Contains(t, registered, csapi.ListObjects)
 	assert.Contains(t, registered, csapi.DownloadObject)
 	assert.Contains(t, registered, csapi.UploadObject)
@@ -111,6 +111,7 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	assert.Contains(t, registered, csapi.CompleteMultipartUpload)
 	assert.Contains(t, registered, csapi.AbortMultipartUpload)
 	assert.Contains(t, registered, csapi.OpenReader)
+	assert.Contains(t, registered, csapi.CopyObject)
 }
 
 type mockMultipartStorage struct {
@@ -595,4 +596,60 @@ func TestDispatcher_PresignedPutURL(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")
 	}
+}
+
+type mockCopyStorage struct {
+	err     error
+	result  *csapi.CopyResult
+	lastOpt *csapi.CopyOptions
+	lastSrc string
+	lastDst string
+	mockStorage
+}
+
+func (m *mockCopyStorage) CopyObject(_ context.Context, src, dst string, opts *csapi.CopyOptions) (*csapi.CopyResult, error) {
+	m.lastSrc, m.lastDst, m.lastOpt = src, dst, opts
+	return m.result, m.err
+}
+
+func runCopy(t *testing.T, storage csapi.Storage, opts *csapi.CopyOptions) csapi.CopyObjectResponse {
+	t.Helper()
+	done := make(chan csapi.CopyObjectResponse, 1)
+	cmd := &csapi.CopyObjectCmd{Storage: storage, SrcKey: "src", DstKey: "dst", Options: opts}
+	require.NoError(t, dispatchHandlers(t)[csapi.CopyObject].Handle(context.Background(), cmd, 1,
+		newTestReceiver(func(_ uint64, data any, _ error) {
+			done <- data.(csapi.CopyObjectResponse)
+		})))
+	select {
+	case resp := <-done:
+		return resp
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+		return csapi.CopyObjectResponse{}
+	}
+}
+
+func TestDispatcher_CopyObject(t *testing.T) {
+	storage := &mockCopyStorage{result: &csapi.CopyResult{ETag: `"copied"`}}
+	opts := &csapi.CopyOptions{MetadataDirective: csapi.MetadataDirectiveReplace}
+
+	resp := runCopy(t, storage, opts)
+	require.NoError(t, resp.Error)
+	assert.Equal(t, `"copied"`, resp.Result.ETag)
+	assert.Equal(t, "src", storage.lastSrc)
+	assert.Equal(t, "dst", storage.lastDst)
+	assert.Same(t, opts, storage.lastOpt)
+}
+
+func TestDispatcher_CopyObject_ProviderError(t *testing.T) {
+	storage := &mockCopyStorage{err: csapi.ErrPreconditionFailed}
+
+	resp := runCopy(t, storage, nil)
+	assert.ErrorIs(t, resp.Error, csapi.ErrPreconditionFailed)
+	assert.Nil(t, resp.Result)
+}
+
+func TestDispatcher_CopyObject_Unsupported(t *testing.T) {
+	resp := runCopy(t, &mockStorage{}, nil)
+	assert.ErrorIs(t, resp.Error, csapi.ErrCopyUnsupported)
 }

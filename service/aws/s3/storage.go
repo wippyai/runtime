@@ -42,6 +42,11 @@ type Storage struct {
 	client *s3.Client
 	log    *zap.Logger
 	bucket string
+	// copySingleLimit is the largest source copied with a single CopyObject
+	// request; larger sources are copied part by part with UploadPartCopy.
+	copySingleLimit int64
+	// copyPartSize is the byte range of each UploadPartCopy request.
+	copyPartSize int64
 }
 
 // NewStorage creates a new Storage instance.
@@ -50,9 +55,11 @@ func NewStorage(client *s3.Client, bucket string, log *zap.Logger) *Storage {
 		log = zap.NewNop()
 	}
 	return &Storage{
-		client: client,
-		bucket: bucket,
-		log:    log.With(zap.String("component", "s3storage"), zap.String("bucket", bucket)),
+		client:          client,
+		bucket:          bucket,
+		log:             log.With(zap.String("component", "s3storage"), zap.String("bucket", bucket)),
+		copySingleLimit: maxSingleCopySize,
+		copyPartSize:    defaultCopyPartSize,
 	}
 }
 

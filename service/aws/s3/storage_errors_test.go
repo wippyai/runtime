@@ -51,6 +51,11 @@ func storageOperations() []storageOperation {
 		{name: "upload_object", run: func(ctx context.Context, s *Storage) error {
 			return s.UploadObject(ctx, "key", bytes.NewReader([]byte("payload")), nil)
 		}},
+		// copy_object first heads the source, so its failures carry no error document.
+		{name: "copy_object", bodyless: true, run: func(ctx context.Context, s *Storage) error {
+			_, err := s.CopyObject(ctx, "src", "dst", nil)
+			return err
+		}},
 		{name: "delete_objects", run: func(ctx context.Context, s *Storage) error {
 			return s.DeleteObjects(ctx, []string{"key"})
 		}},

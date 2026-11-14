@@ -51,6 +51,7 @@ Returned by `cloudstorage.get()`. Provides methods for cloud storage operations.
 | head_object | (key: string) | table, error | Fetches full metadata for a single object |
 | download_object | (key: string, writer: io.Writer, options?: table) | boolean, error | Downloads object to writer |
 | upload_object | (key: string, content: string \| io.Reader, options?: table) | boolean, error | Uploads object from string or reader |
+| copy_object | (src_key: string, dst_key: string, options?: table) | table, error | Copies an object server-side |
 | delete_objects | (keys: string[]) | boolean, error | Deletes multiple objects |
 | presigned_get_url | (key: string, options?: table) | string, error | Generates presigned download URL |
 | presigned_put_url | (key: string, options?: table) | string, error | Generates presigned upload URL |
@@ -289,6 +290,78 @@ local _, err = storage:upload_object("data/once.txt", "first", { if_none_match =
 local _, err = storage:upload_object("data/once.txt", "first", { only_if_absent = true })
 if err and err:kind() == errors.CONFLICT then
     -- another writer beat us to it
+end
+```
+
+#### storage:copy_object(src_key: string, dst_key: string, options?: table) → table, error
+
+Copies an object inside the storage without moving its data through the caller.
+The destination is replaced when it exists.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| src_key | string | yes | - | Source object key |
+| dst_key | string | yes | - | Destination object key |
+| options | table | no | nil | Metadata directive and preconditions |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| metadata_directive | string | "COPY" | `"COPY"` keeps the source content type and user metadata; `"REPLACE"` stores the `metadata` and `content_type` given here instead |
+| metadata | table<string,string> | nil | Destination user metadata. Requires `"REPLACE"` |
+| content_type | string | "" | Destination Content-Type. Requires `"REPLACE"`; with `"REPLACE"` and no `content_type` the provider default applies |
+| if_match | string | "" | Source condition: copy only if the source object's ETag matches |
+| if_none_match | string | "" | Destination condition: `"*"` copies only if the destination does not exist (where the provider supports it) |
+
+**Returns:**
+- Success: `{ etag: string, last_modified?: number }` of the destination (`last_modified` is Unix seconds)
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| src_key or dst_key empty | errors.INVALID |
+| metadata_directive not `"COPY"` or `"REPLACE"` | errors.INVALID |
+| `metadata` or `content_type` without `"REPLACE"` | errors.INVALID |
+| src_key equals dst_key without `"REPLACE"` | errors.INVALID |
+| storage released | errors.INVALID |
+| source does not exist | errors.NOT_FOUND (message `not_found`) |
+| if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
+| provider does not support server-side copy | errors.UNAVAILABLE (not retryable) |
+| provider failure | see [Provider errors](#provider-errors) |
+
+**Yields:** until the copy completes
+
+**Notes:**
+- Copying onto the same key with `metadata_directive = "REPLACE"` rewrites the
+  object in place and refreshes its `last_modified`. Pass the existing
+  `content_type` (read with `head_object`) to keep it.
+- Sources above 5 GiB are copied part by part (S3 `UploadPartCopy`, 1 GiB
+  ranges, pinned to the source ETag) and assembled into the destination, so
+  there is no size limit beyond the provider's. The resulting ETag is the
+  multipart ETag, not the source's. A failed multipart copy leaves no
+  destination and no orphaned upload.
+- Cache-Control, Content-Disposition and Content-Encoding follow the directive
+  with the content type: kept with `"COPY"`, dropped with `"REPLACE"`.
+
+```lua
+-- Duplicate an object with its metadata
+local res, err = storage:copy_object("models/a.bin", "models/b.bin")
+
+-- Refresh last_modified on immutable content
+local head = storage:head_object("models/a.bin")
+storage:copy_object("models/a.bin", "models/a.bin", {
+    metadata_directive = "REPLACE",
+    content_type = head.content_type,
+    metadata = head.metadata,
+})
+
+-- Copy only if the source has not changed and the destination is free
+local _, err = storage:copy_object("in/x", "out/x", { if_match = etag, if_none_match = "*" })
+if err and err:kind() == errors.CONFLICT then
+    -- source changed or destination exists
 end
 ```
 
@@ -738,6 +811,11 @@ The most important caveats:
   header conventions.
 
 ## Changelog
+
+### Server-side copy
+
+- `storage:copy_object(src_key, dst_key, options)` copies an object inside the
+  storage; see the method reference for directives, preconditions and errors.
 
 ### Classified provider errors
 
