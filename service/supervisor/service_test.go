@@ -7,6 +7,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -793,27 +794,37 @@ func TestService_RejectedOutdatedErrorWaitsForReplacement(t *testing.T) {
 func TestService_StopWaitsForRacingTerminalEvent(t *testing.T) {
 	for _, admissionErr := range []error{processapi.ErrProcessNotFound, processapi.ErrProcessClosed} {
 		t.Run(admissionErr.Error(), func(t *testing.T) {
-			svc := newTestService()
-			node := &mockNode{sendErr: admissionErr}
-			ctx, cancel := context.WithTimeout(setupTestContext(node, &mockTopology{}, &mockProcessManager{}), time.Second)
-			defer cancel()
-			_, err := svc.Start(ctx)
-			require.NoError(t, err)
-			stopped := make(chan error, 1)
-			go func() { stopped <- svc.Stop(ctx) }()
-			require.Eventually(t, func() bool {
-				node.mu.Lock()
-				defer node.mu.Unlock()
-				return len(node.sent) == 1
-			}, time.Second, time.Millisecond)
-			select {
-			case err := <-stopped:
-				t.Fatalf("stop resolves before terminal acknowledgement: %v", err)
-			default:
-			}
-			node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
-				payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
-			require.NoError(t, <-stopped)
+			synctest.Test(t, func(t *testing.T) {
+				svc := newTestService()
+				node := &mockNode{sendErr: admissionErr}
+				ctx, cancel := context.WithTimeout(setupTestContext(node, &mockTopology{}, &mockProcessManager{}), time.Second)
+				defer cancel()
+				_, err := svc.Start(ctx)
+				require.NoError(t, err)
+				acknowledge := func() {
+					node.attachCh <- relay.NewPackage(svc.childPID, svc.supervisorPID, topologyapi.TopicEvents,
+						payload.New(&topologyapi.ExitEvent{Kind: topologyapi.Exit, Result: &runtime.Result{}}))
+				}
+				defer func() {
+					select {
+					case <-svc.doneCh:
+					default:
+						acknowledge()
+						<-svc.doneCh
+					}
+				}()
+				stopped := make(chan error, 1)
+				go func() { stopped <- svc.Stop(ctx) }()
+				synctest.Wait()
+				require.Len(t, node.sent, 1)
+				select {
+				case err := <-stopped:
+					t.Fatalf("stop resolves before terminal acknowledgement: %v", err)
+				default:
+				}
+				acknowledge()
+				require.NoError(t, <-stopped)
+			})
 		})
 	}
 }

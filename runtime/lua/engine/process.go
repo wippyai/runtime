@@ -730,12 +730,17 @@ func (p *Process) extractMethod(method string) error {
 	return nil
 }
 
+// IsOutdated reports whether this incarnation has received a code-change signal.
+func (p *Process) IsOutdated() bool {
+	return p.outdatedDelivered || p.outdatedRejected || p.pendingOutdated != nil
+}
+
 // Step advances the process by one iteration.
 // events contains yield completions and messages from the scheduler.
 // out is the scheduler-owned buffer where the process writes yields and status.
 func (p *Process) Step(events []process.Event, out *process.StepOutput) (stepErr error) {
 	defer func() {
-		if (out.IsDone() || stepErr != nil) && (p.outdatedDelivered || p.outdatedRejected || p.pendingOutdated != nil) {
+		if (out.IsDone() || stepErr != nil) && p.IsOutdated() {
 			out.DoneOutdated(out.Result())
 		}
 	}()

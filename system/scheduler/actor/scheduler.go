@@ -401,8 +401,11 @@ func (s *Scheduler) completeNoPool(proc *Processor, result *process.StepOutput, 
 
 func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput, err error, allowPool bool) {
 	res := &runtime.Result{Error: err}
+	if state, ok := proc.Process.(process.OutdatedProvider); ok {
+		res.Outdated = state.IsOutdated()
+	}
 	if result != nil {
-		res.Outdated = result.IsOutdated()
+		res.Outdated = res.Outdated || result.IsOutdated()
 	}
 	if err == nil && result != nil && result.Result() != nil {
 		res.Value = result.Result()
@@ -412,12 +415,15 @@ func (s *Scheduler) finishProcessor(proc *Processor, result *process.StepOutput,
 		if discard, ok := pending.Data.(process.EventDiscarder); ok {
 			discard.DiscardEvent()
 		} else if pending.Type == process.EventMessage {
-			if pkg, ok := pending.Data.(*relay.Package); ok {
+			if pkg, ok := pending.Data.(*relay.Package); ok && pkg != nil {
 				for _, msg := range pkg.Messages {
 					if msg == nil || msg.Topic != topology.TopicEvents {
 						continue
 					}
 					for _, pl := range msg.Payloads {
+						if pl == nil {
+							continue
+						}
 						if _, ok := pl.Data().(*topology.OutdatedEvent); ok {
 							res.Outdated = true
 						}
