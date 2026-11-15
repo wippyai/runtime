@@ -439,6 +439,23 @@ func (q *EventQueue) PushDirect(e Event) bool {
 // Single consumer only (scheduler).
 func (q *EventQueue) Drain() []Event {
 	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.drainLocked()
+}
+
+// DrainAndClose closes admission and transfers pending events to the consumer.
+// The consumer owns their cleanup, including relay packages and discard hooks.
+func (q *EventQueue) DrainAndClose() []Event {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.closed.Store(true)
+	events := q.drainLocked()
+	q.clearMessageAccountingLocked()
+	q.signalPush()
+	return events
+}
+
+func (q *EventQueue) drainLocked() []Event {
 	// The previous drain result is caller-owned. The single-consumer contract
 	// means the caller has finished with it before asking for the next batch;
 	// clear it now so the queue does not retain arbitrary Data values.
@@ -447,7 +464,6 @@ func (q *EventQueue) Drain() []Event {
 	}
 	q.drainBuf = q.drainBuf[:0]
 	if len(q.events) == 0 {
-		q.mu.Unlock()
 		return nil
 	}
 	for _, event := range q.events {
@@ -457,10 +473,7 @@ func (q *EventQueue) Drain() []Event {
 	// Swap buffers to avoid allocation
 	clear(q.drainBuf) // the prior drained batch has been consumed by Step
 	q.drainBuf, q.events = q.events, q.drainBuf[:0]
-	result := q.drainBuf
-	q.mu.Unlock()
-
-	return result
+	return q.drainBuf
 }
 
 // HasEvents returns true if there are pending events.

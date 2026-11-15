@@ -47,6 +47,9 @@ type HostProfile struct {
 	Name                string
 	Aliases             []string
 	ComponentOnly       bool
+	// NeverSuspends marks a profile whose host functions complete without
+	// suspending the guest unless another imported profile can suspend it.
+	NeverSuspends bool
 }
 
 type hostRegistryKey struct{}
@@ -257,6 +260,19 @@ func (r *HostRegistry) Resolve(id registry.ID) (HostProfile, bool) {
 	}
 
 	return HostProfile{}, false
+}
+
+// MaySuspend reports whether a host function of any import can suspend the
+// guest. Unknown imports can suspend. A module without such imports runs
+// without Asyncify instrumentation.
+func (r *HostRegistry) MaySuspend(imports []registry.ID) bool {
+	for _, id := range imports {
+		profile, ok := r.Resolve(id)
+		if !ok || !profile.NeverSuspends {
+			return true
+		}
+	}
+	return false
 }
 
 // EnsureImports validates configured imports and registers required component hosts.

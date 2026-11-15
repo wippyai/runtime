@@ -348,6 +348,21 @@ func (c ProcessConfig) MarshalYAML() (any, error) {
 	}, nil
 }
 
+// validateMemoryBytes checks a declared linear memory ceiling: positive, page
+// aligned and within the wasm32 address space.
+func validateMemoryBytes(mb int64) error {
+	if mb <= 0 {
+		return ErrProcessMemoryBytesInvalid
+	}
+	if mb > MaxProcessMemoryBytes {
+		return ErrProcessMemoryBytesExceeded
+	}
+	if mb%MinProcessMemoryBytesMultiple != 0 {
+		return ErrProcessMemoryBytesAlignment
+	}
+	return nil
+}
+
 // EffectiveMemoryBytes returns configured memory bytes or DefaultProcessMemoryBytes.
 func (l ProcessLimitsConfig) EffectiveMemoryBytes() int64 {
 	if l.MemoryBytes > 0 {
@@ -455,6 +470,7 @@ func (c *ProcessConfig) WorkerClass() string {
 func (c *ProcessConfig) EffectiveLimitsConfig() LimitsConfig {
 	lim := c.Limits()
 	return LimitsConfig{
+		MemoryBytes:        lim.EffectiveMemoryBytes(),
 		AsyncifyStackBytes: lim.AsyncifyStackBytes,
 		MaxExecutionMS:     lim.EffectiveMaxExecutionMS(),
 		MaxOpenSockets:     lim.EffectiveMaxOpenSockets(),
@@ -670,14 +686,8 @@ func parseAndValidateOptions(meta attrs.Bag) (ProcessOptions, error) {
 			if err != nil {
 				return opts, err
 			}
-			if mb <= 0 {
-				return opts, ErrProcessMemoryBytesInvalid
-			}
-			if mb > MaxProcessMemoryBytes {
-				return opts, ErrProcessMemoryBytesExceeded
-			}
-			if mb%MinProcessMemoryBytesMultiple != 0 {
-				return opts, ErrProcessMemoryBytesAlignment
+			if err := validateMemoryBytes(mb); err != nil {
+				return opts, err
 			}
 			opts.Limits.MemoryBytes = mb
 		}
@@ -807,14 +817,8 @@ func validateOptionsStruct(opts ProcessOptions) (ProcessOptions, error) {
 
 	if opts.Limits.MemoryBytes != 0 {
 		mb := opts.Limits.MemoryBytes
-		if mb <= 0 {
-			return resolved, ErrProcessMemoryBytesInvalid
-		}
-		if mb > MaxProcessMemoryBytes {
-			return resolved, ErrProcessMemoryBytesExceeded
-		}
-		if mb%MinProcessMemoryBytesMultiple != 0 {
-			return resolved, ErrProcessMemoryBytesAlignment
+		if err := validateMemoryBytes(mb); err != nil {
+			return resolved, err
 		}
 		resolved.Limits.MemoryBytes = mb
 	}

@@ -85,7 +85,7 @@ func (o *StepOutput) Done(result payload.Payload) {
 }
 
 // DoneOutdated completes an incarnation after it receives a code-change signal.
-// The successful result remains available; a supervisor can restart its service.
+// The result remains available; a supervisor can restart its service.
 func (o *StepOutput) DoneOutdated(result payload.Payload) {
 	o.Done(result)
 	o.outdated = true

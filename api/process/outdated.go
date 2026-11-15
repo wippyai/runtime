@@ -24,6 +24,13 @@ type OutdatedNotifier interface {
 	NotifyOutdated(affected map[registry.ID]bool)
 }
 
+// OutdatedProvider exposes an incarnation's consumed code-change signal when
+// the scheduler completes it without another Step, including forced termination.
+// The owning worker queries it before Close; a replacement starts with fresh state.
+type OutdatedProvider interface {
+	IsOutdated() bool
+}
+
 // WithOutdatedNotifier attaches an OutdatedNotifier to the app context.
 func WithOutdatedNotifier(ctx context.Context, n OutdatedNotifier) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
