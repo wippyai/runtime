@@ -3,12 +3,14 @@ package function
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	processapi "github.com/wippyai/runtime/api/process"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
@@ -49,6 +51,10 @@ func TestFunctionRuntimeDeadlineInterruptsGuestLoop(t *testing.T) {
 		p.Close()
 		if err == nil || !strings.Contains(err.Error(), "deadline") {
 			t.Fatalf("guest loop result: %v", err)
+		}
+		var apiErr apierror.Error
+		if !errors.As(err, &apiErr) || apiErr.Kind() != apierror.Timeout {
+			t.Fatalf("guest loop error kind: got %v, want %s", err, apierror.Timeout)
 		}
 	}
 }
