@@ -293,6 +293,12 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 	case *lua.LTable:
 		return j.marshalTableDirect(converted)
 	case *lua.LUserData:
+		if converted == luavalue.JSONNull {
+			return []byte("null"), nil
+		}
+		if text, ok := luavalue.JSONRawText(converted); ok {
+			return []byte(text), nil
+		}
 		if str, ok := converted.Value.(string); ok {
 			return json.Marshal(str)
 		}
@@ -744,9 +750,12 @@ func getSchemaJSON(schemaArg lua.LValue) ([]byte, error) {
 		return []byte(v), nil
 	case *lua.LTable:
 		return Encode(v)
-	default:
-		return nil, errors.New("schema must be a string or table")
+	case *lua.LUserData:
+		if text, ok := luavalue.JSONRawText(v); ok {
+			return []byte(text), nil
+		}
 	}
+	return nil, errors.New("schema must be a string, table or json.raw value")
 }
 
 func compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {

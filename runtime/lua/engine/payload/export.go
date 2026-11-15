@@ -8,6 +8,7 @@ import (
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
+	luavalue "github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 const (
@@ -60,7 +61,8 @@ func processAndImmutabilize(value lua.LValue) lua.LValue {
 	return makeTableImmutableRecursive(value, visited)
 }
 
-// processAndDeepCopy processes a Lua value, deep copying tables and clearing userdata.
+// processAndDeepCopy processes a Lua value, deep copying tables and clearing
+// userdata other than the immutable JSON values, which cross by reference.
 func processAndDeepCopy(value lua.LValue) lua.LValue {
 	// Get a map from the pool instead of allocating a new one every time.
 	visited := visitedMapPool.Get().(map[*lua.LTable]*lua.LTable)
@@ -83,6 +85,9 @@ func makeTableImmutableRecursive(value lua.LValue, visited map[*lua.LTable]bool)
 			}
 		}
 		if ud, isUserdata := value.(*lua.LUserData); isUserdata {
+			if luavalue.IsJSONValue(ud) {
+				return ud
+			}
 			if ud.Value == nil {
 				return lua.LNil
 			}
@@ -180,6 +185,9 @@ func copyValue(value lua.LValue, visited map[*lua.LTable]*lua.LTable) lua.LValue
 	case *lua.Error:
 		return v
 	case *lua.LUserData:
+		if luavalue.IsJSONValue(v) {
+			return v
+		}
 		if v.Value == nil {
 			return lua.LNil
 		}
