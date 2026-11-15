@@ -347,7 +347,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		if a, ok := stepper.(interface{ Abort() }); ok {
 			a.Abort()
 		}
-		proc.queue.Close()
 		w.scheduler.complete(proc, nil, sysprocess.ErrTerminated)
 		return
 	}
@@ -387,8 +386,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		if !proc.casState(StateRunning, StateComplete) {
 			return
 		}
-		proc.queue.Close()
-		w.scheduler.complete(proc, nil, err)
+		w.scheduler.complete(proc, &proc.output, err)
 		return
 	}
 
@@ -409,7 +407,6 @@ func (w *Worker) executeOne(proc *Processor) {
 		if !proc.casState(StateRunning, StateComplete) {
 			return
 		}
-		proc.queue.Close()
 		w.scheduler.complete(proc, &proc.output, nil)
 
 	case process.StepContinue:
@@ -446,7 +443,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
-			proc.queue.Close()
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: no request"))
 			return
 		}
@@ -456,7 +452,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
-			proc.queue.Close()
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: no factory"))
 			return
 		}
@@ -470,7 +465,6 @@ func (w *Worker) executeOne(proc *Processor) {
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
-				proc.queue.Close()
 				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: no source"))
 				return
 			}
@@ -482,7 +476,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
-			proc.queue.Close()
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: create failed: %w", err))
 			return
 		}
@@ -513,7 +506,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
-			proc.queue.Close()
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: carry process state failed: %w", carryErr))
 			return
 		}
@@ -525,7 +517,6 @@ func (w *Worker) executeOne(proc *Processor) {
 			if !proc.casState(StateRunning, StateComplete) {
 				return
 			}
-			proc.queue.Close()
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: init failed: %w", err))
 			return
 		}
@@ -538,7 +529,6 @@ func (w *Worker) executeOne(proc *Processor) {
 				if !proc.casState(StateRunning, StateComplete) {
 					return
 				}
-				proc.queue.Close()
 				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: transfer failed: %w", err))
 				return
 			}
