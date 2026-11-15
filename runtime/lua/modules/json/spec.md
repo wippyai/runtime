@@ -33,6 +33,8 @@ Encodes a Lua value into a JSON string.
 
 **Encoding rules:**
 - `nil` → `"null"`
+- `json.null` → `"null"`, also as an object value or array element (`{a = json.null}` → `{"a":null}`)
+- A `json.raw` value → its JSON text as stored, with member order kept
 - Booleans → `"true"` or `"false"`
 - Numbers → JSON numbers (Inf/NaN → `"null"`)
 - Strings → JSON strings with escaping
@@ -71,8 +73,54 @@ Decodes a JSON string into a Lua value.
 - JSON strings → Lua strings
 - JSON arrays → 1-indexed Lua tables
 - `null` array elements → `nil`; later elements keep their indexes, so `json.encode` writes them back as `null`
-- Trailing `null` array elements and `null` object values are lost on a round trip: `["a",null]` → `["a"]`, `[null,null]` → `[]`, `{"a":null}` → `{}`
+- Trailing `null` array elements and `null` object values are lost on a round trip: `["a",null]` → `["a"]`, `[null,null]` → `[]`, `{"a":null}` → `{}`; `decode_with_nulls` keeps them
 - JSON objects → Lua tables with string keys
+
+### decode_with_nulls(str: string) → any, error
+
+Decodes like `decode`, except that every JSON `null` decodes to `json.null`.
+Null object members stay present and null array elements keep their positions,
+so the result encodes back to the same JSON value:
+
+```lua
+local args = json.decode_with_nulls('{"a":null,"b":[1,null]}')
+assert(args.a == json.null)
+assert(#args.b == 2 and args.b[2] == json.null)
+json.encode(args) -- {"a":null,"b":[1,null]}
+```
+
+Errors are those of `decode`. `json.null` is a truthy value, so code reading
+the result compares against `json.null` to tell an explicit null from a value.
+
+### null
+
+A single userdata value that stands for JSON `null`. Unlike `nil`, it can be
+stored in a table, so it marks a key that is present with a null value. Every
+Lua process shares the one value; compare with `==`. `encode` writes it as
+`null`, `validate` reads it as `null`, and it passes between Lua processes
+(function arguments and results, messages) unchanged. Conversion to Go data
+gives `nil` and keeps the map key; Go data converted to Lua has no null members,
+so a value that passes through Go data loses them.
+
+### raw(text: string) → raw, error
+
+Wraps JSON text in a value that `encode` writes as that text. Object members
+keep the order they have in `text`; Lua tables have no key order and `encode`
+writes their keys sorted, so `raw` is how ordered JSON (such as a JSON Schema
+whose property order matters) is embedded in an encoded document:
+
+```lua
+local schema = json.raw('{"type":"object","properties":{"query":{},"limit":{}}}')
+json.encode({name = "search", parameters = schema})
+-- {"name":"search","parameters":{"type":"object","properties":{"query":{},"limit":{}}}}
+```
+
+`text` must be exactly one JSON value with unique member names, valid UTF-8
+and numbers in float64 range; otherwise `raw` returns `nil` and an
+`errors.INVALID` error. The value is stored without insignificant whitespace.
+A raw value is opaque to Lua code: decode the text to inspect it. It passes
+between Lua processes unchanged; `validate` and conversion to Go data read it
+as the JSON value it holds.
 
 ### decode(str: string, target: type) → target, error
 
@@ -93,13 +141,13 @@ remain valid. The one-argument form still decodes `null` to nil.
 Invalid type arguments, malformed JSON, type mismatches, and top-level `null`
 return a structured `errors.INVALID` error with `retryable = false`.
 
-### validate(schema: table | string, data: any) → boolean, error
+### validate(schema: table | string | raw, data: any) → boolean, error
 
 Validates a Lua value against a JSON Schema.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| schema | table \| string | yes | - | JSON Schema as Lua table or JSON string |
+| schema | table \| string \| raw | yes | - | JSON Schema as Lua table, JSON string or `json.raw` value |
 | data | any | yes | - | Lua value to validate |
 
 **Returns:**
@@ -112,19 +160,19 @@ Validates a Lua value against a JSON Schema.
 |-----------|------|-----------|-------|
 | schema is nil | errors.INVALID | no | Schema parameter required |
 | data is nil | errors.INVALID | no | Data parameter required |
-| schema invalid | errors.INVALID | no | Schema not table or string |
+| schema invalid | errors.INVALID | no | Schema not table, string or raw |
 | schema compile error | errors.INVALID | no | Invalid JSON Schema |
 | validation failed | errors.INVALID | no | Data doesn't match schema |
 
 **Schema caching:** Schemas are cached internally by SHA256 hash (cache size: 100).
 
-### validate_string(schema: table | string, json_str: string) → boolean, error
+### validate_string(schema: table | string | raw, json_str: string) → boolean, error
 
 Validates a JSON string against a JSON Schema without decoding it first.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| schema | table \| string | yes | - | JSON Schema as Lua table or JSON string |
+| schema | table \| string \| raw | yes | - | JSON Schema as Lua table, JSON string or `json.raw` value |
 | json_str | string | yes | - | JSON string to validate |
 
 **Returns:**
@@ -137,7 +185,7 @@ Validates a JSON string against a JSON Schema without decoding it first.
 |-----------|------|-----------|-------|
 | schema is nil | errors.INVALID | no | Schema parameter required |
 | data not string | errors.INVALID | no | Second parameter must be string |
-| schema invalid | errors.INVALID | no | Schema not table or string |
+| schema invalid | errors.INVALID | no | Schema not table, string or raw |
 | schema compile error | errors.INVALID | no | Invalid JSON Schema |
 | validation failed | errors.INVALID | no | JSON doesn't match schema |
 
