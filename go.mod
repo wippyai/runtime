@@ -69,7 +69,7 @@ require (
 	github.com/wippyai/tree-sitter-sql v0.0.4
 	github.com/wippyai/tty v0.0.0-20261003165107-bf08248c5f14
 	github.com/wippyai/wapp v0.1.3-0.20261003195239-f1e565edf8ff
-	github.com/wippyai/wasm-runtime v0.0.0-20261115174608-809d5e58a82c
+	github.com/wippyai/wasm-runtime v0.0.0-20261115180746-b6ffbca65354
 	github.com/xuri/excelize/v2 v2.11.1
 	go.bytecodealliance.org v0.7.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
@@ -235,4 +235,4 @@ require (
 
 tool go.uber.org/mock/mockgen
 
-replace github.com/tetratelabs/wazero => github.com/wippyai/wazero v1.12.1-wippy.1.0.20261111214415-0a22951fb697
+replace github.com/tetratelabs/wazero => github.com/wippyai/wazero v1.12.1-wippy.1.0.20261115181426-1e2806ebff0b
