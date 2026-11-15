@@ -14,6 +14,7 @@ import (
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	entrycfg "github.com/wippyai/runtime/system/entry"
 	wasmlib "github.com/wippyai/wasm-runtime/component"
+	wrtengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
 )
@@ -302,7 +303,7 @@ func (m *Manager) loadIsolatedModule(ctx context.Context, cfg *configEntry) (*wa
 	if err != nil {
 		return nil, runtimewasm.NewLoadWASMError(err)
 	}
-	if err := module.Compile(ctx); err != nil {
+	if err := m.compileModule(ctx, module, cfg.wasm.Imports, true); err != nil {
 		return nil, runtimewasm.NewCompileModuleError(err)
 	}
 
@@ -359,7 +360,7 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 	}
 	loaded := time.Now()
 
-	if err := module.Compile(ctx); err != nil {
+	if err := m.compileModule(ctx, module, cfg.Imports, false); err != nil {
 		m.releaseModule(module)
 		return nil, false, runtimewasm.NewCompileModuleError(err)
 	}
@@ -371,4 +372,14 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 		zap.Duration("compile", time.Since(loaded)),
 	)
 	return module, isComponent, nil
+}
+
+// compileModule may skip Asyncify only for an isolated runtime. A shared runtime
+// can also satisfy imports registered for sibling entries; its actual host
+// imports must retain the normal derivation and transform.
+func (m *Manager) compileModule(ctx context.Context, module *wasmrt.Module, imports []registry.ID, isolated bool) error {
+	if !isolated || m.hostRegistry.MaySuspend(imports) {
+		return module.Compile(ctx)
+	}
+	return module.CompileWithConfig(ctx, &wrtengine.CompileConfig{Synchronous: true})
 }
