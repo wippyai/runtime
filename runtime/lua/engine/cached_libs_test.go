@@ -111,7 +111,15 @@ func TestBindCachedLibs_Utf8Lib(t *testing.T) {
 		assert(utf8.codepoint(s, 4) == 8364)
 		assert(utf8.offset(s, 3) == 4)
 		assert(type(utf8.charpattern) == "string")
-		assert(type(utf8.codes) == "function")
+		local positions, codepoints = {1, 2, 4}, {72, 228, 8364}
+        local n = 0
+        for position, codepoint in utf8.codes(s) do
+            n = n + 1
+            assert(position == positions[n] and codepoint == codepoints[n])
+        end
+        assert(n == 3)
+        assert(utf8.offset("", 0) == 1)
+        assert(utf8.offset(s, -1) == 4)
 	`))
 }
 
