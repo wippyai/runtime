@@ -344,8 +344,10 @@ func parseAndValidateFunctionOptions(meta attrs.Bag) (FunctionOptions, error) {
 			if err != nil {
 				return opts, err
 			}
-			if err := validateMemoryBytes(mb); err != nil {
-				return opts, err
+			if mb != 0 {
+				if err := validateMemoryBytes(mb); err != nil {
+					return opts, err
+				}
 			}
 			opts.Limits.MemoryBytes = mb
 		}

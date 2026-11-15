@@ -328,3 +328,23 @@ func TestFunctionConfig_MemoryBytesValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestFunctionConfig_ExplicitZeroMemoryBytesDisablesLimit(t *testing.T) {
+	cfg, err := decodeFunctionEntry(t, `{"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run","meta":{"options":{"limits":{"memory_bytes":0}}}}`, nil)
+	require.NoError(t, err)
+	assert.Zero(t, cfg.LimitsConfig().MemoryBytes)
+	wat, err := decodeWATTestEntry(t, `{"source":"(module)","method":"run","meta":{"options":{"limits":{"memory_bytes":0}}}}`, nil)
+	require.NoError(t, err)
+	assert.Zero(t, wat.LimitsConfig().MemoryBytes)
+}
+
+func TestLimitsConfig_MemoryBytesYAMLRoundTrip(t *testing.T) {
+	var limits LimitsConfig
+	require.NoError(t, yaml.Unmarshal([]byte("memory_bytes: 131072\n"), &limits))
+	require.Equal(t, int64(131072), limits.MemoryBytes)
+	encoded, err := yaml.Marshal(limits)
+	require.NoError(t, err)
+	var decoded LimitsConfig
+	require.NoError(t, yaml.Unmarshal(encoded, &decoded))
+	require.Equal(t, limits.MemoryBytes, decoded.MemoryBytes)
+}
