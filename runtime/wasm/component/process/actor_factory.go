@@ -17,7 +17,6 @@ import (
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
 	"github.com/wippyai/runtime/runtime/wasm/host/wippy/hosts/actor"
 	"github.com/wippyai/wasm-runtime/asyncify"
-	memorybudget "github.com/wippyai/wasm-runtime/memory/budget"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
@@ -316,7 +315,6 @@ func (f *ActorFactory) Create() process.FactoryFunc {
 			cleanupRuntime()
 			releaseGen()
 		})
-		actorProc.SetMemoryBudget(memorybudget.New(uint64(f.memoryPages) * uint64(api.MinProcessMemoryBytesMultiple)))
 		actorProc.SetSocketBudget(resourceTable.SocketBudget())
 		actorProc.SetHostBufferBudget(resourceTable.HostBufferBudget())
 
