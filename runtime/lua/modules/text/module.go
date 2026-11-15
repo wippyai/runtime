@@ -187,31 +187,23 @@ func parseDiffOptions(table *lua.LTable) *DiffOptions {
 	}
 
 	table.ForEach(func(key, value lua.LValue) {
+		if value.Type() != lua.LTNumber && value.Type() != lua.LTInteger {
+			return
+		}
+		num := lua.LVAsNumber(value)
 		switch key.String() {
 		case "diff_timeout":
-			if num, ok := value.(lua.LNumber); ok {
-				options.DiffTimeout = float64(num)
-			}
+			options.DiffTimeout = float64(num)
 		case "diff_edit_cost":
-			if num, ok := value.(lua.LNumber); ok {
-				options.DiffEditCost = int16(num)
-			}
+			options.DiffEditCost = int16(num)
 		case "match_threshold":
-			if num, ok := value.(lua.LNumber); ok {
-				options.MatchThreshold = float64(num)
-			}
+			options.MatchThreshold = float64(num)
 		case "match_distance":
-			if num, ok := value.(lua.LNumber); ok {
-				options.MatchDistance = int(num)
-			}
+			options.MatchDistance = int(num)
 		case "patch_delete_threshold":
-			if num, ok := value.(lua.LNumber); ok {
-				options.PatchDeleteThreshold = float64(num)
-			}
+			options.PatchDeleteThreshold = float64(num)
 		case "patch_margin":
-			if num, ok := value.(lua.LNumber); ok {
-				options.PatchMargin = int(num)
-			}
+			options.PatchMargin = int(num)
 		}
 	})
 
