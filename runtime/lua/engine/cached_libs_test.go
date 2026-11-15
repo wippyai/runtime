@@ -96,6 +96,25 @@ func TestBindCachedLibs_ErrorsLib(t *testing.T) {
 	`))
 }
 
+func TestBindCachedLibs_Utf8Lib(t *testing.T) {
+	l := lua.NewState(lua.Options{SkipOpenLibs: true})
+	defer l.Close()
+	lua.OpenBase(l)
+	BindCachedLibs(l)
+
+	// "H\195\164\226\130\172" is "H", U+00E4 and U+20AC encoded as UTF-8.
+	require.NoError(t, l.DoString(`
+		local s = "H\195\164\226\130\172"
+		assert(type(utf8) == "table")
+		assert(utf8.char(72, 228, 8364) == s)
+		assert(utf8.len(s) == 3)
+		assert(utf8.codepoint(s, 4) == 8364)
+		assert(utf8.offset(s, 3) == 4)
+		assert(type(utf8.charpattern) == "string")
+		assert(type(utf8.codes) == "function")
+	`))
+}
+
 func TestBindCachedLibs_MultipleStates(t *testing.T) {
 	states := make([]*lua.LState, 3)
 	for i := range states {
@@ -123,4 +142,5 @@ func TestBindCachedLibs_Immutable(t *testing.T) {
 	assert.True(t, cachedCoroutineLib.Immutable)
 	assert.True(t, cachedStringLib.Immutable)
 	assert.True(t, cachedErrorsLib.Immutable)
+	assert.True(t, cachedUtf8Lib.Immutable)
 }
