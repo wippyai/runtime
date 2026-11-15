@@ -79,15 +79,18 @@ var listCmd = &cobra.Command{
 }
 
 var testCmd = &cobra.Command{
-	Use:   "test [file.wapp|org/module[@version]]",
+	Use:   "test [file.wapp|org/module[@version]] [args...]",
 	Short: "Run the test entrypoint",
 	Long: `Run the test entrypoint of the local app, a .wapp file, or a hub module.
 
 Only the entry declaring the "test" use case is executed; 'wippy run' never runs it.
+Arguments after the optional source are passed to the test entrypoint.
 
 Examples:
   wippy test                                # Run the local app's tests
-  wippy test acme/http                      # Run a hub module's tests`,
+  wippy test storage                        # Pass "storage" to the test entrypoint
+  wippy test acme/http                      # Run a hub module's tests
+  wippy test acme/http storage              # Pass "storage" to a hub module's tests`,
 	Args:               cobra.ArbitraryArgs,
 	DisableFlagParsing: false,
 	RunE:               runTest,
@@ -166,18 +169,23 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	}
 
 	// With an explicit entry, every positional token belongs to that process.
-	var commandName string
-	var commandArgs []string
-	if execSpec == "" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		commandName = args[0]
-		commandArgs = args[1:]
+	// Otherwise a leading .wapp file or hub module reference selects the
+	// deployment source and the remaining tokens address its entrypoint.
+	var source string
+	var positional []string
+	if execSpec == "" {
+		positional = args
+		if len(args) > 0 && (strings.HasSuffix(args[0], ".wapp") || isHubModuleRef(args[0])) {
+			source, positional = args[0], args[1:]
+		}
 	}
 
-	if commandName != "" && strings.HasSuffix(commandName, ".wapp") {
-		return runFromPackFile(cmd, commandName, commandArgs, useCase)
+	if strings.HasSuffix(source, ".wapp") {
+		return runFromPackFile(cmd, source, positional, useCase)
 	}
+	commandName, commandArgs := entrypointArgs(positional, useCase)
 
-	if execSpec != "" || (commandName != "" && !isHubModuleRef(commandName)) || useCase != defaultUseCase {
+	if execSpec != "" || commandName != "" || useCase != defaultUseCase {
 		flagsChanged := cmd != nil && (cmd.Flags().Changed("silent") || cmd.Flags().Changed("verbose") || cmd.Flags().Changed("very-verbose") || cmd.Flags().Changed("console"))
 		if !flagsChanged {
 			silentLogs = true
@@ -212,29 +220,23 @@ func runWithUseCase(cmd *cobra.Command, args []string, useCase string) (result e
 	}
 
 	if !useLock {
-		requestedRoot := ""
-		if isHubModuleRef(commandName) {
-			requestedRoot = commandName
-		}
-		runtimeDefaults, recorded, err = loadRecordedDeploymentDefaults(caller, workspaceCfg, requestedRoot, registryURL, logger)
+		runtimeDefaults, recorded, err = loadRecordedDeploymentDefaults(caller, workspaceCfg, source, registryURL, logger)
 		if err != nil {
 			return err
 		}
 	}
-	if commandName != "" && isHubModuleRef(commandName) {
+	if source != "" {
 		if useLock {
-			if _, err := useLockedHubDeployment(commandName, defaultLockFile); err != nil {
+			if _, err := useLockedHubDeployment(source, defaultLockFile); err != nil {
 				return err
 			}
 		} else if recorded == nil {
-			packPaths, err := downloadHubModule(caller, commandName, registryURL)
+			packPaths, err := downloadHubModule(caller, source, registryURL)
 			if err != nil {
 				return err
 			}
-			return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
+			return runFromPackFiles(cmd, packPaths, positional, useCase)
 		}
-		commandName = ""
-		commandArgs = nil
 	}
 	if useLock {
 		runtimeDefaults, err = loadLockRootRuntimeDefaults(defaultLockFile, workspaceCfg, logger)

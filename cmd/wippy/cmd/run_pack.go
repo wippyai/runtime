@@ -143,6 +143,16 @@ func packCommandAllowed(entry registry.Entry, mainModule string) bool {
 	return module == "" || module == mainModule
 }
 
+// entrypointArgs splits the positional tokens that address an entrypoint. The
+// default use case names its entrypoint with the first token. Every other use
+// case selects its entrypoint by use case, so all tokens are its arguments.
+func entrypointArgs(positional []string, useCase string) (string, []string) {
+	if useCase != defaultUseCase || len(positional) == 0 {
+		return "", positional
+	}
+	return positional[0], positional[1:]
+}
+
 // selectEntrypoint picks the entrypoint to execute for a use case.
 //
 // Only entries whose declared use case matches are eligible. With an explicit
@@ -716,11 +726,7 @@ func runPackEntriesWithShutdown(
 		logger.Info("runtime ready")
 	}
 
-	commandName := ""
-	if useCase == defaultUseCase && len(args) > 0 {
-		commandName = args[0]
-		args = args[1:]
-	}
+	commandName, args := entrypointArgs(args, useCase)
 
 	entryID, err := findPackCommandForModule(appCtx, commandName, useCase, mainModule)
 	if err != nil {
