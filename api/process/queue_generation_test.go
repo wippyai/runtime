@@ -100,3 +100,17 @@ func TestA05ResetDrainsStaleSignal(t *testing.T) {
 	default:
 	}
 }
+
+func TestEventQueueDrainAndClosePreservesAdmittedEvents(t *testing.T) {
+	queue := NewEventQueue()
+	gen := queue.Generation()
+	require.True(t, queue.Push(Event{Type: EventYieldComplete, Data: "pending"}, gen))
+	events := queue.DrainAndClose()
+	require.Len(t, events, 1)
+	require.Equal(t, "pending", events[0].Data)
+	require.False(t, queue.Push(Event{Data: "late"}, gen))
+	require.False(t, queue.HasEvents())
+	queue.Reset()
+	require.False(t, queue.Push(Event{Data: "stale"}, gen))
+	require.True(t, queue.Push(Event{Data: "current"}, queue.Generation()))
+}
