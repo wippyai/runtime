@@ -3,7 +3,9 @@
 package wasm
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -67,4 +69,18 @@ func TestErrorConstructors(t *testing.T) {
 	assertErr(t, NewComponentHostImportError("foo"), apierror.Invalid, "wasm host import requires component module: foo")
 	assertErr(t, NewFSAccessDeniedError("app.fs:data"), apierror.PermissionDenied, "not allowed to access filesystem: app.fs:data")
 	assertErr(t, ErrNetServiceNotFound, apierror.NotFound, "network service not found")
+}
+
+func TestGuestExecutionErrorsClassifyContextInterrupts(t *testing.T) {
+	deadline := fmt.Errorf("wasm call: %w", context.DeadlineExceeded)
+	canceled := fmt.Errorf("wasm call: %w", context.Canceled)
+
+	assertErr(t, NewCallMethodError("run", deadline), apierror.Timeout, "failed to call wasm method: run")
+	assertErr(t, NewCallMethodError("run", canceled), apierror.Canceled, "failed to call wasm method: run")
+	assertErr(t, NewInstantiateModuleError(deadline), apierror.Timeout, "failed to instantiate wasm module")
+	assertErr(t, NewInstantiateModuleError(canceled), apierror.Canceled, "failed to instantiate wasm module")
+
+	if !errors.Is(NewCallMethodError("run", deadline), context.DeadlineExceeded) {
+		t.Fatal("timeout error does not wrap its cause")
+	}
 }

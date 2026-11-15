@@ -4,6 +4,8 @@
 package wasm
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -109,11 +111,26 @@ func NewHashMismatchError(expected, actual string) apierror.Error {
 }
 
 func NewInstantiateModuleError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to instantiate wasm module").WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(guestExecutionKind(cause), "failed to instantiate wasm module").WithCause(cause).WithRetryable(apierror.False)
 }
 
 func NewCallMethodError(method string, cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to call wasm method: "+method).WithCause(cause).WithRetryable(apierror.False)
+	return apierror.New(guestExecutionKind(cause), "failed to call wasm method: "+method).WithCause(cause).WithRetryable(apierror.False)
+}
+
+// guestExecutionKind classifies a guest execution failure. The engine closes a
+// running guest when its execution context ends and reports an exit error that
+// matches the context error, so deadline and cancellation interrupts keep their
+// own kinds.
+func guestExecutionKind(cause error) apierror.Kind {
+	switch {
+	case errors.Is(cause, context.DeadlineExceeded):
+		return apierror.Timeout
+	case errors.Is(cause, context.Canceled):
+		return apierror.Canceled
+	default:
+		return apierror.Internal
+	}
 }
 
 func NewUnsupportedTransportError(transport string) apierror.Error {
