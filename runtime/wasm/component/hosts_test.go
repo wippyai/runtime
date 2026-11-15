@@ -141,7 +141,7 @@ func TestHostRegistryMaySuspend(t *testing.T) {
 		HostProfile{Name: "wasi:sockets"},
 	))
 
-	id := func(name string) registry.ID { return registry.ParseID(name) }
+	id := registry.ParseID
 	assert.False(t, r.MaySuspend(nil))
 	assert.False(t, r.MaySuspend([]registry.ID{id("wasi:io"), id("wasi:cli")}))
 	assert.True(t, r.MaySuspend([]registry.ID{id("wasi:io"), id("wasi:sockets")}))
