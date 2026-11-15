@@ -132,3 +132,18 @@ func TestHostRegistryEnsureImports_RegistersOnceAcrossConcurrentLoads(t *testing
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&calls))
 }
+
+func TestHostRegistryMaySuspend(t *testing.T) {
+	r := NewHostRegistry()
+	require.NoError(t, r.RegisterProfiles(
+		HostProfile{Name: "wasi:io", NeverSuspends: true},
+		HostProfile{Name: "wasi:cli", NeverSuspends: true},
+		HostProfile{Name: "wasi:sockets"},
+	))
+
+	id := func(name string) registry.ID { return registry.ParseID(name) }
+	assert.False(t, r.MaySuspend(nil))
+	assert.False(t, r.MaySuspend([]registry.ID{id("wasi:io"), id("wasi:cli")}))
+	assert.True(t, r.MaySuspend([]registry.ID{id("wasi:io"), id("wasi:sockets")}))
+	assert.True(t, r.MaySuspend([]registry.ID{id("wasi:io"), id("unknown")}))
+}
