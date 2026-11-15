@@ -81,7 +81,12 @@ func NewProcess(
 		retainedMemoryCheckInterval = limits.EffectiveRetainedMemoryCheckInterval()
 	}
 	limits.MaxRetainedMemoryBytes = limits.EffectiveMaxRetainedMemoryBytes()
+	var budget *memorybudget.Budget
+	if limits.MemoryBytes > 0 {
+		budget = memorybudget.New(uint64(limits.MemoryBytes))
+	}
 	return &Process{
+		memoryBudget:                budget,
 		module:                      module,
 		transport:                   transport,
 		wasi:                        wasi,
@@ -91,6 +96,11 @@ func NewProcess(
 		retainedMemoryCheckInterval: retainedMemoryCheckInterval,
 	}
 }
+
+// MemoryBudget returns the linear-memory budget admitting this process's guest
+// memory, or nil when limits declare no memory ceiling. Host resource owners may
+// reserve from the same ledger.
+func (p *Process) MemoryBudget() *memorybudget.Budget { return p.memoryBudget }
 
 // Init captures call parameters for this process execution.
 func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error {

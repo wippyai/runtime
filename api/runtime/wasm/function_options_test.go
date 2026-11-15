@@ -272,3 +272,59 @@ func TestFunctionConfig_MarshalCanonicalOptionsAndRootPool(t *testing.T) {
 	assert.Contains(t, string(yamlData), "pool:")
 	assert.NotContains(t, string(yamlData), "limits:")
 }
+
+func TestFunctionConfig_MemoryBytesLimit(t *testing.T) {
+	raw := `{
+		"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run",
+		"meta":{"options":{"limits":{"memory_bytes":1048576}}}
+	}`
+	cfg, err := decodeFunctionEntry(t, raw, nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1048576), cfg.Limits.MemoryBytes)
+	assert.Equal(t, int64(1048576), cfg.LimitsConfig().MemoryBytes)
+
+	watRaw := `{"source":"(module)","method":"run","meta":{"options":{"limits":{"memory_bytes":131072}}}}`
+	watCfg, err := decodeWATTestEntry(t, watRaw, nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(131072), watCfg.Limits.MemoryBytes)
+
+	encoded, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"memory_bytes":1048576`)
+
+	var limits LimitsConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"memory_bytes":65536}`), &limits))
+	assert.Equal(t, int64(65536), limits.MemoryBytes)
+	roundTrip, err := json.Marshal(limits)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"memory_bytes":65536}`, string(roundTrip))
+}
+
+func TestFunctionConfig_MemoryBytesValidation(t *testing.T) {
+	tests := []struct {
+		targetErr error
+		name      string
+		value     string
+	}{
+		{name: "negative", value: "-65536", targetErr: ErrProcessMemoryBytesInvalid},
+		{name: "unaligned", value: "100000", targetErr: ErrProcessMemoryBytesAlignment},
+		{name: "above 4GiB", value: "4295032832", targetErr: ErrProcessMemoryBytesExceeded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := `{
+				"fs":"app:fs","path":"/test.wasm","hash":"sha256:0","method":"run",
+				"meta":{"options":{"limits":{"memory_bytes":` + tt.value + `}}}
+			}`
+			_, err := decodeFunctionEntry(t, raw, nil)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.targetErr)
+
+			cfg := &FunctionConfig{FS: "app:fs", Path: "/test.wasm", Hash: "sha256:0", Method: "run"}
+			var limits LimitsConfig
+			require.NoError(t, json.Unmarshal([]byte(`{"memory_bytes":`+tt.value+`}`), &limits))
+			cfg.SetOptions(FunctionOptions{Limits: limits})
+			assert.ErrorIs(t, cfg.Validate(), tt.targetErr)
+		})
+	}
+}
