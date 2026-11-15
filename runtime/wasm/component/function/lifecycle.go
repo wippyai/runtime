@@ -303,7 +303,7 @@ func (m *Manager) loadIsolatedModule(ctx context.Context, cfg *configEntry) (*wa
 	if err != nil {
 		return nil, runtimewasm.NewLoadWASMError(err)
 	}
-	if err := m.compileModule(ctx, module, cfg.wasm.Imports); err != nil {
+	if err := m.compileModule(ctx, module, cfg.wasm.Imports, true); err != nil {
 		return nil, runtimewasm.NewCompileModuleError(err)
 	}
 
@@ -360,7 +360,7 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 	}
 	loaded := time.Now()
 
-	if err := m.compileModule(ctx, module, cfg.Imports); err != nil {
+	if err := m.compileModule(ctx, module, cfg.Imports, false); err != nil {
 		m.releaseModule(module)
 		return nil, false, runtimewasm.NewCompileModuleError(err)
 	}
@@ -374,9 +374,11 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 	return module, isComponent, nil
 }
 
-// compileModule compiles without Asyncify when no import can suspend the guest.
-func (m *Manager) compileModule(ctx context.Context, module *wasmrt.Module, imports []registry.ID) error {
-	if m.hostRegistry.MaySuspend(imports) {
+// compileModule may skip Asyncify only for an isolated runtime. A shared runtime
+// can also satisfy imports registered for sibling entries; its actual host
+// imports must retain the normal derivation and transform.
+func (m *Manager) compileModule(ctx context.Context, module *wasmrt.Module, imports []registry.ID, isolated bool) error {
+	if !isolated || m.hostRegistry.MaySuspend(imports) {
 		return module.Compile(ctx)
 	}
 	return module.CompileWithConfig(ctx, &wrtengine.CompileConfig{Synchronous: true})
