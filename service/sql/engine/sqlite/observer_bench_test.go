@@ -24,7 +24,7 @@ func BenchmarkObserverCommit(b *testing.B) {
 			if mode == "driver" {
 				db, err = sql.Open("sqlite3", ":memory:")
 			} else {
-				db, observer, err = openSQLite(ctx, ":memory:")
+				db, observer, err = openSQLite(ctx, ":memory:", sqlapi.SQLiteCheckpointConfig{})
 			}
 			if err != nil {
 				b.Fatal(err)

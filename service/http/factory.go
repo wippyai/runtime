@@ -53,11 +53,20 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Create RequestContext for this request
-		rCtx := newRequestContext(r, w)
+		// The execution runs in the request frame created by the server handler wrapper.
+		execCtx, cancel := context.WithCancelCause(r.Context())
+		defer cancel(nil)
 
-		// Use existing context (FrameContext already created in handler wrapper)
-		execCtx := r.Context()
+		rCtx := newRequestContext(r, w)
+		// A streaming response ends its execution once the server begins its shutdown.
+		rCtx.SetStreamStart(func() (<-chan struct{}, error) {
+			shuttingDown, err := config.ServerShutdown(execCtx)
+			if err != nil {
+				return nil, err
+			}
+			go config.WatchServerShutdown(execCtx, cancel, shuttingDown)
+			return shuttingDown, nil
+		})
 
 		// Seal the frame context before calling the function
 		// This allows middleware to set values (actor, etc.) in unsealed frame

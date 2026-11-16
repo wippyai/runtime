@@ -35,9 +35,7 @@ var phoneModule = &luaapi.ModuleDef{
 }
 
 func phoneModulesProvider() ModuleProvider {
-	return func() []*luaapi.ModuleDef {
-		return []*luaapi.ModuleDef{json.Module, timemod.Module, phoneModule}
-	}
+	return modulesProvider(json.Module, timemod.Module, phoneModule)
 }
 
 // quoteLibrarySource is a privileged import: it uses the phone capability

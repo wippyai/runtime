@@ -123,6 +123,21 @@ func repairImmutableArtifact(staged, destination, digest string, size uint64) er
 	return verifyExistingImmutableArtifact(destination, digest, size)
 }
 
+// MaterializeVerifiedArtifact copies a verified cache artifact to a deployment
+// path without replacing existing content. The private copy keeps mutable
+// deployment files independent of the immutable cache, including on one filesystem.
+func MaterializeVerifiedArtifact(candidate, destination, digest string, size uint64) error {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return NewArtifactIOError("create artifact directory", filepath.Dir(destination), err)
+	}
+	staged, err := copyArtifactToPrivateFile(candidate, filepath.Dir(destination), ".artifact-materialize-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(staged)
+	return publishVerifiedArtifact(staged, destination, digest, size)
+}
+
 // publishVerifiedArtifact publishes an already-downloaded private candidate at
 // an immutable digest-addressed path. Concurrent publishers may race, but every
 // accepted winner is verified against the same identity before it is returned.

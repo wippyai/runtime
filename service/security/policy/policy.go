@@ -3,6 +3,8 @@
 package policy
 
 import (
+	"slices"
+
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
@@ -10,9 +12,12 @@ import (
 )
 
 type Policy struct {
-	config    *policy.Config
-	evaluator *ConditionEvaluator
-	id        registry.ID
+	config             *policy.Config
+	evaluator          *ConditionEvaluator
+	self               *Policy
+	id                 registry.ID
+	actions, resources filter
+	identity           uint64
 }
 
 func NewPolicy(id registry.ID, config *policy.Config) (*Policy, error) {
@@ -20,16 +25,29 @@ func NewPolicy(id registry.ID, config *policy.Config) (*Policy, error) {
 		return nil, err
 	}
 
-	evaluator, err := NewConditionEvaluator(config.Policy.Conditions)
+	owned := *config
+	owned.Policy.Conditions = slices.Clone(config.Policy.Conditions)
+	for i := range owned.Policy.Conditions {
+		owned.Policy.Conditions[i].Value = cloneConditionValue(owned.Policy.Conditions[i].Value)
+	}
+	owned.Policy.Actions = nil
+	owned.Policy.Resources = nil
+	owned.Groups = nil
+	evaluator, err := NewConditionEvaluator(owned.Policy.Conditions)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Policy{
+	p := &Policy{
 		id:        id,
-		config:    config,
+		config:    &owned,
+		actions:   compileFilter(config.Policy.Actions),
+		resources: compileFilter(config.Policy.Resources),
+		identity:  nextIdentity(),
 		evaluator: evaluator,
-	}, nil
+	}
+	p.self = p
+	return p, nil
 }
 
 func (p *Policy) ID() registry.ID {
@@ -60,11 +78,11 @@ func (p *Policy) Evaluate(actor security.Actor, action, resource string, meta at
 }
 
 func (p *Policy) matchesAction(action string) bool {
-	return matchesFilter(p.config.Policy.Actions, action)
+	return p.actions.matches(action)
 }
 
 func (p *Policy) matchesResource(resource string) bool {
-	return matchesFilter(p.config.Policy.Resources, resource)
+	return p.resources.matches(resource)
 }
 
 func (p *Policy) getResult() security.Result {

@@ -65,10 +65,13 @@ func releaseDoneChan(ch chan error) {
 
 // serviceCtx bundles the Start()-scoped context and its cancel so they can
 // be swapped atomically across Stop/Start cycles without racing concurrent
-// submitters reading s.currentCtx().
+// submitters reading s.currentCtx(). unavailable is the error reported once
+// ctx is done: ErrServiceNotStarted for the pre-Start sentinel,
+// ErrServiceStopped for a stopped or cancelled run.
 type serviceCtx struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx         context.Context
+	cancel      context.CancelFunc
+	unavailable error
 }
 
 // livenessActivityCeiling is the maximum time since the last PG broadcast
@@ -94,16 +97,21 @@ const livenessActivityCeiling = 5 * time.Minute
 // us when their memberlist gossip surfaces our NodeJoined.
 const initialDiscoverFanOut = 4
 
-// closedServiceCtx is the sentinel returned before Start or after Stop. Its
-// context is already cancelled so `<-s.currentCtx().Done()` is non-blocking,
-// and submit() rejects new work with ErrServiceStopped — matching the
-// "service not running" contract without requiring a nil check at every
-// call site.
-var closedServiceCtx = func() *serviceCtx {
+// notStartedServiceCtx and stoppedServiceCtx are the sentinels installed
+// before Start and after Stop. Their contexts are already cancelled so
+// `<-s.currentCtx().Done()` is non-blocking and submit() rejects new work
+// without a nil check at every call site; each carries the error that
+// names its state.
+var (
+	notStartedServiceCtx = newClosedServiceCtx(ErrServiceNotStarted)
+	stoppedServiceCtx    = newClosedServiceCtx(ErrServiceStopped)
+)
+
+func newClosedServiceCtx(unavailable error) *serviceCtx {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	return &serviceCtx{ctx: ctx, cancel: cancel}
-}()
+	return &serviceCtx{ctx: ctx, cancel: cancel, unavailable: unavailable}
+}
 
 // Service implements the pg (process groups) service.
 // All state mutations are serialized through a single goroutine event loop,
@@ -182,6 +190,17 @@ func (s *Service) currentCtx() context.Context {
 	return s.ctxHolder.Load().ctx
 }
 
+// unavailableError reports why the service rejects work, or nil while it
+// runs: ErrServiceNotStarted before the first successful Start,
+// ErrServiceStopped once Stop ran or the Start context was cancelled.
+func (s *Service) unavailableError() error {
+	sctx := s.ctxHolder.Load()
+	if sctx.ctx.Err() == nil {
+		return nil
+	}
+	return sctx.unavailable
+}
+
 // NewService creates a new pg service for the given scope.
 //
 // The hostID identifies this scope in the relay system and must be unique
@@ -233,7 +252,7 @@ func NewService(
 	// Before Start (or after Stop) reads of s.currentCtx() return an
 	// already-cancelled sentinel so submit() rejects work cleanly and no
 	// call site needs a nil check.
-	svc.ctxHolder.Store(closedServiceCtx)
+	svc.ctxHolder.Store(notStartedServiceCtx)
 
 	svc.tel = newTelemetry(coll, mp, tp)
 
@@ -266,10 +285,11 @@ func (s *Service) HostID() pid.HostID {
 // Start begins the pg service event loop and subscribes to cluster events.
 // The Start-scoped context is published atomically via ctxHolder so concurrent
 // submitters racing against Start/Stop observe a consistent ctx without lock.
+// A failed Start restores the lifecycle state it found.
 func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	runCtx, cancel := context.WithCancel(ctx)
-	sctx := &serviceCtx{ctx: runCtx, cancel: cancel}
-	s.ctxHolder.Store(sctx)
+	sctx := &serviceCtx{ctx: runCtx, cancel: cancel, unavailable: ErrServiceStopped}
+	prev := s.ctxHolder.Swap(sctx)
 
 	statusChan := make(chan any, 1)
 
@@ -279,7 +299,7 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		s.nodeJoinedSub, err = eventbus.NewSubscriber(runCtx, s.bus, cluster.System, cluster.NodeJoined, s.handleNodeJoinedEvent)
 		if err != nil {
 			cancel()
-			s.ctxHolder.Store(closedServiceCtx)
+			s.ctxHolder.Store(prev)
 			return nil, err
 		}
 
@@ -287,7 +307,7 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		if err != nil {
 			s.nodeJoinedSub.Close()
 			cancel()
-			s.ctxHolder.Store(closedServiceCtx)
+			s.ctxHolder.Store(prev)
 			return nil, err
 		}
 	}
@@ -359,7 +379,7 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 }
 
 // Stop shuts down the pg service. Safe to call concurrently with Start or
-// with submitters: the atomic swap to closedServiceCtx ensures the old
+// with submitters: the atomic swap to stoppedServiceCtx ensures the old
 // ctx is cancelled exactly once and subsequent submit() calls observe a
 // cancelled context without racing the field write.
 func (s *Service) Stop(_ context.Context) error {
@@ -383,9 +403,9 @@ func (s *Service) Stop(_ context.Context) error {
 
 	// Swap the live ctx holder out atomically; then cancel the old one so
 	// any in-flight select using the previous ctx unblocks. New submitters
-	// will now observe the closed sentinel and reject via submitError().
-	old := s.ctxHolder.Swap(closedServiceCtx)
-	if old != nil && old != closedServiceCtx {
+	// will now observe the stopped sentinel and reject via submitError().
+	old := s.ctxHolder.Swap(stoppedServiceCtx)
+	if old != nil && old != stoppedServiceCtx && old != notStartedServiceCtx {
 		old.cancel()
 	}
 	s.wg.Wait()
@@ -507,14 +527,13 @@ func (s *Service) logQueueStressTransition(next int32, depth int) {
 }
 
 // submitError returns the appropriate error when submit() returns false:
-// ErrServiceStopped if the context is done, ErrBackpressure if the queue is full.
+// the lifecycle error when the service is not running, ErrBackpressure if
+// the queue is full.
 func (s *Service) submitError() error {
-	select {
-	case <-s.currentCtx().Done():
-		return ErrServiceStopped
-	default:
-		return ErrBackpressure
+	if err := s.unavailableError(); err != nil {
+		return err
 	}
+	return ErrBackpressure
 }
 
 // These methods use the serialized event loop for thread safety.
@@ -545,10 +564,8 @@ func (s *Service) Acquire(_ context.Context, _ registry.ID, mode resource.Access
 	if mode != resource.ModeNormal {
 		return nil, resource.ErrReleased
 	}
-	// Check if service is running via the running context sentinel; the
-	// closed sentinel is installed by Stop and before Start.
-	if s.currentCtx().Err() != nil {
-		return nil, ErrServiceStopped
+	if err := s.unavailableError(); err != nil {
+		return nil, err
 	}
 	return &pgResource{svc: s}, nil
 }

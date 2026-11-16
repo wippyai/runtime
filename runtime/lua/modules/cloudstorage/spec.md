@@ -51,6 +51,7 @@ Returned by `cloudstorage.get()`. Provides methods for cloud storage operations.
 | head_object | (key: string) | table, error | Fetches full metadata for a single object |
 | download_object | (key: string, writer: io.Writer, options?: table) | boolean, error | Downloads object to writer |
 | upload_object | (key: string, content: string \| io.Reader, options?: table) | boolean, error | Uploads object from string or reader |
+| copy_object | (src_key: string, dst_key: string, options?: table) | table, error | Copies an object server-side |
 | delete_objects | (keys: string[]) | boolean, error | Deletes multiple objects |
 | presigned_get_url | (key: string, options?: table) | string, error | Generates presigned download URL |
 | presigned_put_url | (key: string, options?: table) | string, error | Generates presigned upload URL |
@@ -109,7 +110,7 @@ Lists objects in storage with optional filtering.
 | Condition | Kind |
 |-----------|------|
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until operation completes
 
@@ -167,7 +168,7 @@ provider has set it on upload).
 | key empty | errors.INVALID |
 | storage released | errors.INVALID |
 | object not found | errors.NOT_FOUND |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 ```lua
 local head, err = storage:head_object("uploads/photo.jpg")
@@ -206,7 +207,7 @@ Downloads an object to an io.Writer (typically fs.File).
 | writer not io.Writer | errors.INVALID |
 | object not found | errors.NOT_FOUND |
 | if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until download completes
 
@@ -261,7 +262,7 @@ preconditions.
 | content nil | errors.INVALID |
 | storage released | errors.INVALID |
 | if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until upload completes
 
@@ -292,6 +293,78 @@ if err and err:kind() == errors.CONFLICT then
 end
 ```
 
+#### storage:copy_object(src_key: string, dst_key: string, options?: table) → table, error
+
+Copies an object inside the storage without moving its data through the caller.
+The destination is replaced when it exists.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| src_key | string | yes | - | Source object key |
+| dst_key | string | yes | - | Destination object key |
+| options | table | no | nil | Metadata directive and preconditions |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| metadata_directive | string | "COPY" | `"COPY"` keeps the source content type and user metadata; `"REPLACE"` stores the `metadata` and `content_type` given here instead |
+| metadata | table<string,string> | nil | Destination user metadata. Requires `"REPLACE"` |
+| content_type | string | "" | Destination Content-Type. Requires `"REPLACE"`; with `"REPLACE"` and no `content_type` the provider default applies |
+| if_match | string | "" | Source condition: copy only if the source object's ETag matches |
+| if_none_match | string | "" | Destination condition: `"*"` copies only if the destination does not exist (where the provider supports it) |
+
+**Returns:**
+- Success: `{ etag: string, last_modified?: number }` of the destination (`last_modified` is Unix seconds)
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| src_key or dst_key empty | errors.INVALID |
+| metadata_directive not `"COPY"` or `"REPLACE"` | errors.INVALID |
+| `metadata` or `content_type` without `"REPLACE"` | errors.INVALID |
+| src_key equals dst_key without `"REPLACE"` | errors.INVALID |
+| storage released | errors.INVALID |
+| source does not exist | errors.NOT_FOUND (message `not_found`) |
+| if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
+| provider does not support server-side copy | errors.UNAVAILABLE (not retryable) |
+| provider failure | see [Provider errors](#provider-errors) |
+
+**Yields:** until the copy completes
+
+**Notes:**
+- Copying onto the same key with `metadata_directive = "REPLACE"` rewrites the
+  object in place and refreshes its `last_modified`. Pass the existing
+  `content_type` (read with `head_object`) to keep it.
+- Sources above 5 GiB are copied part by part (S3 `UploadPartCopy`, 1 GiB
+  ranges, pinned to the source ETag) and assembled into the destination, so
+  there is no size limit beyond the provider's. The resulting ETag is the
+  multipart ETag, not the source's. A failed multipart copy leaves no
+  destination and no orphaned upload.
+- Cache-Control, Content-Disposition and Content-Encoding follow the directive
+  with the content type: kept with `"COPY"`, dropped with `"REPLACE"`.
+
+```lua
+-- Duplicate an object with its metadata
+local res, err = storage:copy_object("models/a.bin", "models/b.bin")
+
+-- Refresh last_modified on immutable content
+local head = storage:head_object("models/a.bin")
+storage:copy_object("models/a.bin", "models/a.bin", {
+    metadata_directive = "REPLACE",
+    content_type = head.content_type,
+    metadata = head.metadata,
+})
+
+-- Copy only if the source has not changed and the destination is free
+local _, err = storage:copy_object("in/x", "out/x", { if_match = etag, if_none_match = "*" })
+if err and err:kind() == errors.CONFLICT then
+    -- source changed or destination exists
+end
+```
+
 #### storage:delete_objects(keys: string[]) → boolean, error
 
 Deletes multiple objects.
@@ -309,7 +382,7 @@ Deletes multiple objects.
 | Condition | Kind |
 |-----------|------|
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until deletion completes
 
@@ -346,7 +419,7 @@ Generates a presigned URL for downloading an object without credentials.
 |-----------|------|
 | key empty | errors.INVALID |
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until URL generation completes
 
@@ -388,7 +461,7 @@ Generates a presigned URL for uploading an object without credentials.
 |-----------|------|
 | key empty | errors.INVALID |
 | storage released | errors.INVALID |
-| operation failed | errors.INTERNAL |
+| provider failure | see [Provider errors](#provider-errors) |
 
 **Yields:** until URL generation completes
 
@@ -617,7 +690,51 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.CONFLICT`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.CONFLICT`,
+`errors.PERMISSION_DENIED`, `errors.UNAVAILABLE`, `errors.RATE_LIMITED`,
+`errors.TIMEOUT`, `errors.CANCELED`, `errors.INTERNAL`
+
+### Provider errors
+
+Every storage method that reaches the provider classifies its failures the
+same way, so a caller can tell a missing bucket from rejected credentials or
+an unreachable endpoint without reading the message.
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| missing key, bucket, upload or version | errors.NOT_FOUND (message `not_found`) | no |
+| if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) | no |
+| credentials rejected, expired or lacking permission | errors.PERMISSION_DENIED | no |
+| conflicting concurrent operation | errors.CONFLICT | no |
+| request rejected as malformed | errors.INVALID | no |
+| provider throttles the request | errors.RATE_LIMITED | yes |
+| provider server error or endpoint unreachable | errors.UNAVAILABLE | yes |
+| provider or transport timeout | errors.TIMEOUT | yes |
+| caller deadline expired | errors.TIMEOUT | no |
+| caller canceled | errors.CANCELED | no |
+| anything else | errors.INTERNAL | no |
+
+Retryability follows the AWS SDK retry policy where it has a verdict (for
+example a DNS name that does not exist is `errors.UNAVAILABLE` but not
+retryable). Provider-reported failures carry `err:details()` with `code`
+(provider error code, e.g. `NoSuchBucket`, `InvalidAccessKeyId`),
+`status_code`, `request_id`, `operation` and `bucket` when known.
+`delete_objects` failures reported per key carry `failed` (key count) and
+take the kind shared by every key, or `errors.INTERNAL` when keys fail for
+different reasons.
+
+```lua
+local result, err = storage:list_objects()
+if err then
+    if err:kind() == errors.NOT_FOUND then
+        -- err:details().code == "NoSuchBucket"
+    elseif err:kind() == errors.PERMISSION_DENIED then
+        -- credentials rejected
+    elseif err:retryable() then
+        -- transient: unavailable, throttled or timed out
+    end
+end
+```
 
 ## Example
 
@@ -694,6 +811,22 @@ The most important caveats:
   header conventions.
 
 ## Changelog
+
+### Server-side copy
+
+- `storage:copy_object(src_key, dst_key, options)` copies an object inside the
+  storage; see the method reference for directives, preconditions and errors.
+
+### Classified provider errors
+
+- Every provider-reaching method returns errors with a kind, a retryable flag
+  and provider details (see [Provider errors](#provider-errors)); failures that
+  previously arrived without a kind now report `errors.PERMISSION_DENIED`,
+  `errors.UNAVAILABLE`, `errors.RATE_LIMITED`, `errors.TIMEOUT`,
+  `errors.CANCELED`, `errors.INVALID` or `errors.INTERNAL`.
+- `list_objects` on a missing bucket returns `errors.NOT_FOUND` (message
+  `not_found`, `details.code == "NoSuchBucket"`).
+- `not_found` and `precondition_failed` errors carry the provider details.
 
 ### Presigned multipart uploads + ranged random-access reader
 

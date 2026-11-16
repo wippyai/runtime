@@ -187,31 +187,23 @@ func parseDiffOptions(table *lua.LTable) *DiffOptions {
 	}
 
 	table.ForEach(func(key, value lua.LValue) {
+		if value.Type() != lua.LTNumber && value.Type() != lua.LTInteger {
+			return
+		}
+		num := lua.LVAsNumber(value)
 		switch key.String() {
 		case "diff_timeout":
-			if num, ok := value.(lua.LNumber); ok {
-				options.DiffTimeout = float64(num)
-			}
+			options.DiffTimeout = float64(num)
 		case "diff_edit_cost":
-			if num, ok := value.(lua.LNumber); ok {
-				options.DiffEditCost = int16(num)
-			}
+			options.DiffEditCost = int16(num)
 		case "match_threshold":
-			if num, ok := value.(lua.LNumber); ok {
-				options.MatchThreshold = float64(num)
-			}
+			options.MatchThreshold = float64(num)
 		case "match_distance":
-			if num, ok := value.(lua.LNumber); ok {
-				options.MatchDistance = int(num)
-			}
+			options.MatchDistance = int(num)
 		case "patch_delete_threshold":
-			if num, ok := value.(lua.LNumber); ok {
-				options.PatchDeleteThreshold = float64(num)
-			}
+			options.PatchDeleteThreshold = float64(num)
 		case "patch_margin":
-			if num, ok := value.(lua.LNumber); ok {
-				options.PatchMargin = int(num)
-			}
+			options.PatchMargin = int(num)
 		}
 	})
 
@@ -635,11 +627,39 @@ func luaSplitterMarkdown(l *lua.LState) int {
 	if l.GetTop() > 0 && l.Get(1).Type() == lua.LTTable {
 		options = parseMarkdownOptions(l.CheckTable(1))
 	}
+	options = append(options, markdownParagraphSplitter(options))
 
 	splitter := textsplitter.NewMarkdownTextSplitter(options...)
 	value.PushTypedUserData(l, &Splitter{splitter: splitter}, typeSplitter)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func splitterOptionInt(value lua.LValue) (int, bool) {
+	switch number := value.(type) {
+	case lua.LInteger:
+		return int(number), true
+	case lua.LNumber:
+		return int(number), true
+	default:
+		return 0, false
+	}
+}
+
+// markdownParagraphSplitter splits markdown snippets longer than the chunk size
+// at the configured separators. The default separators end with "", so text
+// without any separator is cut at the chunk size.
+func markdownParagraphSplitter(options []textsplitter.Option) textsplitter.Option {
+	resolved := textsplitter.DefaultOptions()
+	for _, option := range options {
+		option(&resolved)
+	}
+	return textsplitter.WithSecondSplitter(textsplitter.NewRecursiveCharacter(
+		textsplitter.WithChunkSize(resolved.ChunkSize),
+		textsplitter.WithChunkOverlap(resolved.ChunkOverlap),
+		textsplitter.WithSeparators(resolved.Separators),
+		textsplitter.WithLenFunc(resolved.LenFunc),
+	))
 }
 
 func parseRecursiveOptions(table *lua.LTable) []textsplitter.Option {
@@ -648,12 +668,12 @@ func parseRecursiveOptions(table *lua.LTable) []textsplitter.Option {
 	table.ForEach(func(key, val lua.LValue) {
 		switch key.String() {
 		case "chunk_size":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkSize(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkSize(number))
 			}
 		case "chunk_overlap":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkOverlap(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkOverlap(number))
 			}
 		case "keep_separator":
 			if b, ok := val.(lua.LBool); ok {
@@ -678,12 +698,12 @@ func parseMarkdownOptions(table *lua.LTable) []textsplitter.Option {
 	table.ForEach(func(key, val lua.LValue) {
 		switch key.String() {
 		case "chunk_size":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkSize(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkSize(number))
 			}
 		case "chunk_overlap":
-			if num, ok := val.(lua.LNumber); ok {
-				options = append(options, textsplitter.WithChunkOverlap(int(num)))
+			if number, ok := splitterOptionInt(val); ok {
+				options = append(options, textsplitter.WithChunkOverlap(number))
 			}
 		case "code_blocks":
 			if b, ok := val.(lua.LBool); ok {

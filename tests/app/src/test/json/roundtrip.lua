@@ -21,6 +21,12 @@ local function main()
 	assert.eq(arr_dec[1], 1, "first element preserved")
 	assert.eq(arr_dec[5], 5, "last element preserved")
 
+	local rows_json = '{"rows":[["a",null,"c"],[null,2]]}'
+	local rows = json.decode(rows_json)
+	assert.is_nil(rows.rows[1][2], "null element decodes to nil")
+	assert.eq(rows.rows[1][3], "c", "element after null keeps its position")
+	assert.eq(json.encode(rows), rows_json, "null elements survive a round trip")
+
 	-- Nested structure round trip
 	local nested = {
 		items = {1, 2, 3},

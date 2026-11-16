@@ -131,6 +131,7 @@ func newRouterDefinition(t *testing.T, proc *recordingProcess) (*Definition, *re
 		dc: dc,
 		info: &workflow.Info{
 			WorkflowExecution: workflow.Execution{ID: "self-workflow", RunID: "self-run"},
+			FirstRunID:        "first-run",
 			TaskQueueName:     "default-queue",
 		},
 	}

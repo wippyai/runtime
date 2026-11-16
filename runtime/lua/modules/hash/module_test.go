@@ -182,12 +182,40 @@ func TestFNV64(t *testing.T) {
 		if err ~= nil then
 			error("unexpected error")
 		end
-		if type(result) ~= "number" then
-			error("fnv64 should return number")
+		if type(result) ~= "string" then
+			error("fnv64 should return string")
 		end
 	`)
 	if err != nil {
 		t.Errorf("fnv64 test failed: %v", err)
+	}
+}
+
+func TestFNV64Vectors(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	// FNV-1 64-bit reference vectors; the high-entropy values lose low bits as float64.
+	err := l.DoString(`
+		local cases = {
+			{"", "cbf29ce484222325"},
+			{"a", "af63bd4c8601b7be"},
+			{"foobar", "340d8765a4dda9c2"},
+		}
+		for _, c in ipairs(cases) do
+			local result, err = hash.fnv64(c[1])
+			if err ~= nil then error("unexpected error") end
+			if result ~= c[2] then
+				error("fnv64(" .. c[1] .. ") = " .. tostring(result) .. ", want " .. c[2])
+			end
+		end
+		local raw = hash.fnv64("a", true)
+		if #raw ~= 8 then error("raw fnv64 should be 8 bytes") end
+	`)
+	if err != nil {
+		t.Errorf("fnv64 vectors failed: %v", err)
 	}
 }
 

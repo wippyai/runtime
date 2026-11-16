@@ -74,6 +74,9 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+			if ctx.Err() != nil {
+				return
+			}
 
 			// Get resources from context
 			resources := resource.GetRegistry(ctx)
@@ -88,11 +91,22 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 				tokenStoreRes, err := resources.Acquire(ctx, tokenStoreID, resource.ModeNormal)
 				if err == nil {
 					defer tokenStoreRes.Release()
-
-					if storeImpl, err := tokenStoreRes.Get(); err == nil {
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				if err == nil {
+					storeImpl, err := tokenStoreRes.Get()
+					if ctx.Err() != nil {
+						return
+					}
+					if err == nil {
 						if tokenStore, ok := storeImpl.(security.TokenStore); ok {
 							// Validate token
 							actor, scope, err := tokenStore.Validate(ctx, security.Token(tokenStr))
+							if ctx.Err() != nil {
+								return
+							}
 							if err == nil {
 								var frame ctxapi.FrameContext
 								if current := ctxapi.FrameFromContext(ctx); current != nil && current.IsSealed() {
@@ -136,7 +150,11 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 				}
 			}
 
-			// Always continue with the request - with enriched context if token was valid
+			if ctx.Err() != nil {
+				return
+			}
+
+			// Continue with enriched context if the token is valid.
 			next.ServeHTTP(w, r)
 		})
 	}

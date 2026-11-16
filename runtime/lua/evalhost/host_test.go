@@ -4,11 +4,13 @@ package evalhost
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
@@ -31,13 +33,32 @@ end
 return sdk
 `
 
-// mockImportLoader creates a mock import loader that returns the test library
+// mockImportLoader creates an import loader serving each test library as a
+// prototype compiled once, as the code manager retains it.
 func mockImportLoader(sources map[registry.ID]string) ImportLoader {
-	return func(id registry.ID) (string, error) {
-		if source, ok := sources[id]; ok {
-			return source, nil
+	protos := make(map[registry.ID]*lua.FunctionProto, len(sources))
+	errs := make(map[registry.ID]error)
+	for id, source := range sources {
+		chunk, err := parse.Parse(strings.NewReader(source), id.String())
+		if err != nil {
+			errs[id] = err
+			continue
 		}
-		return "", NewImportError("test", id, nil)
+		proto, err := lua.CompileWithOptions(chunk, id.String(), lua.CompileOptions{})
+		if err != nil {
+			errs[id] = err
+			continue
+		}
+		protos[id] = proto
+	}
+	return func(id registry.ID) (*lua.FunctionProto, error) {
+		if err, ok := errs[id]; ok {
+			return nil, err
+		}
+		if proto, ok := protos[id]; ok {
+			return proto, nil
+		}
+		return nil, NewImportError("test", id, nil)
 	}
 }
 

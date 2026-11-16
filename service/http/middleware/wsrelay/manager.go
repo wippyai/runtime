@@ -5,7 +5,9 @@ package wsrelay
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/coder/websocket"
@@ -83,6 +85,8 @@ const (
 	// OptionAllowedOrigins is an option key (dot-separated, preferred)
 	OptionAllowedOrigins = "wsrelay.allowed.origins"
 
+	OptionReadLimit = "wsrelay.read.limit"
+
 	// Shared option key (can be used across modules)
 	sharedAllowOrigins = "allow_origins"
 
@@ -147,13 +151,31 @@ func (m *RelayManager) CreateMiddleware(options map[string]string) func(http.Han
 		m.logger.Warn("wsrelay: no allowed origins configured, using same-origin only")
 	}
 
+	readLimit := m.parseReadLimit(options)
+
 	return func(h http.Handler) http.Handler {
-		return m.middlewareHandler(h, originPatterns)
+		return m.middlewareHandler(h, originPatterns, readLimit)
 	}
 }
 
+func (m *RelayManager) parseReadLimit(options map[string]string) int64 {
+	value, ok := options[OptionReadLimit]
+	if !ok {
+		return DefaultReadLimit
+	}
+	limit, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || limit <= 0 || limit == math.MaxInt64 {
+		m.logger.Warn("wsrelay: invalid read limit, using default",
+			zap.String("option", OptionReadLimit),
+			zap.String("value", value),
+			zap.Int64("read_limit", DefaultReadLimit))
+		return DefaultReadLimit
+	}
+	return limit
+}
+
 // middlewareHandler creates the actual middleware handler with specified origin patterns
-func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string) http.Handler {
+func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string, readLimit int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wrappedWriter := newResponseWrapper(w)
 		h.ServeHTTP(wrappedWriter, r)
@@ -175,6 +197,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		logger := m.logger.With(
 			zap.String("path", r.URL.Path),
 			zap.String("remote_addr", r.RemoteAddr),
+			zap.Int64("read_limit", readLimit),
 		)
 
 		var config RelayCommand
@@ -244,6 +267,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			logger.Error("Error upgrading to WebSocket", zap.Error(err))
 			return
 		}
+		conn.SetReadLimit(readLimit)
 
 		// Always fork a per-connection frame from app context.
 		wsCtx, wsFC := contextapi.ForkFrameContext(m.appCtx)

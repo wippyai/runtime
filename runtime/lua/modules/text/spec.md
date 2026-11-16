@@ -73,8 +73,8 @@ Creates a recursive character text splitter.
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| chunk_size | integer | 4000 | Maximum characters per chunk |
-| chunk_overlap | integer | 200 | Overlap between chunks |
+| chunk_size | integer | 512 | Maximum characters per chunk |
+| chunk_overlap | integer | 100 | Overlap between chunks |
 | keep_separator | boolean | false | Keep separators in output |
 | separators | string[] | - | Array of separator strings |
 
@@ -94,8 +94,8 @@ Creates a markdown-aware text splitter.
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| chunk_size | integer | 4000 | Maximum characters per chunk |
-| chunk_overlap | integer | 200 | Overlap between chunks |
+| chunk_size | integer | 512 | Maximum characters per chunk |
+| chunk_overlap | integer | 100 | Overlap between chunks |
 | code_blocks | boolean | false | Preserve code blocks |
 | reference_links | boolean | false | Handle reference-style links |
 | heading_hierarchy | boolean | false | Respect heading hierarchy |

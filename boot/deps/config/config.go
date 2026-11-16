@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,6 +20,7 @@ const (
 )
 
 type ModuleConfig struct {
+	Directories  lock.Directories    `yaml:"directories,omitempty"`
 	ExcludeMeta  map[string][]string `yaml:"exclude_meta,omitempty"`
 	Metadata     map[string]any      `yaml:"metadata,omitempty"`
 	Publish      PublishConfig       `yaml:"publish,omitempty"`

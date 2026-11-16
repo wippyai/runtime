@@ -31,7 +31,14 @@ import (
 )
 
 func Registry() boot.Component {
+	return RegistryWithClient(nil)
+}
+
+// RegistryWithClient uses an explicitly selected Hub client for dependency
+// operations. A nil client retains the default registry and live credentials.
+func RegistryWithClient(client hubdeps.HubClient) boot.Component {
 	var histCloser io.Closer
+	var depHandler *hubdeps.DependencyHandler
 
 	return boot.New(boot.P{
 		Name:      RegistryName,
@@ -53,58 +60,12 @@ func Registry() boot.Component {
 				}
 			}
 
-			// Determine history implementation based on config
-			var hist regapi.History
 			cfg := boot.GetConfig(ctx)
-			if cfg != nil {
-				registryCfg := cfg.Sub(RegistryName)
-				enableHistory := registryCfg.GetBool(RegistryEnableHistory, true)
-
-				if !enableHistory {
-					hist = historynil.New()
-				} else {
-					historyType := registryCfg.GetString(RegistryHistoryType, "memory")
-
-					switch historyType {
-					case "sqlite":
-						historyPath := registryCfg.GetString(RegistryHistoryPath, ".wippy/registry.db")
-						absPath, err := filepath.Abs(historyPath)
-						if err != nil {
-							return nil, NewHistoryPathError(err)
-						}
-
-						sqliteHist, err := sqlite.NewSQLite(absPath, logger.Named("history"))
-						if err != nil {
-							return nil, NewSQLiteHistoryError(err)
-						}
-						hist = sqliteHist
-						histCloser = sqliteHist
-
-					case "postgres":
-						historyDSN := registryCfg.GetString(RegistryHistoryDSN, "")
-						historySchema := registryCfg.GetString(RegistryHistorySchema, "")
-
-						postgresHist, err := postgres.NewPostgres(historyDSN, historySchema, logger.Named("history"))
-						if err != nil {
-							return nil, NewPostgresHistoryError(err)
-						}
-						hist = postgresHist
-						histCloser = postgresHist
-
-					case "nil":
-						hist = historynil.New()
-
-					case "memory":
-						hist = historymem.New()
-
-					default:
-						logger.Warn("unknown history type, defaulting to memory", zap.String("type", historyType))
-						hist = historymem.New()
-					}
-				}
-			} else {
-				hist = historymem.New()
+			hist, closer, err := OpenRegistryHistory(cfg, logger.Named("history"))
+			if err != nil {
+				return nil, err
 			}
+			histCloser = closer
 
 			// Create state builder
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)
@@ -124,14 +85,15 @@ func Registry() boot.Component {
 
 			registryOpts := []registry.Option{}
 
-			depHandler, err := newDependencyHandler(ctx, cfg, logger.Named("dependency"), resolver)
+			depHandler, err = NewDependencyHandler(ctx, cfg, logger.Named("dependency"), resolver, client)
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
-				// Startup restores installed artifacts locally. Downloads belong
-				// to explicit install/update operations, never implicit recovery.
-				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessVerifiedOffline)
+				// Materialize exact recorded artifacts before baseline reconciliation.
+				// Verified local artifacts require no Hub access.
+				restoreCtx := regapi.WithDependencyAccess(ctx, regapi.DependencyAccessOnline)
 				if err := depHandler.PrepareRestore(restoreCtx, hist); err != nil {
+					depHandler.Close()
 					// Startup stops here, so the shutdown hook that owns the history
 					// never runs; release it now or the store stays open.
 					if histCloser != nil {
@@ -177,12 +139,69 @@ func Registry() boot.Component {
 			return ctx, nil
 		},
 		Stop: func(_ context.Context) error {
+			depHandler.Close()
 			if histCloser != nil {
 				return histCloser.Close()
 			}
 			return nil
 		},
 	})
+}
+
+// OpenRegistryHistory opens the configured history store. The caller owns the returned closer.
+func OpenRegistryHistory(cfg boot.Config, logger *zap.Logger) (regapi.History, io.Closer, error) {
+	var histCloser io.Closer
+	var hist regapi.History
+	if cfg != nil {
+		registryCfg := cfg.Sub(RegistryName)
+		enableHistory := registryCfg.GetBool(RegistryEnableHistory, true)
+
+		if !enableHistory {
+			hist = historynil.New()
+		} else {
+			historyType := registryCfg.GetString(RegistryHistoryType, "memory")
+
+			switch historyType {
+			case "sqlite":
+				historyPath := registryCfg.GetString(RegistryHistoryPath, ".wippy/registry.db")
+				absPath, err := filepath.Abs(historyPath)
+				if err != nil {
+					return nil, nil, NewHistoryPathError(err)
+				}
+
+				sqliteHist, err := sqlite.NewSQLite(absPath, logger)
+				if err != nil {
+					return nil, nil, NewSQLiteHistoryError(err)
+				}
+				hist = sqliteHist
+				histCloser = sqliteHist
+
+			case "postgres":
+				historyDSN := registryCfg.GetString(RegistryHistoryDSN, "")
+				historySchema := registryCfg.GetString(RegistryHistorySchema, "")
+
+				postgresHist, err := postgres.NewPostgres(historyDSN, historySchema, logger)
+				if err != nil {
+					return nil, nil, NewPostgresHistoryError(err)
+				}
+				hist = postgresHist
+				histCloser = postgresHist
+
+			case "nil":
+				hist = historynil.New()
+
+			case "memory":
+				hist = historymem.New()
+
+			default:
+				logger.Warn("unknown history type, defaulting to memory", zap.String("type", historyType))
+				hist = historymem.New()
+			}
+		}
+	} else {
+		hist = historymem.New()
+	}
+	return hist, histCloser, nil
 }
 
 // getDefaultDependencyPatterns returns the core dependency patterns.
@@ -242,11 +261,14 @@ func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
 	return kinds, true
 }
 
-func newDependencyHandler(
+// NewDependencyHandler configures the registry dependency handler from the host
+// configuration. A nil client uses the default registry and live credentials.
+func NewDependencyHandler(
 	ctx context.Context,
 	cfg boot.Config,
 	logger *zap.Logger,
 	resolver regapi.DependencyResolver,
+	client hubdeps.HubClient,
 ) (*hubdeps.DependencyHandler, error) {
 	var registryCfg boot.Config
 	if cfg != nil {
@@ -254,6 +276,7 @@ func newDependencyHandler(
 	}
 
 	opts := hubdeps.DependencyHandlerOptions{
+		Hub:      client,
 		Logger:   logger,
 		Resolver: resolver,
 	}

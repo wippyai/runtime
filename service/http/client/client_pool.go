@@ -415,7 +415,7 @@ func dialHTTPContext(ctx context.Context, dialer *net.Dialer, network, address s
 	var dialErrors []error
 	for _, ip := range ips {
 		if isPrivateHTTPIP(ip) && !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
-			dialErrors = append(dialErrors, fmt.Errorf("not allowed: private IP %s", ip.String()))
+			dialErrors = append(dialErrors, newDeniedError(ip.String(), "not allowed: private IP %s", ip.String()))
 			continue
 		}
 		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
@@ -465,3 +465,15 @@ func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdl
 		Timeout:   timeout,
 	}
 }
+
+// deniedError reports a request refused by the security policy.
+type deniedError struct {
+	target  string
+	message string
+}
+
+func newDeniedError(target, format string, args ...any) *deniedError {
+	return &deniedError{target: target, message: fmt.Sprintf(format, args...)}
+}
+
+func (e *deniedError) Error() string { return e.message }

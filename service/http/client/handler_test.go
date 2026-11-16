@@ -292,6 +292,15 @@ func TestDispatcher_RedirectAuthorization(t *testing.T) {
 		if targetHits.Load() != 0 {
 			t.Fatalf("denied redirect reached target %d times", targetHits.Load())
 		}
+		if !resp.Denied {
+			t.Fatalf("redirect denial must be structured, got error %q", resp.Error)
+		}
+		if resp.DeniedTarget != targetURL {
+			t.Fatalf("denied target = %q, want %q", resp.DeniedTarget, targetURL)
+		}
+		if len(resp.Body) != 0 || resp.StatusCode != 0 {
+			t.Fatalf("denied redirect returned a partial response: status %d, %d body bytes", resp.StatusCode, len(resp.Body))
+		}
 	})
 
 	t.Run("allowed target", func(t *testing.T) {

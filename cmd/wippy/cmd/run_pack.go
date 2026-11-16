@@ -143,6 +143,16 @@ func packCommandAllowed(entry registry.Entry, mainModule string) bool {
 	return module == "" || module == mainModule
 }
 
+// entrypointArgs splits the positional tokens that address an entrypoint. The
+// default use case names its entrypoint with the first token. Every other use
+// case selects its entrypoint by use case, so all tokens are its arguments.
+func entrypointArgs(positional []string, useCase string) (string, []string) {
+	if useCase != defaultUseCase || len(positional) == 0 {
+		return "", positional
+	}
+	return positional[0], positional[1:]
+}
+
 // selectEntrypoint picks the entrypoint to execute for a use case.
 //
 // Only entries whose declared use case matches are eligible. With an explicit
@@ -243,12 +253,6 @@ func useLockedHubDeployment(ref, lockPath string) (bool, error) {
 		return false, fmt.Errorf("inspect deployment lock %s: %w", lockPath, err)
 	}
 
-	requested, err := parseModuleRef(ref)
-	if err != nil {
-		return false, err
-	}
-	requestedName := requested.Org + "/" + requested.Module
-
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
 		return false, fmt.Errorf("load deployment lock %s: %w", lockPath, err)
@@ -259,26 +263,34 @@ func useLockedHubDeployment(ref, lockPath string) (bool, error) {
 	}
 	root := roots[0]
 	rootModule, _ := lockObj.GetModule(root)
+	err = validateHubDeploymentReference(ref, root, rootModule.Version, "deployment lock "+lockPath)
+	return err == nil, err
+}
+
+func validateHubDeploymentReference(ref, root, selectedVersion, source string) error {
+	requested, err := parseModuleRef(ref)
+	if err != nil {
+		return err
+	}
+	requestedName := requested.Org + "/" + requested.Module
 	if requestedName != root {
-		return false, fmt.Errorf("deployment lock %s selects %s@%s, not %s; use a fresh directory to bootstrap another application", lockPath, root, rootModule.Version, requestedName)
+		return fmt.Errorf("%s selects %s@%s, not %s; use a fresh directory to bootstrap another application", source, root, selectedVersion, requestedName)
 	}
 	if requested.Version == "" {
-		return true, nil
+		return nil
 	}
-
 	requestedVersion, err := semver.ParseVersion(requested.Version)
 	if err != nil {
-		return false, fmt.Errorf("deployment lock %s already pins %s@%s; selector @%s requires Hub resolution, so use 'wippy update' or omit the selector to restart", lockPath, root, rootModule.Version, requested.Version)
+		return fmt.Errorf("%s already pins %s@%s; selector @%s requires Hub resolution, so use 'wippy update' or omit the selector to restart", source, root, selectedVersion, requested.Version)
 	}
-	lockedVersion, err := semver.ParseVersion(rootModule.Version)
+	lockedVersion, err := semver.ParseVersion(selectedVersion)
 	if err != nil {
-		return false, fmt.Errorf("deployment lock %s contains invalid root version %q for %s", lockPath, rootModule.Version, root)
+		return fmt.Errorf("%s contains invalid root version %q for %s", source, selectedVersion, root)
 	}
 	if requestedVersion != lockedVersion {
-		return false, fmt.Errorf("deployment lock %s pins %s@%s, not @%s; use 'wippy update' to change the deployment", lockPath, root, rootModule.Version, requested.Version)
+		return fmt.Errorf("%s pins %s@%s, not @%s; use 'wippy update' to change the deployment", source, root, selectedVersion, requested.Version)
 	}
-
-	return true, nil
+	return nil
 }
 
 // downloadHubModule resolves dependency graph for a hub reference, downloads
@@ -714,11 +726,7 @@ func runPackEntriesWithShutdown(
 		logger.Info("runtime ready")
 	}
 
-	commandName := ""
-	if useCase == defaultUseCase && len(args) > 0 {
-		commandName = args[0]
-		args = args[1:]
-	}
+	commandName, args := entrypointArgs(args, useCase)
 
 	entryID, err := findPackCommandForModule(appCtx, commandName, useCase, mainModule)
 	if err != nil {

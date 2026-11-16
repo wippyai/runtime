@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
@@ -217,6 +219,10 @@ func (s *Session) Serve(reqCtx context.Context, w http.ResponseWriter) error {
 			return nil
 
 		case <-reqCtx.Done():
+			if errors.Is(context.Cause(reqCtx), httpapi.ErrServerShutdown) {
+				s.writeDoneAndClose(enc, "server shutdown")
+				return nil
+			}
 			s.Close("client disconnected")
 			return nil
 

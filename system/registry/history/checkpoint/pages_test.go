@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/internal/sqliteconn"
 )
 
@@ -37,10 +38,13 @@ func TestReadPageBoundsBytesRowsAndAncestry(t *testing.T) {
 		{name: "oversized_transaction", size: int(replayPagePolicy.Bytes) + 1, count: 2, sparse: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			db := sqliteconn.Open("file:" + filepath.Join(t.TempDir(), "pages.db"))
+			var config sqlapi.SQLiteCheckpointConfig
+			config.InitDefaults()
+			db, err := sqliteconn.Open("file:"+filepath.Join(t.TempDir(), "pages.db"), config)
+			require.NoError(t, err)
 			db.SetMaxOpenConns(1)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
-			_, err := db.ExecContext(t.Context(), "CREATE TABLE changesets(version_id INTEGER PRIMARY KEY,data BLOB NOT NULL)")
+			_, err = db.ExecContext(t.Context(), "CREATE TABLE changesets(version_id INTEGER PRIMARY KEY,data BLOB NOT NULL)")
 			require.NoError(t, err)
 			tx, err := db.BeginTx(t.Context(), nil)
 			require.NoError(t, err)
@@ -97,9 +101,12 @@ func TestReadPageBoundsBytesRowsAndAncestry(t *testing.T) {
 }
 
 func TestReadPageRejectsChangedOrMissingPayload(t *testing.T) {
-	db := sqliteconn.Open("file:" + filepath.Join(t.TempDir(), "invalid.db"))
+	var config sqlapi.SQLiteCheckpointConfig
+	config.InitDefaults()
+	db, err := sqliteconn.Open("file:"+filepath.Join(t.TempDir(), "invalid.db"), config)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	_, err := db.ExecContext(t.Context(), "CREATE TABLE changesets(version_id INTEGER PRIMARY KEY,data BLOB NOT NULL)")
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE changesets(version_id INTEGER PRIMARY KEY,data BLOB NOT NULL)")
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), "INSERT INTO changesets VALUES (1,?)", []byte{0x90})
 	require.NoError(t, err)

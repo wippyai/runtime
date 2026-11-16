@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-json-experiment/json/jsontext"
 	lua "github.com/wippyai/go-lua"
+	luavalue "github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 // maxNestingDepth limits JSON nesting to prevent stack overflow attacks.
@@ -24,28 +25,41 @@ var readerPool = sync.Pool{
 	},
 }
 
-// Decode parses JSON data and returns a Lua value.
+// Decode parses JSON data and returns a Lua value. JSON null decodes to nil,
+// so null object members are absent from the result.
 // It uses jsontext for direct token-to-Lua conversion without an intermediate
 // map[string]any representation.
 func Decode(data []byte) (lua.LValue, error) {
+	return decode(data, lua.LNil)
+}
+
+// DecodeWithNulls parses JSON data like Decode, except that JSON null decodes
+// to value.JSONNull: null object members stay present and null array elements
+// keep their positions.
+func DecodeWithNulls(data []byte) (lua.LValue, error) {
+	return decode(data, luavalue.JSONNull)
+}
+
+func decode(data []byte, null lua.LValue) (lua.LValue, error) {
 	reader := readerPool.Get().(*bytes.Reader)
 	reader.Reset(data)
 	defer readerPool.Put(reader)
 
 	dec := jsontext.NewDecoder(reader)
-	return decodeValueWithDepth(dec, 0)
+	return decodeValueWithDepth(dec, null, 0)
 }
 
-// decodeValueWithDepth decodes the next JSON value with depth tracking.
-func decodeValueWithDepth(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
+// decodeValueWithDepth decodes the next JSON value with depth tracking. null
+// is the Lua value a JSON null decodes to.
+func decodeValueWithDepth(dec *jsontext.Decoder, null lua.LValue, depth int) (lua.LValue, error) {
 	if depth > maxNestingDepth {
 		return nil, ErrMaxDepthExceeded
 	}
-	return decodeValue(dec, depth)
+	return decodeValue(dec, null, depth)
 }
 
 // decodeValue decodes the next JSON value from the decoder.
-func decodeValue(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
+func decodeValue(dec *jsontext.Decoder, null lua.LValue, depth int) (lua.LValue, error) {
 	kind := dec.PeekKind()
 
 	switch kind {
@@ -53,7 +67,7 @@ func decodeValue(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 		if _, err := dec.ReadToken(); err != nil {
 			return nil, err
 		}
-		return lua.LNil, nil
+		return null, nil
 
 	case 't', 'f': // true, false
 		tok, err := dec.ReadToken()
@@ -77,10 +91,10 @@ func decodeValue(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 		return decodeNumber(tok)
 
 	case '[': // array
-		return decodeArray(dec, depth)
+		return decodeArray(dec, null, depth)
 
 	case '{': // object
-		return decodeObject(dec, depth)
+		return decodeObject(dec, null, depth)
 
 	default:
 		// Handle negative numbers and other cases
@@ -120,7 +134,7 @@ func decodeNumber(tok jsontext.Token) (lua.LValue, error) {
 
 // decodeArray decodes a JSON array directly to a Lua table.
 // Writes directly to Array slice, bypassing RawSetInt overhead.
-func decodeArray(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
+func decodeArray(dec *jsontext.Decoder, null lua.LValue, depth int) (lua.LValue, error) {
 	// Read opening '['
 	if _, err := dec.ReadToken(); err != nil {
 		return nil, err
@@ -133,7 +147,7 @@ func decodeArray(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 	}
 
 	for dec.PeekKind() != ']' {
-		val, err := decodeValueWithDepth(dec, depth+1)
+		val, err := decodeValueWithDepth(dec, null, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +164,7 @@ func decodeArray(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 
 // decodeObject decodes a JSON object directly to a Lua table.
 // Writes directly to Strdict map, bypassing RawSetString overhead.
-func decodeObject(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
+func decodeObject(dec *jsontext.Decoder, null lua.LValue, depth int) (lua.LValue, error) {
 	// Read opening '{'
 	if _, err := dec.ReadToken(); err != nil {
 		return nil, err
@@ -171,7 +185,7 @@ func decodeObject(dec *jsontext.Decoder, depth int) (lua.LValue, error) {
 		key := keyTok.String()
 
 		// Read value
-		val, err := decodeValueWithDepth(dec, depth+1)
+		val, err := decodeValueWithDepth(dec, null, depth+1)
 		if err != nil {
 			return nil, err
 		}

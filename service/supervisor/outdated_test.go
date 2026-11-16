@@ -42,8 +42,21 @@ type serviceIncarnation struct {
 	version string
 }
 
+type idleStepObserver struct {
+	*engine.Process
+	idle chan struct{}
+}
+
+func (p *idleStepObserver) Step(events []processapi.Event, out *processapi.StepOutput) error {
+	err := p.Process.Step(events, out)
+	if out.IsIdle() {
+		p.idle <- struct{}{}
+	}
+	return err
+}
+
 func TestSupervisedLuaOutdatedTransition(t *testing.T) {
-	for _, mode := range []string{"exit", "native", "ordinary", "ignored", "nonupgradable", "unchanged", "dropped"} {
+	for _, mode := range []string{"exit", "error", "retryable", "raised", "native", "ordinary", "ordinary_error", "pending_exit", "pending_error", "ignored", "nonupgradable", "retiring_error", "terminated", "unchanged", "dropped"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -85,6 +98,7 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			}()
 
 			entered := make(chan serviceIncarnation, 8)
+			idle := make(chan struct{}, 4)
 			release := make(chan struct{})
 			defer func() {
 				if release != nil {
@@ -99,7 +113,8 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 				bus.Send(ctx, event.Event{System: processapi.System, Kind: processapi.FactoryRegister, Path: procID.String(),
 					Data: &processapi.FactoryEntry{Meta: processapi.Meta{Method: "main"}, Factory: func() (processapi.Process, error) {
 						creates.Add(1)
-						return engine.NewProcess(engine.WithProto(proto), engine.WithModuleBinder(func(l *lua.LState) error {
+						p, createErr := engine.NewProcess(engine.WithProto(proto), engine.WithModuleBinder(func(l *lua.LState) error {
+							lua.OpenErrors(l)
 							engine.LoadModuleDef(l, engine.ChannelModule)
 							mod, _ := processmod.Module.Build()
 							l.SetGlobal("process", mod)
@@ -113,6 +128,13 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 							}))
 							return nil
 						}))
+						if createErr != nil {
+							return nil, createErr
+						}
+						if mode == "terminated" {
+							return &idleStepObserver{Process: p, idle: idle}, nil
+						}
+						return p, nil
 					}}})
 				select {
 				case response := <-responses:
@@ -132,14 +154,27 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 				end
 			end
 			return {main = main}`
+			failure := `return nil, errors.new({message="invalid policy", kind=errors.INVALID, retryable=false})`
 			action := "return"
+			if mode == "error" {
+				action = failure
+			}
+			if mode == "retryable" {
+				action = strings.ReplaceAll(failure, "retryable=false", "retryable=true")
+			}
+			if mode == "raised" {
+				action = `error("invalid policy")`
+			}
 			if mode == "native" {
 				action = "process.upgrade()"
+			}
+			if mode == "terminated" {
+				action = `report("ignored"); channel.new(0):receive()`
 			}
 			if mode == "ignored" {
 				action = "report(\"ignored\")"
 			}
-			if mode == "nonupgradable" || mode == "unchanged" {
+			if mode == "nonupgradable" || mode == "retiring_error" || mode == "unchanged" {
 				v1 = strings.ReplaceAll(v1, "upgradable = true", "upgradable = false")
 			}
 			if mode == "dropped" {
@@ -151,9 +186,15 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			if mode == "nonupgradable" || mode == "dropped" {
 				v1 = strings.ReplaceAll(v1, "if event.kind == process.event.CANCEL then return end", `if event.kind == process.event.CANCEL then report("stopped"); return end`)
 			}
-			if mode == "ordinary" {
+			if mode == "retiring_error" {
+				v1 = strings.ReplaceAll(v1, "if event.kind == process.event.CANCEL then return end", `if event.kind == process.event.CANCEL then `+failure+` end`)
+			}
+			switch mode {
+			case "ordinary_error", "pending_error":
+				v1 = `return {main = function() report("v1"); ` + failure + ` end}`
+			case "ordinary", "pending_exit":
 				v1 = `return {main = function() report("v1"); return end}`
-			} else {
+			default:
 				v1 = strings.ReplaceAll(v1, "ACTION", action)
 			}
 			register(v1, release)
@@ -183,7 +224,7 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			if mode == "unchanged" {
 				sched.SendOutdated(map[registry.ID]bool{registry.NewID("test", "other"): true})
 			}
-			if mode != "ordinary" && mode != "unchanged" {
+			if mode != "ordinary" && mode != "ordinary_error" && mode != "unchanged" {
 				for range 10 {
 					sched.SendOutdated(map[registry.ID]bool{procID: true})
 				}
@@ -196,7 +237,7 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			switch mode {
 			case "unchanged":
 				require.Equal(t, supervisor.StatusRunning, controller.State().Status)
-			case "ordinary":
+			case "ordinary", "ordinary_error":
 				require.Eventually(t, func() bool { return controller.State().Status == supervisor.StatusExited }, 5*time.Second, time.Millisecond)
 			case "ignored":
 				ignored := awaitIncarnation(t, entered)
@@ -207,6 +248,19 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 					stopped := awaitIncarnation(t, entered)
 					require.Equal(t, "stopped", stopped.version)
 					require.Equal(t, first.pid, stopped.pid)
+				}
+				if mode == "terminated" {
+					ignored := awaitIncarnation(t, entered)
+					require.Equal(t, "ignored", ignored.version)
+					// The initial wait and the consumed invalidation both return idle.
+					for range 2 {
+						select {
+						case <-idle:
+						case <-time.After(5 * time.Second):
+							t.Fatal("retiring Lua process does not return idle")
+						}
+					}
+					require.NoError(t, sched.Terminate(first.pid))
 				}
 				second := awaitIncarnation(t, entered)
 				require.Equal(t, "v2", second.version)
@@ -226,7 +280,7 @@ func TestSupervisedLuaOutdatedTransition(t *testing.T) {
 			case <-time.After(3 * delay):
 			}
 			want := int32(2)
-			if mode == "ordinary" || mode == "ignored" || mode == "unchanged" {
+			if mode == "ordinary" || mode == "ordinary_error" || mode == "ignored" || mode == "unchanged" {
 				want = 1
 			}
 			require.Equal(t, want, creates.Load(), "exactly one activation per code transition")

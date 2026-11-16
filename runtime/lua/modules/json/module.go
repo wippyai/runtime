@@ -5,6 +5,7 @@ package json
 import (
 	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	luavalue "github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 // Module is the json module definition.
@@ -15,9 +16,12 @@ var Module = &luaapi.ModuleDef{
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initSchemaCache()
 
-		mod := lua.CreateTable(0, 4)
+		mod := lua.CreateTable(0, 7)
 		mod.RawSetString("encode", lua.LGoFunc(encodeFunc))
 		mod.RawSetString("decode", lua.LGoFunc(decodeFunc))
+		mod.RawSetString("decode_with_nulls", lua.LGoFunc(decodeWithNullsFunc))
+		mod.RawSetString("raw", lua.LGoFunc(rawFunc))
+		mod.RawSetString("null", luavalue.JSONNull)
 		mod.RawSetString("validate", lua.LGoFunc(validateFunc))
 		mod.RawSetString("validate_string", lua.LGoFunc(validateStringFunc))
 		mod.Immutable = true
@@ -61,14 +65,34 @@ func encodeFunc(l *lua.LState) int {
 	return 2
 }
 
-func decodeFunc(l *lua.LState) int {
+// jsonTextArg reads the JSON text argument of decode and decode_with_nulls.
+// When the argument is invalid it pushes the error results and returns their
+// count; otherwise the count is zero.
+func jsonTextArg(l *lua.LState) (lua.LString, int) {
 	str, ok := l.Get(1).(lua.LString)
 	if !ok {
-		return invalidInputError(l, "string expected")
+		return "", invalidInputError(l, "string expected")
 	}
-
 	if str == "" {
-		return invalidInputError(l, "empty string is not valid JSON")
+		return "", invalidInputError(l, "empty string is not valid JSON")
+	}
+	return str, 0
+}
+
+func pushDecoded(l *lua.LState, decode func([]byte) (lua.LValue, error), str lua.LString) int {
+	value, err := decode([]byte(str))
+	if err != nil {
+		return internalError(l, err, "decode failed")
+	}
+	l.Push(value)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func decodeFunc(l *lua.LState) int {
+	str, n := jsonTextArg(l)
+	if n > 0 {
+		return n
 	}
 	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
 		target, ok := l.Get(2).(*lua.LType)
@@ -83,12 +107,28 @@ func decodeFunc(l *lua.LState) int {
 		l.Push(lua.LNil)
 		return 2
 	}
+	return pushDecoded(l, Decode, str)
+}
 
-	value, err := Decode([]byte(str))
-	if err != nil {
-		return internalError(l, err, "decode failed")
+func decodeWithNullsFunc(l *lua.LState) int {
+	str, n := jsonTextArg(l)
+	if n > 0 {
+		return n
 	}
-	l.Push(value)
+	return pushDecoded(l, DecodeWithNulls, str)
+}
+
+func rawFunc(l *lua.LState) int {
+	str, ok := l.Get(1).(lua.LString)
+	if !ok {
+		return invalidInputError(l, "string expected")
+	}
+
+	raw, err := luavalue.NewJSONRaw([]byte(str))
+	if err != nil {
+		return invalidInputError(l, "invalid JSON: "+err.Error())
+	}
+	l.Push(raw)
 	l.Push(lua.LNil)
 	return 2
 }

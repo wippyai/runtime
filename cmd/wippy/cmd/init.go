@@ -4,8 +4,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"go.uber.org/zap"
@@ -17,8 +19,11 @@ var initCmd = &cobra.Command{
 	Long: `Initialize a new wippy.lock file with default configuration
 
 Creates a new lock file with default directory structure:
-  - src: . (application source directory)
+  - src: ./src (application source directory)
   - modules: .wippy (modules installation directory)
+
+Directory precedence, highest first: explicit --src-dir and --modules-dir flags,
+existing lock file, directories in wippy.yaml in the working directory, defaults.
 
 The lock file tracks installed dependencies and their versions.`,
 	RunE: runInit,
@@ -48,27 +53,61 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}()
 
 	lockFile, _ := cmd.Flags().GetString("lock-file")
-	srcDir, _ := cmd.Flags().GetString("src-dir")
-	modulesDir, _ := cmd.Flags().GetString("modules-dir")
+	dirs, err := lockCommandDirectories(cmd, lockFile)
+	if err != nil {
+		return err
+	}
 
 	logger.Info("initializing lock file",
 		zap.String("path", lockFile),
-		zap.String("src", srcDir),
-		zap.String("modules", modulesDir))
+		zap.String("src", dirs.Src),
+		zap.String("modules", dirs.Modules))
 
 	lockObj, err := lock.New(lockFile)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockFile, err))
 	}
 
-	lockObj.SetDirectories(lock.Directories{
-		Modules: modulesDir,
-		Src:     srcDir,
-	})
+	lockObj.SetDirectories(dirs)
 
 	if err := lockObj.Write(); err != nil {
 		return NewWriteLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 	logger.Info("lock file initialized successfully")
 	return nil
+}
+
+func lockCommandDirectories(cmd *cobra.Command, lockFile string) (lock.Directories, error) {
+	dirs := lock.Directories{Modules: ".wippy", Src: "./src"}
+	var configured lock.Directories
+	if _, err := os.Stat(lockFile); err == nil {
+		locked, err := lock.New(lockFile)
+		if err != nil {
+			return dirs, NewLoadLockFileError(err)
+		}
+		configured = locked.GetDirectories()
+	} else if !os.IsNotExist(err) {
+		return dirs, NewLoadLockFileError(err)
+	} else if _, err := os.Stat(depconfig.DefaultConfigFile); err == nil {
+		manifest, err := depconfig.Load(".")
+		if err != nil {
+			return dirs, err
+		}
+		configured = manifest.Directories
+	} else if !os.IsNotExist(err) {
+		return dirs, fmt.Errorf("read %s: %w", depconfig.DefaultConfigFile, err)
+	}
+	if configured.Src != "" {
+		dirs.Src = configured.Src
+	}
+	if configured.Modules != "" {
+		dirs.Modules = configured.Modules
+	}
+	if cmd.Flags().Changed("src-dir") {
+		dirs.Src, _ = cmd.Flags().GetString("src-dir")
+	}
+	if cmd.Flags().Changed("modules-dir") {
+		dirs.Modules, _ = cmd.Flags().GetString("modules-dir")
+	}
+	return dirs, nil
 }

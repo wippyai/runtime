@@ -282,7 +282,15 @@ func toGoAny(v lua.LValue, path []*lua.LTable) any {
 		return string(v.(lua.LString))
 	case lua.LTTable:
 		return tableToGoAny(v.(*lua.LTable), path)
-	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
+	case lua.LTUserData:
+		if v == lua.LValue(JSONNull) {
+			return nil
+		}
+		if text, ok := JSONRawText(v); ok {
+			return jsonRawGoValue(text)
+		}
+		return v.String()
+	case lua.LTFunction, lua.LTThread, lua.LTChannel:
 		fallthrough
 	default:
 		return v.String()

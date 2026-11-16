@@ -3,17 +3,15 @@
 package di
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
-
-	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/contract"
 	apierror "github.com/wippyai/runtime/api/error"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	apidi "github.com/wippyai/runtime/api/service/di"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -49,9 +47,8 @@ func bindingEntry(id, contractID registry.ID, methods ...string) registry.Entry 
 
 // seedContract installs a definition and one binding outside any transaction,
 // mirroring a live instance's committed state before a module upgrade.
-func seedContract(t *testing.T, manager *Manager, defID, bindingID registry.ID, methods ...string) {
+func seedContract(ctx context.Context, t *testing.T, manager *Manager, defID, bindingID registry.ID, methods ...string) {
 	t.Helper()
-	ctx := ctxapi.NewRootContext()
 	require.NoError(t, manager.Add(ctx, definitionEntry(defID, methods...)))
 	require.NoError(t, manager.Add(ctx, bindingEntry(bindingID, defID, methods...)))
 }
@@ -61,13 +58,12 @@ func seedContract(t *testing.T, manager *Manager, defID, bindingID registry.ID, 
 // the binding update that binds it. Per-entry each half is invalid against the
 // pre-change peer; as a transaction the pair must commit.
 func TestManager_TransactionAddsMethodToLiveContract(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
 	defID := registry.NewID("test", "contract")
 	bindingID := registry.NewID("test", "binding")
 
 	t.Run("definition update first", func(t *testing.T) {
-		manager, _ := setupDIManagerTest()
-		seedContract(t, manager, defID, bindingID, "method1")
+		ctx, manager, _ := setupDIManagerTest(t)
+		seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 		require.NoError(t, manager.Begin(ctx))
 		require.NoError(t, manager.Update(ctx, definitionEntry(defID, "method1", "method2")))
@@ -79,8 +75,8 @@ func TestManager_TransactionAddsMethodToLiveContract(t *testing.T) {
 	})
 
 	t.Run("binding update first", func(t *testing.T) {
-		manager, _ := setupDIManagerTest()
-		seedContract(t, manager, defID, bindingID, "method1")
+		ctx, manager, _ := setupDIManagerTest(t)
+		seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 		require.NoError(t, manager.Begin(ctx))
 		require.NoError(t, manager.Update(ctx, bindingEntry(bindingID, defID, "method1", "method2")))
@@ -96,14 +92,13 @@ func TestManager_TransactionAddsMethodToLiveContract(t *testing.T) {
 // whose bindings never arrive must fail at Commit and leave committed state
 // untouched, with no contract-plane event emitted.
 func TestManager_TransactionCommitRejectsIncompleteState(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 	defID := registry.NewID("test", "contract")
 	bindingID := registry.NewID("test", "binding")
-	seedContract(t, manager, defID, bindingID, "method1")
+	seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 	var updates atomic.Int32
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.UpdateDefinition, func(event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.UpdateDefinition, func(contract.Change) {
 		updates.Add(1)
 	})
 	require.NoError(t, err)
@@ -128,8 +123,7 @@ func TestManager_TransactionCommitRejectsIncompleteState(t *testing.T) {
 // TxDiscard. A failed Commit must therefore retain staging so those inverses
 // are accepted against the staged view; Discard then drops the whole attempt.
 func TestManager_FailedCommitAcceptsRollbackBeforeDiscard(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, _ := setupDIManagerTest()
+	ctx, manager, _ := setupDIManagerTest(t)
 	defID := registry.NewID("test", "contract")
 	bindingID := registry.NewID("test", "binding")
 
@@ -151,17 +145,16 @@ func TestManager_FailedCommitAcceptsRollbackBeforeDiscard(t *testing.T) {
 // contract-plane events at Commit and never before. Delivery order across two
 // independent subscribers is not asserted; the bus dispatches concurrently.
 func TestManager_TransactionEventsFlushOnCommitOnly(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 	defID := registry.NewID("test", "contract")
 	bindingID := registry.NewID("test", "binding")
-	seedContract(t, manager, defID, bindingID, "method1")
+	seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 	var mu sync.Mutex
-	var kinds []string
+	var kinds []contract.ChangeKind
 	var wg sync.WaitGroup
-	subscribe := func(kind string) *eventbus.Subscriber {
-		sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, kind, func(event.Event) {
+	subscribe := func(kind contract.ChangeKind) *eventbus.Subscriber {
+		sub, err := subscribeChanges(ctx, bus, kind, func(contract.Change) {
 			mu.Lock()
 			kinds = append(kinds, kind)
 			mu.Unlock()
@@ -186,18 +179,17 @@ func TestManager_TransactionEventsFlushOnCommitOnly(t *testing.T) {
 	wg.Wait()
 
 	mu.Lock()
-	assert.ElementsMatch(t, []string{contract.UpdateDefinition, contract.UpdateBinding}, kinds)
+	assert.ElementsMatch(t, []contract.ChangeKind{contract.UpdateDefinition, contract.UpdateBinding}, kinds)
 	mu.Unlock()
 }
 
 // TestManager_TransactionDiscard drops every staged mutation and leaves the
 // manager fully usable outside a transaction afterwards.
 func TestManager_TransactionDiscard(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, _ := setupDIManagerTest()
+	ctx, manager, _ := setupDIManagerTest(t)
 	defID := registry.NewID("test", "contract")
 	bindingID := registry.NewID("test", "binding")
-	seedContract(t, manager, defID, bindingID, "method1")
+	seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 	require.NoError(t, manager.Begin(ctx))
 	require.NoError(t, manager.Update(ctx, definitionEntry(defID, "method1", "method2")))
@@ -214,13 +206,12 @@ func TestManager_TransactionDiscard(t *testing.T) {
 // and its binding in one changeset commits; retiring the definition while a
 // binding survives fails at Commit as an unresolved contract reference.
 func TestManager_TransactionDeletesDefinitionWithItsBindings(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
 	defID := registry.NewID("test", "contract")
 	bindingID := registry.NewID("test", "binding")
 
 	t.Run("definition and binding together", func(t *testing.T) {
-		manager, _ := setupDIManagerTest()
-		seedContract(t, manager, defID, bindingID, "method1")
+		ctx, manager, _ := setupDIManagerTest(t)
+		seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 		require.NoError(t, manager.Begin(ctx))
 		require.NoError(t, manager.Delete(ctx, registry.Entry{ID: defID, Kind: apidi.Definition}))
@@ -232,8 +223,8 @@ func TestManager_TransactionDeletesDefinitionWithItsBindings(t *testing.T) {
 	})
 
 	t.Run("definition alone leaves the binding unresolved", func(t *testing.T) {
-		manager, _ := setupDIManagerTest()
-		seedContract(t, manager, defID, bindingID, "method1")
+		ctx, manager, _ := setupDIManagerTest(t)
+		seedContract(ctx, t, manager, defID, bindingID, "method1")
 
 		require.NoError(t, manager.Begin(ctx))
 		require.NoError(t, manager.Delete(ctx, registry.Entry{ID: defID, Kind: apidi.Definition}))
@@ -248,8 +239,7 @@ func TestManager_TransactionDeletesDefinitionWithItsBindings(t *testing.T) {
 // TestManager_TransactionCreateOrderIndependence: within a transaction a
 // binding may arrive before the definition it references; Commit sees both.
 func TestManager_TransactionCreateOrderIndependence(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, _ := setupDIManagerTest()
+	ctx, manager, _ := setupDIManagerTest(t)
 	defID := registry.NewID("test", "contract")
 	bindingID := registry.NewID("test", "binding")
 
@@ -265,8 +255,7 @@ func TestManager_TransactionCreateOrderIndependence(t *testing.T) {
 // TestManager_TransactionDuplicateDefaultRejectedAtCommit: unique-default
 // enforcement holds across staged and committed bindings alike.
 func TestManager_TransactionDuplicateDefaultRejectedAtCommit(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, _ := setupDIManagerTest()
+	ctx, manager, _ := setupDIManagerTest(t)
 	defID := registry.NewID("test", "contract")
 
 	defaultBinding := func(id registry.ID) registry.Entry {
@@ -299,8 +288,7 @@ func TestManager_TransactionDuplicateDefaultRejectedAtCommit(t *testing.T) {
 // TestManager_TransactionExistenceChecksSeeStagedState: staged mutations are
 // visible to subsequent operations in the same transaction.
 func TestManager_TransactionExistenceChecksSeeStagedState(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, _ := setupDIManagerTest()
+	ctx, manager, _ := setupDIManagerTest(t)
 	defID := registry.NewID("test", "contract")
 
 	require.NoError(t, manager.Begin(ctx))

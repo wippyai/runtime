@@ -157,7 +157,7 @@ func (c *goToLuaConverter) convert(v any) (lua.LValue, error) {
 			if err != nil {
 				return nil, c.conversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
 			}
-			table.RawSetInt(i+1, lv)
+			table.Array = append(table.Array, lv)
 		}
 		return table, nil
 	}
@@ -185,7 +185,7 @@ func (c *goToLuaConverter) convert(v any) (lua.LValue, error) {
 			if err != nil {
 				return nil, c.conversionError(fmt.Sprintf("error converting slice/array element %d", i), err)
 			}
-			table.RawSetInt(i+1, lval)
+			table.Array = append(table.Array, lval)
 		}
 		return table, nil
 

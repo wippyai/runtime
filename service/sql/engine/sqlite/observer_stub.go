@@ -18,6 +18,7 @@ var errObserverUnavailable = errors.New("sqlite committed-mutation observation i
 // openSQLite uses the same connection policy in builds without the optional
 // pre-update hook. The SQL resource remains fully usable; CDC callers receive
 // an explicit unsupported capability instead of a partially working source.
-func openSQLite(_ context.Context, dsn string, _ ...int) (*sql.DB, sqlapi.CommittedMutationSource, error) {
-	return sqliteconn.Open(dsn), nil, nil
+func openSQLite(_ context.Context, dsn string, checkpoint sqlapi.SQLiteCheckpointConfig, _ ...int) (*sql.DB, sqlapi.CommittedMutationSource, error) {
+	db, err := sqliteconn.Open(dsn, checkpoint)
+	return db, nil, err
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/queue"
 	"github.com/wippyai/runtime/runtime/lua/modules/store"
 	"github.com/wippyai/runtime/runtime/lua/modules/websocket"
+	"github.com/wippyai/runtime/runtime/lua/modules/xml"
 )
 
 type methodCheck struct {
@@ -51,6 +52,7 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "cloudstorage.Storage.list_objects", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "list_objects"},
 		{name: "cloudstorage.Storage.download_object", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "download_object"},
 		{name: "cloudstorage.Storage.upload_object", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "upload_object"},
+		{name: "cloudstorage.Storage.copy_object", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "copy_object"},
 		{name: "cloudstorage.Storage.delete_objects", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "delete_objects"},
 		{name: "cloudstorage.Storage.presigned_get_url", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "presigned_get_url"},
 		{name: "cloudstorage.Storage.presigned_put_url", manifest: cloudstorage.ModuleTypes(), typeName: "Storage", method: "presigned_put_url"},
@@ -92,6 +94,27 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "metrics.gauge_inc", manifest: metrics.ModuleTypes(), method: "gauge_inc"},
 		{name: "metrics.gauge_dec", manifest: metrics.ModuleTypes(), method: "gauge_dec"},
 		{name: "metrics.histogram", manifest: metrics.ModuleTypes(), method: "histogram"},
+		{name: "hash.MinHasher.update", manifest: hash.ModuleTypes(), typeName: "MinHasher", method: "update"},
+		{name: "hash.MinHasher.sum", manifest: hash.ModuleTypes(), typeName: "MinHasher", method: "sum"},
+		{name: "xml.decode", manifest: xml.ModuleTypes(), method: "decode"},
+		{name: "xml.encode", manifest: xml.ModuleTypes(), method: "encode"},
+		{name: "xml.find", manifest: xml.ModuleTypes(), method: "find"},
+		{name: "xml.reader", manifest: xml.ModuleTypes(), method: "reader"},
+		{name: "xml.writer", manifest: xml.ModuleTypes(), method: "writer"},
+		{name: "xml.Reader.select", manifest: xml.ModuleTypes(), typeName: "Reader", method: "select"},
+		{name: "xml.Reader.next", manifest: xml.ModuleTypes(), typeName: "Reader", method: "next"},
+		{name: "xml.Reader.node", manifest: xml.ModuleTypes(), typeName: "Reader", method: "node"},
+		{name: "xml.Reader.skip", manifest: xml.ModuleTypes(), typeName: "Reader", method: "skip"},
+		{name: "xml.Reader.copy", manifest: xml.ModuleTypes(), typeName: "Reader", method: "copy"},
+		{name: "xml.Records.read", manifest: xml.ModuleTypes(), typeName: "Records", method: "read"},
+		{name: "xml.Writer.start_element", manifest: xml.ModuleTypes(), typeName: "Writer", method: "start_element"},
+		{name: "xml.Writer.end_element", manifest: xml.ModuleTypes(), typeName: "Writer", method: "end_element"},
+		{name: "xml.Writer.text", manifest: xml.ModuleTypes(), typeName: "Writer", method: "text"},
+		{name: "xml.Writer.element", manifest: xml.ModuleTypes(), typeName: "Writer", method: "element"},
+		{name: "xml.Writer.node", manifest: xml.ModuleTypes(), typeName: "Writer", method: "node"},
+		{name: "xml.Writer.comment", manifest: xml.ModuleTypes(), typeName: "Writer", method: "comment"},
+		{name: "xml.Writer.flush", manifest: xml.ModuleTypes(), typeName: "Writer", method: "flush"},
+		{name: "xml.Writer.finish", manifest: xml.ModuleTypes(), typeName: "Writer", method: "finish"},
 	}
 
 	for _, tc := range checks {
@@ -103,8 +126,13 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 	}
 }
 
-func TestCryptoSubmodules_ReturnsWithError(t *testing.T) {
+func TestSubmodules_ReturnsWithError(t *testing.T) {
 	checks := []recordFieldCheck{
+		{name: "hash.minhash.signature", manifest: hash.ModuleTypes(), field: "minhash", method: "signature"},
+		{name: "hash.minhash.sketch", manifest: hash.ModuleTypes(), field: "minhash", method: "sketch"},
+		{name: "hash.minhash.bands", manifest: hash.ModuleTypes(), field: "minhash", method: "bands"},
+		{name: "hash.minhash.similarity", manifest: hash.ModuleTypes(), field: "minhash", method: "similarity"},
+		{name: "hash.minhash.new", manifest: hash.ModuleTypes(), field: "minhash", method: "new"},
 		{name: "crypto.random.bytes", manifest: crypto.ModuleTypes(), field: "random", method: "bytes"},
 		{name: "crypto.random.string", manifest: crypto.ModuleTypes(), field: "random", method: "string"},
 		{name: "crypto.random.uuid", manifest: crypto.ModuleTypes(), field: "random", method: "uuid"},

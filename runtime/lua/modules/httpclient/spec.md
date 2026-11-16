@@ -52,7 +52,7 @@ HTTP GET request.
 
 **Errors (strings):**
 - `"no context"` - missing execution context
-- `"not allowed: {url}"` - security policy denied
+- `"not allowed: {url}"` - security policy denied (PERMISSION_DENIED, not retryable, `details.url`), including denied redirect hops
 - Network/timeout errors from HTTP layer
 
 ### post(url: string, options?: table) → Response, error
@@ -131,7 +131,7 @@ Execute multiple HTTP requests concurrently.
 - `"each request must be a table"` - invalid request format
 - `"method must be a string"` - missing/invalid method
 - `"URL must be a string"` - missing/invalid URL
-- `"not allowed: {url}"` - security policy denied
+- `"not allowed: {url}"` - security policy denied (PERMISSION_DENIED, not retryable, `details.url`), including denied redirect hops
 - `"streaming not supported in batch requests"` - stream option used
 - Individual request errors returned in errors array
 
@@ -216,7 +216,7 @@ end
 
 Common error strings:
 - `"no context"` - internal error
-- `"not allowed: {url}"` - security policy denied request
+- `"not allowed: {url}"` - security policy denied (PERMISSION_DENIED, not retryable, `details.url`), including denied redirect hops request
 - `"not allowed: unix socket {path}"` - security policy denied unix socket
 - `"not allowed: private IP {ip}"` - SSRF protection blocked private IP
 - Network errors (DNS, connection, timeout, etc.)

@@ -456,6 +456,22 @@ func TestID_Canonical(t *testing.T) {
 		requireSameID(t, canonical, got)
 	})
 
+	t.Run("already canonical long id", func(t *testing.T) {
+		long := NewID("platform.module_with_long_name.api", "handler_entry_with_long_name")
+		var got ID
+		assert.Zero(t, testing.AllocsPerRun(1000, func() {
+			got = long.Canonical()
+		}))
+		requireSameID(t, long, got)
+	})
+
+	t.Run("cached string differs from parts", func(t *testing.T) {
+		expected := NewID("a", "b")
+		for _, cached := range []string{"", "a", "a:c", "ab:", "c:b", "a:b:"} {
+			requireSameID(t, expected, (ID{NS: "a", Name: "b", str: cached}).Canonical())
+		}
+	})
+
 	t.Run("raw split form", func(t *testing.T) {
 		requireSameID(t, canonical, (ID{NS: "ns", Name: "name"}).Canonical())
 	})

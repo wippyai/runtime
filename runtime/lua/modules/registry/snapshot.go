@@ -4,6 +4,7 @@ package registry
 
 import (
 	"fmt"
+	"sync"
 
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -13,15 +14,29 @@ import (
 	"go.uber.org/zap"
 )
 
+// entryKey identifies an entry by its canonical ID parts, the values ID.Equal
+// compares.
+type entryKey struct {
+	ns   regapi.Namespace
+	name regapi.Name
+}
+
+func newEntryKey(id regapi.ID) entryKey {
+	canonical := id.Canonical()
+	return entryKey{ns: canonical.NS, name: canonical.Name}
+}
+
 // Snapshot represents a point-in-time view of the registry
 type Snapshot struct {
 	reg          regapi.Registry
 	state        regapi.StateMetadata
 	version      regapi.Version
 	log          *zap.Logger
+	entryIndex   map[entryKey]int
 	overlayOwner string
 	entries      []regapi.Entry
 	overlayGen   uint64
+	indexOnce    sync.Once
 }
 
 // snapshotState returns the entry state and selected module graph captured by
@@ -80,14 +95,23 @@ func (s *Snapshot) GetAllEntries() ([]regapi.Entry, error) {
 	return s.entries, nil
 }
 
-// GetEntry returns a specific entry by ID
+// GetEntry returns the first entry in snapshot order whose ID equals id.
 func (s *Snapshot) GetEntry(id regapi.ID) (regapi.Entry, error) {
-	for _, entry := range s.entries {
-		if entry.ID.Equal(id) {
-			return entry, nil
-		}
+	s.indexOnce.Do(s.buildEntryIndex)
+	if i, ok := s.entryIndex[newEntryKey(id)]; ok {
+		return s.entries[i], nil
 	}
 	return regapi.Entry{}, fmt.Errorf("entry not found: %s", id)
+}
+
+// buildEntryIndex maps entry keys to their first position in entries. It runs
+// on the first lookup because many snapshots only list, find or plan changes.
+// Filling back to front leaves the earliest of any duplicates.
+func (s *Snapshot) buildEntryIndex() {
+	s.entryIndex = make(map[entryKey]int, len(s.entries))
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		s.entryIndex[newEntryKey(s.entries[i].ID)] = i
+	}
 }
 
 // snapshotEntries returns all entries in the snapshot

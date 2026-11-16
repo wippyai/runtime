@@ -11,9 +11,12 @@ import (
 
 // ExprPolicy implements Policy using expr-lang expressions
 type ExprPolicy struct {
-	config    *policyapi.ExprConfig
-	evaluator *ExprEvaluator
-	id        registry.ID
+	config             *policyapi.ExprConfig
+	evaluator          *ExprEvaluator
+	self               *ExprPolicy
+	id                 registry.ID
+	actions, resources filter
+	identity           uint64
 }
 
 // NewExprPolicy creates a new expression-based policy
@@ -28,11 +31,20 @@ func NewExprPolicy(id registry.ID, config *policyapi.ExprConfig) (*ExprPolicy, e
 		return nil, NewCompileExpressionError(err)
 	}
 
-	return &ExprPolicy{
+	owned := *config
+	owned.Policy.Actions = nil
+	owned.Policy.Resources = nil
+	owned.Groups = nil
+	p := &ExprPolicy{
 		id:        id,
-		config:    config,
+		config:    &owned,
+		actions:   compileFilter(config.Policy.Actions),
+		resources: compileFilter(config.Policy.Resources),
+		identity:  nextIdentity(),
 		evaluator: evaluator,
-	}, nil
+	}
+	p.self = p
+	return p, nil
 }
 
 // ID returns the policy's unique identifier
@@ -85,12 +97,12 @@ func (p *ExprPolicy) Evaluate(actor security.Actor, action, resource string, met
 
 // matchesActions checks if the policy applies to the given action
 func (p *ExprPolicy) matchesActions(action string) bool {
-	return matchesFilter(p.config.Policy.Actions, action)
+	return p.actions.matches(action)
 }
 
 // matchesResources checks if the policy applies to the given resource
 func (p *ExprPolicy) matchesResources(resource string) bool {
-	return matchesFilter(p.config.Policy.Resources, resource)
+	return p.resources.matches(resource)
 }
 
 var _ security.Policy = (*ExprPolicy)(nil)

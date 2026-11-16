@@ -255,6 +255,32 @@ entries:
     func: ws_auth
 ```
 
+### Router Options
+
+The `websocket_relay` middleware reads these keys from the `options` of the router it is attached to:
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `wsrelay.allowed.origins` | same origin only | Comma-separated origin patterns accepted for the upgrade; falls back to `allow_origins`, then `allowed_origins` |
+| `wsrelay.read.limit` | `32768` | Largest client message in bytes; a larger one closes the connection with status 1009 (message too big) and is logged at WARN |
+
+Each client message is buffered whole, so a raised `wsrelay.read.limit` raises the worst-case memory to roughly the limit times the number of open connections.
+
+Option values are strings, so quote numbers in YAML:
+
+```yaml
+  - name: ws.router
+    kind: http.router
+    meta:
+      server: gateway
+    prefix: /ws
+    middleware:
+      - websocket_relay
+    options:
+      wsrelay.allowed.origins: "*.example.com"
+      wsrelay.read.limit: "8388608"
+```
+
 ## 5. Client-Side Connection (JavaScript)
 
 ```javascript

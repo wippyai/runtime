@@ -142,8 +142,11 @@ func newTestScheduler(evalOptions ...evalhost.HostOption) *testScheduler {
 	ts.httpClient = httpSvc
 
 	// Register eval handlers with http_client module
-	modules := []*luaapi.ModuleDef{json.Module, timemod.Module, httpclient.Module, Module}
-	host := evalhost.NewHost(zap.NewNop(), func() []*luaapi.ModuleDef { return modules }, evalOptions...)
+	modules := map[string]*luaapi.ModuleDef{}
+	for _, m := range []*luaapi.ModuleDef{json.Module, timemod.Module, httpclient.Module, Module} {
+		modules[m.Name] = m
+	}
+	host := evalhost.NewHost(zap.NewNop(), func() map[string]*luaapi.ModuleDef { return modules }, evalOptions...)
 	evalSvc := evalhost.NewDispatcher(host)
 	evalSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
 		reg.Register(id, h)

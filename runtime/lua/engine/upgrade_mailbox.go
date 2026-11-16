@@ -11,7 +11,6 @@ import (
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
-	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 )
@@ -19,9 +18,7 @@ import (
 // mailboxEnvelope is the replayable part of a delivered message. Queue budgets
 // and retention leases are released at delivery and must not be copied here.
 type mailboxEnvelope struct {
-	Source   pid.PID
-	Topic    string
-	Payloads []payload.Payload
+	process.MailboxEnvelope
 	sequence uint64
 }
 
@@ -30,7 +27,7 @@ func (m mailboxEnvelope) queuedMessage() queuedMessage {
 }
 
 func (m *queuedMessage) mailboxEnvelope() mailboxEnvelope {
-	return mailboxEnvelope{Source: m.Source, Topic: m.Topic, Payloads: m.Payloads, sequence: m.sequence}
+	return mailboxEnvelope{MailboxEnvelope: process.MailboxEnvelope{Source: m.Source, Topic: m.Topic, Payloads: m.Payloads}, sequence: m.sequence}
 }
 
 // bufferedDelivery stays private to a channel buffer or pending receive. A
@@ -176,13 +173,7 @@ func (p *Process) TransferUpgradeState(replacement process.Process) error {
 	if len(p.messageQueue) == 0 && len(p.upgradeMessages) == 0 {
 		return nil
 	}
-	messages := make([]queuedMessage, 0, len(p.upgradeMessages)+len(p.messageQueue))
-	messages = append(messages, p.upgradeMessages...)
-	for _, qm := range p.messageQueue {
-		if !p.retiredUpgradeMessage(qm) {
-			messages = append(messages, qm)
-		}
-	}
+	messages := p.upgradeMailboxMessages()
 	if len(messages) == 0 {
 		return nil
 	}
@@ -191,25 +182,6 @@ func (p *Process) TransferUpgradeState(replacement process.Process) error {
 	}
 	if len(next.messageQueue) != 0 {
 		return fmt.Errorf("replacement mailbox is not empty")
-	}
-	// Subscription maps have no iteration order; buffered deliveries and the
-	// retained tail must be restored in their original admission order.
-	slices.SortFunc(messages, func(a, b queuedMessage) int { return cmp.Compare(a.sequence, b.sequence) })
-	for i := range messages {
-		// Use the canonical export boundary for Lua payloads, preserving their
-		// shape without carrying receiver-owned tables into the replacement.
-		cloned := false
-		for j, pl := range messages[i].Payloads {
-			if pl != nil && pl.Format() == payload.Lua {
-				if lv, ok := pl.Data().(lua.LValue); ok {
-					if !cloned {
-						messages[i].Payloads = slices.Clone(messages[i].Payloads)
-						cloned = true
-					}
-					messages[i].Payloads[j] = luaconv.ExportPayload(lv)
-				}
-			}
-		}
 	}
 	for _, qm := range p.messageQueue {
 		if p.retiredUpgradeMessage(qm) {
@@ -243,4 +215,45 @@ func (p *Process) TransferUpgradeState(replacement process.Process) error {
 	p.upgradeMessages = nil
 	p.upgradeProducerTopics = nil
 	return nil
+}
+
+func (p *Process) upgradeMailboxMessages() []queuedMessage {
+	messages := make([]queuedMessage, 0, len(p.upgradeMessages)+len(p.messageQueue))
+	messages = append(messages, p.upgradeMessages...)
+	for _, qm := range p.messageQueue {
+		if !p.retiredUpgradeMessage(qm) {
+			messages = append(messages, qm)
+		}
+	}
+	// Subscription maps have no iteration order; buffered deliveries and the
+	// retained tail must be restored in their original admission order.
+	slices.SortFunc(messages, func(a, b queuedMessage) int { return cmp.Compare(a.sequence, b.sequence) })
+	for i := range messages {
+		// Use the canonical export boundary for Lua payloads, preserving their
+		// shape without carrying receiver-owned tables into the replacement.
+		cloned := false
+		for j, pl := range messages[i].Payloads {
+			if pl != nil && pl.Format() == payload.Lua {
+				if lv, ok := pl.Data().(lua.LValue); ok {
+					if !cloned {
+						messages[i].Payloads = slices.Clone(messages[i].Payloads)
+						cloned = true
+					}
+					messages[i].Payloads[j] = luaconv.ExportPayload(lv)
+				}
+			}
+		}
+	}
+	return messages
+}
+
+// ExportUpgradeMailbox shares the actor scheduler's export boundary without
+// transferring local queue reservations into a durable execution.
+func (p *Process) ExportUpgradeMailbox() []process.MailboxEnvelope {
+	messages := p.upgradeMailboxMessages()
+	envelopes := make([]process.MailboxEnvelope, len(messages))
+	for i := range messages {
+		envelopes[i] = messages[i].mailboxEnvelope().MailboxEnvelope
+	}
+	return envelopes
 }

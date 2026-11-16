@@ -40,6 +40,18 @@ func (y *RequestYield) CmdID() dispatcher.CommandID   { return httpapi.Request }
 func (y *RequestYield) ToCommand() dispatcher.Command { return y.RequestCmd }
 func (y *RequestYield) Release()                      { ReleaseRequestYield(y) }
 
+// responseError maps a failed response to a Lua error. Policy denials are
+// PERMISSION_DENIED and not retryable; everything else is a retryable transport error.
+func responseError(l *lua.LState, resp httpapi.Response) *lua.Error {
+	if resp.Denied {
+		return lua.NewLuaError(l, resp.Error).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false).
+			WithDetails(map[string]any{"url": resp.DeniedTarget})
+	}
+	return lua.NewLuaError(l, resp.Error).WithKind(lua.Internal).WithRetryable(true)
+}
+
 // HandleResult converts HTTP response to Lua values.
 func (y *RequestYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
@@ -50,7 +62,7 @@ func (y *RequestYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
 	}
 	if resp.Error != "" {
-		return []lua.LValue{lua.LNil, lua.NewLuaError(l, resp.Error).WithKind(lua.Internal).WithRetryable(true)}
+		return []lua.LValue{lua.LNil, responseError(l, resp)}
 	}
 
 	tbl := l.CreateTable(0, 7)
@@ -134,7 +146,7 @@ func (y *RequestBatchYield) HandleResult(l *lua.LState, data any, err error) []l
 		idx := i + 1 // Lua is 1-indexed
 		if resp.Error != "" {
 			responses.RawSetInt(idx, lua.LNil)
-			errors.RawSetInt(idx, lua.NewLuaError(l, resp.Error).WithKind(lua.Internal).WithRetryable(true))
+			errors.RawSetInt(idx, responseError(l, resp))
 			hasErrors = true
 			continue
 		}

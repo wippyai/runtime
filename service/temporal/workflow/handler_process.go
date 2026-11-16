@@ -12,12 +12,14 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	"github.com/wippyai/runtime/service/temporal/internal/securitykeys"
 	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
+	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 )
 
@@ -239,11 +241,6 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			convertedErr = temporalerrors.FromTemporalError(err)
 		}
 
-		if len(d.childExits) >= maxChildExitQueueSize {
-			d.replayLog.Warn("child exit queue full, dropping event",
-				zap.String("child_pid", childPID.String()))
-			return
-		}
 		d.childExits = append(d.childExits, childExitEvent{
 			ChildPID: childPID,
 			Result:   resultPayload,
@@ -273,18 +270,33 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 
 // executeProcessTerminate handles process.terminate from workflows.
 func (d *Definition) executeProcessTerminate(cmd *process.TerminateCmd, tag uint64) error {
-	d.env.RequestCancelExternalWorkflow(
-		"",
-		cmd.Target.UniqID,
-		"",
-		func(_ *commonpb.Payloads, err error) {
-			if err != nil {
-				d.enqueueYieldCompletion(tag, nil, temporalerrors.FromTemporalError(err))
-			} else {
-				d.enqueueYieldCompletion(tag, nil, nil)
-			}
-		},
-	)
+	if d.env.GetVersion(terminationChangeID, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+		// The former implementation recorded cancellation. Match that command
+		// while replaying existing histories; new versioned calls terminate.
+		return d.executeProcessCancel(&process.CancelCmd{Target: cmd.Target}, tag)
+	}
+	input, err := d.dc.ToPayloads(cmd.Target.UniqID)
+	if err != nil {
+		return err
+	}
+	opts := bindings.ExecuteActivityOptions{
+		TaskQueueName:       d.env.WorkflowInfo().TaskQueueName,
+		StartToCloseTimeout: defaultActivityTimeout,
+		// A repeated request could target a new execution reusing the workflow ID.
+		RetryPolicy: &commonpb.RetryPolicy{MaximumAttempts: 1},
+	}
+	opts.ActivityID = d.securityActivityID(d.execCtx, "")
+	header, err := d.getContextHeaderForAudience(d.execCtx, opts.ActivityID)
+	if err != nil {
+		return err
+	}
+	d.env.ExecuteActivity(bindings.ExecuteActivityParams{
+		ExecuteActivityOptions: opts,
+		ActivityType:           bindings.ActivityType{Name: temporalapi.TerminateWorkflowActivityName},
+		Input:                  input, Header: header,
+	}, func(_ *commonpb.Payloads, err error) {
+		d.enqueueYieldCompletion(tag, nil, temporalerrors.FromTemporalError(err))
+	})
 	return nil
 }
 

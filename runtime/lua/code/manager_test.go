@@ -855,6 +855,92 @@ func TestBuildOptionsFingerprintSeparatesMainCache(t *testing.T) {
 	require.Equal(t, "ok", executeCompiledString(t, second.Main))
 }
 
+func TestManager_CompileServesRetainedMainForUnchangedClosure(t *testing.T) {
+	cm, err := NewCodeManager(zap.NewNop(), &testEventBus{}, Config{})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	depID := registry.NewID("app.retained", "dep")
+	mainID := registry.NewID("app.retained", "main")
+	otherID := registry.NewID("app.retained", "other")
+	require.NoError(t, cm.AddNode(ctx, Node{ID: depID, Kind: api.Library, Source: `return "v1"`}, nil))
+	require.NoError(t, cm.AddNode(ctx, Node{ID: mainID, Kind: api.Function, Source: `return dep`, Method: "handler"},
+		[]Import{{ID: depID, Alias: "dep"}}))
+
+	first, err := cm.Compile(mainID, nil)
+	require.NoError(t, err)
+
+	same, err := cm.Compile(mainID, NewBuildOptions())
+	require.NoError(t, err)
+	require.Same(t, first, same, "nil options and default options name the same build")
+
+	require.NoError(t, cm.AddNode(ctx, Node{ID: otherID, Kind: api.Library, Source: `return 1`}, nil))
+	afterUnrelated, err := cm.Compile(mainID, nil)
+	require.NoError(t, err)
+	require.Same(t, first, afterUnrelated, "a node outside the closure leaves the build retained")
+
+	require.NoError(t, cm.UpdateNode(ctx, Node{ID: depID, Kind: api.Library, Source: `return "v2"`}, nil))
+	afterDep, err := cm.Compile(mainID, nil)
+	require.NoError(t, err)
+	require.NotSame(t, first, afterDep)
+	require.Equal(t, "v2", executeCompiledString(t, afterDep.Dependencies[0].Proto))
+
+	require.NoError(t, cm.DeleteNode(ctx, mainID))
+	_, err = cm.Compile(mainID, nil)
+	require.Error(t, err, "a deleted entrypoint never serves a retained build")
+}
+
+func TestManager_ConcurrentCompileAndDependencyUpdate(t *testing.T) {
+	cm, err := NewCodeManager(zap.NewNop(), &testEventBus{}, Config{})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	depID := registry.NewID("app.race", "dep")
+	mainID := registry.NewID("app.race", "main")
+	require.NoError(t, cm.AddNode(ctx, Node{ID: depID, Kind: api.Library, Source: `return "v0"`}, nil))
+	require.NoError(t, cm.AddNode(ctx, Node{ID: mainID, Kind: api.Function, Source: `return dep`, Method: "handler"},
+		[]Import{{ID: depID, Alias: "dep"}}))
+
+	done := make(chan struct{})
+	errCh := make(chan error, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				compiled, err := cm.Compile(mainID, nil)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if len(compiled.Dependencies) != 1 || compiled.Dependencies[0].Proto == nil {
+					errCh <- fmt.Errorf("build without its dependency")
+					return
+				}
+			}
+		}()
+	}
+	for i := 1; i <= 50; i++ {
+		require.NoError(t, cm.UpdateNode(ctx, Node{ID: depID, Kind: api.Library, Source: fmt.Sprintf(`return "v%d"`, i)}, nil))
+	}
+	close(done)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	compiled, err := cm.Compile(mainID, nil)
+	require.NoError(t, err)
+	require.Equal(t, "v50", executeCompiledString(t, compiled.Dependencies[0].Proto))
+}
+
 func TestManager_ConcurrentCompileAndUpdate(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}

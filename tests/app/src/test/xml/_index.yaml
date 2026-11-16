@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.xml
+
+entries:
+  - name: decode
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml.decode normal form and namespaces
+    source: file://decode.lua
+    method: main
+    modules:
+      - xml
+    imports:
+      assert2: app.lib:assert
+
+  - name: encode
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml.encode serialisation and options
+    source: file://encode.lua
+    method: main
+    modules:
+      - xml
+    imports:
+      assert2: app.lib:assert
+
+  - name: helpers
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml element helpers and paths
+    source: file://helpers.lua
+    method: main
+    modules:
+      - xml
+    imports:
+      assert2: app.lib:assert
+
+  - name: reader
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml reader cursor over strings and files
+    source: file://reader.lua
+    method: main
+    modules:
+      - xml
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: records
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml record selection over files and archive streams
+    source: file://records.lua
+    method: main
+    modules:
+      - xml
+      - fs
+      - archive
+    imports:
+      assert2: app.lib:assert
+
+  - name: writer
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml writer in memory and to files
+    source: file://writer.lua
+    method: main
+    modules:
+      - xml
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: copy
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml reader copy into writers
+    source: file://copy.lua
+    method: main
+    modules:
+      - xml
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml structured errors
+    source: file://errors.lua
+    method: main
+    modules:
+      - xml
+    imports:
+      assert2: app.lib:assert
+
+  - name: typed
+    kind: function.lua
+    meta:
+      type: test
+      suite: xml
+      description: xml typed element handling
+    source: file://typed.lua
+    method: main
+    modules:
+      - xml
+    imports:
+      assert2: app.lib:assert

@@ -44,6 +44,7 @@ const (
 	UUIDName      = "lua.uuid"
 	WorkflowName  = "lua.workflow"
 	WebSocketName = "lua.websocket"
+	XMLName       = "lua.xml"
 	YAMLName      = "lua.yaml"
 	LSPName       = "lua.lsp"
 	PGModuleName  = "lua.pg"

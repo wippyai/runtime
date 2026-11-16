@@ -21,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
@@ -480,6 +481,28 @@ func TestSessionTimeouts(t *testing.T) {
 		require.NoError(t, <-done)
 		assert.Equal(t, "hard timeout", s.CloseReason())
 		assert.Contains(t, writer.String(), `"reason":"hard timeout"`)
+	})
+
+	t.Run("server shutdown", func(t *testing.T) {
+		s, err := NewSession(
+			context.Background(),
+			RelayCommand{IdleTimeout: "10s", HeartbeatInterval: "0s"},
+			registry.NewID("app", "server"),
+			host,
+			node,
+			topo,
+			tc,
+			pg,
+			zap.NewNop(),
+		)
+		require.NoError(t, err)
+
+		writer := newTestSSEWriter()
+		reqCtx, cancelReq := context.WithCancelCause(context.Background())
+		cancelReq(httpapi.ErrServerShutdown)
+		require.NoError(t, s.Serve(reqCtx, writer))
+		assert.Equal(t, "server shutdown", s.CloseReason())
+		assert.Contains(t, writer.String(), `"reason":"server shutdown"`)
 	})
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cloudstorage"
+	apierror "github.com/wippyai/runtime/api/error"
 	"go.uber.org/zap"
 )
 
@@ -804,75 +805,75 @@ func (m *mockEndpointResolver) ResolveEndpoint(_ context.Context, _ s3.EndpointP
 	return smithyendpoints.Endpoint{URI: *u}, nil
 }
 
-func TestMapKnownError(t *testing.T) {
-	t.Run("nil passes through", func(t *testing.T) {
-		assert.NoError(t, mapKnownError(nil))
-	})
-
-	t.Run("412 maps to ErrPreconditionFailed", func(t *testing.T) {
-		respErr := &awshttp.ResponseError{
+func TestStorageError(t *testing.T) {
+	ctx := context.Background()
+	responseError := func(status int, code string) error {
+		return &awshttp.ResponseError{
 			ResponseError: &smithyhttp.ResponseError{
-				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusPreconditionFailed}},
-				Err:      &smithy.GenericAPIError{Code: "PreconditionFailed", Message: "etag mismatch"},
+				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: status}},
+				Err:      &smithy.GenericAPIError{Code: code},
 			},
 			RequestID: "req-1",
 		}
-		err := mapKnownError(respErr)
+	}
+	kindOf := func(t *testing.T, err error) (apierror.Kind, apierror.Ternary) {
+		t.Helper()
+		var classified apierror.Error
+		require.True(t, errors.As(err, &classified))
+		return classified.Kind(), classified.Retryable()
+	}
+
+	t.Run("nil passes through", func(t *testing.T) {
+		assert.NoError(t, storageError(ctx, "bucket", "head object", nil))
+	})
+
+	t.Run("412 maps to ErrPreconditionFailed", func(t *testing.T) {
+		err := storageError(ctx, "bucket", "upload object", responseError(http.StatusPreconditionFailed, "PreconditionFailed"))
 		assert.True(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
+		kind, _ := kindOf(t, err)
+		assert.Equal(t, apierror.Conflict, kind)
 	})
 
 	t.Run("304 maps to ErrPreconditionFailed", func(t *testing.T) {
-		respErr := &awshttp.ResponseError{
-			ResponseError: &smithyhttp.ResponseError{
-				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusNotModified}},
-				Err:      &smithy.GenericAPIError{Code: "NotModified"},
-			},
-			RequestID: "req-2",
-		}
-		err := mapKnownError(respErr)
+		err := storageError(ctx, "bucket", "download object", responseError(http.StatusNotModified, "NotModified"))
 		assert.True(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
 	})
 
 	t.Run("404 maps to ErrNotFound", func(t *testing.T) {
-		respErr := &awshttp.ResponseError{
-			ResponseError: &smithyhttp.ResponseError{
-				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusNotFound}},
-				Err:      &smithy.GenericAPIError{Code: "NotFound"},
-			},
-			RequestID: "req-3",
-		}
-		err := mapKnownError(respErr)
+		err := storageError(ctx, "bucket", "head object", responseError(http.StatusNotFound, "NotFound"))
 		assert.True(t, errors.Is(err, cloudstorage.ErrNotFound))
+		kind, _ := kindOf(t, err)
+		assert.Equal(t, apierror.NotFound, kind)
 	})
 
 	t.Run("typed NoSuchKey maps to ErrNotFound", func(t *testing.T) {
-		err := mapKnownError(&types.NoSuchKey{Message: aws.String("missing")})
+		err := storageError(ctx, "bucket", "download object", &types.NoSuchKey{Message: aws.String("missing")})
 		assert.True(t, errors.Is(err, cloudstorage.ErrNotFound))
 	})
 
 	t.Run("typed NotFound maps to ErrNotFound", func(t *testing.T) {
-		err := mapKnownError(&types.NotFound{Message: aws.String("missing")})
+		err := storageError(ctx, "bucket", "head object", &types.NotFound{Message: aws.String("missing")})
 		assert.True(t, errors.Is(err, cloudstorage.ErrNotFound))
 	})
 
-	t.Run("other status passes through unchanged", func(t *testing.T) {
-		respErr := &awshttp.ResponseError{
-			ResponseError: &smithyhttp.ResponseError{
-				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}},
-				Err:      &smithy.GenericAPIError{Code: "InternalError"},
-			},
-			RequestID: "req-4",
-		}
-		err := mapKnownError(respErr)
+	t.Run("server error is retryable Unavailable", func(t *testing.T) {
+		cause := responseError(http.StatusInternalServerError, "InternalError")
+		err := storageError(ctx, "bucket", "list objects", cause)
 		assert.False(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
 		assert.False(t, errors.Is(err, cloudstorage.ErrNotFound))
-		assert.Same(t, respErr, err)
+		assert.ErrorIs(t, err, cause)
+		kind, retryable := kindOf(t, err)
+		assert.Equal(t, apierror.Unavailable, kind)
+		assert.Equal(t, apierror.True, retryable)
 	})
 
-	t.Run("non-aws error passes through unchanged", func(t *testing.T) {
+	t.Run("unrecognized error is Internal and keeps its cause", func(t *testing.T) {
 		base := errors.New("plain error")
-		err := mapKnownError(base)
-		assert.Same(t, base, err)
+		err := storageError(ctx, "bucket", "list objects", base)
+		assert.ErrorIs(t, err, base)
+		kind, retryable := kindOf(t, err)
+		assert.Equal(t, apierror.Internal, kind)
+		assert.Equal(t, apierror.False, retryable)
 	})
 }
 

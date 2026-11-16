@@ -3,11 +3,13 @@
 package json
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 )
@@ -158,5 +160,148 @@ func TestEncodeEqualWrittenKeysKeepFixedOrder(t *testing.T) {
 				t.Fatalf("padding %d run %d:\n got %s\nwant %s", padding, run, got, first)
 			}
 		}
+	}
+}
+
+func TestEncodeMixedKeysWriteDistantIntegerKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	if err := l.DoString(`value = {"one", nil, "three", alpha = 1}; value[2^53] = "far"; value[2] = "two"`); err != nil {
+		t.Fatal(err)
+	}
+
+	options := DefaultEncodeOptions
+	options.TreatMixedKeysAsObjects = true
+
+	done := make(chan struct{})
+	var got []byte
+	var err error
+	go func() {
+		defer close(done)
+		got, err = EncodeWithOptions(l.GetGlobal("value"), &options)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("encoding a mixed table with one distant integer key did not finish")
+	}
+
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	want := `{"1":"one","2":"two","3":"three","9007199254740992":"far","alpha":1}`
+	if string(got) != want {
+		t.Fatalf("got %s\nwant %s", got, want)
+	}
+}
+
+// go-lua stores integer keys outside [1, MaxArrayIndex) as LInteger; the
+// encoder classifies them by value, like every other numeric key.
+func TestEncodeIntegerKeysOutsideArrayIndexRange(t *testing.T) {
+	tests := []struct {
+		err   error
+		name  string
+		build string
+		want  string
+	}{
+		{name: "zero key", build: `{[0] = "z", a = 1}`, want: `{"0":"z","a":1}`},
+		{name: "negative key", build: `{[-1] = "m", a = 1}`, want: `{"-1":"m","a":1}`},
+		{name: "only zero key", build: `{[0] = "z"}`, want: `{"0":"z"}`},
+		{name: "large key with string keys", build: `{[1730000000] = "ts", a = 1}`, err: errInvalidKeys},
+		{name: "only large key", build: `{[1730000000] = "ts"}`, err: errSparseArray},
+		{name: "array then large key", build: `{"a", [1730000000] = "ts"}`, err: errSparseArray},
+		{name: "fractional key", build: `{[1.5] = "x"}`, want: `{"1.5":"x"}`},
+		{name: "min integer key", build: `{[math.mininteger] = "x"}`, want: `{"-9223372036854775808":"x"}`},
+		{name: "max integer key", build: `{[math.maxinteger] = "x"}`, err: errSparseArray},
+		{name: "float key beyond int64", build: `{[2^63] = "x"}`, err: errSparseArray},
+		{name: "float key beyond int64 with string keys", build: `{[2^63] = "x", a = 1}`, err: errInvalidKeys},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			if err := l.DoString("value = " + tt.build); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Encode(l.GetGlobal("value"))
+			if tt.err != nil {
+				if !errors.Is(err, tt.err) {
+					t.Fatalf("got %s, %v; want %v", got, err, tt.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("got %s\nwant %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEncodeMixedKeysWriteLargeIntegerKeysInOrder(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	if err := l.DoString(`value = {"a", b = 2}; value[1730000000] = "ts"; value[0] = "zero"; value[-5] = "neg"`); err != nil {
+		t.Fatal(err)
+	}
+	options := DefaultEncodeOptions
+	options.TreatMixedKeysAsObjects = true
+	got, err := EncodeWithOptions(l.GetGlobal("value"), &options)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	want := `{"1":"a","1730000000":"ts","-5":"neg","0":"zero","b":2}`
+	if string(got) != want {
+		t.Fatalf("got %s\nwant %s", got, want)
+	}
+}
+
+func TestEncodeSparseArrayErrorNamesTheKey(t *testing.T) {
+	tests := []struct {
+		build string
+		want  string
+	}{
+		{build: `{[1730000000] = "ts"}`, want: "integer key 1730000000 past an array of 0 elements"},
+		{build: `{"a", "b", [40] = "c"}`, want: "integer key 40 past an array of 2 elements"},
+		{build: `{[2^63] = "x"}`, want: "integer key 9223372036854775808 past an array of 0 elements"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.build, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+			if err := l.DoString("value = " + tt.build); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Encode(l.GetGlobal("value"))
+			if !errors.Is(err, errSparseArray) {
+				t.Fatalf("got %v, want %v", err, errSparseArray)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error %q does not name the key: want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// Array positions at or above go-lua's MaxArrayIndex are LInteger hash keys;
+// a contiguous array that crosses it still encodes in order.
+func TestEncodeArrayCrossingMaxArrayIndex(t *testing.T) {
+	saved := lua.MaxArrayIndex
+	lua.MaxArrayIndex = 4
+	t.Cleanup(func() { lua.MaxArrayIndex = saved })
+
+	l := lua.NewState()
+	defer l.Close()
+	if err := l.DoString(`value = {"a", "b", "c"}; value[4] = "d"; value[5] = "e"; value[6] = "f"`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Encode(l.GetGlobal("value"))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if want := `["a","b","c","d","e","f"]`; string(got) != want {
+		t.Fatalf("got %s\nwant %s", got, want)
 	}
 }

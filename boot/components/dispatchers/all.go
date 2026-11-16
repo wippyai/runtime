@@ -17,6 +17,7 @@ func All() []boot.Component {
 		WS(),
 		Exec(),
 		Stream(),
+		XML(),
 		TTY(),
 		SQL(),
 		CDC(),

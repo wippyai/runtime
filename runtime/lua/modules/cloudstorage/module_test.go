@@ -19,8 +19,8 @@ func TestModuleLoads(t *testing.T) {
 		t.Fatal("expected module table to be non-nil")
 	}
 
-	if len(yields) != 12 {
-		t.Errorf("expected 12 yield types, got %d", len(yields))
+	if len(yields) != 13 {
+		t.Errorf("expected 13 yield types, got %d", len(yields))
 	}
 }
 
@@ -57,6 +57,7 @@ func TestYieldTypes(t *testing.T) {
 		int(csapi.CompleteMultipartUpload): false,
 		int(csapi.AbortMultipartUpload):    false,
 		int(csapi.OpenReader):              false,
+		int(csapi.CopyObject):              false,
 	}
 
 	for _, y := range yields {

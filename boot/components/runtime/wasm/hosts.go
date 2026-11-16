@@ -120,6 +120,7 @@ func wasiIOProfile(log *zap.Logger) wasmcomponent.HostProfile {
 	return wasmcomponent.HostProfile{
 		Name:          wasmcomponent.HostProfileWASIIO,
 		ComponentOnly: true,
+		NeverSuspends: true,
 		Aliases:       append([]string{wasmcomponent.HostProfileWASIIO}, ioAliases...),
 		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
 			return registerHosts(ctx, rt, []hostFactory{ioHosts}, log, wasmcomponent.HostProfileWASIIO)
@@ -142,6 +143,7 @@ func wasiClocksProfile(log *zap.Logger) wasmcomponent.HostProfile {
 	return wasmcomponent.HostProfile{
 		Name:          wasmcomponent.HostProfileWASIClocks,
 		ComponentOnly: true,
+		NeverSuspends: true,
 		Aliases:       append([]string{wasmcomponent.HostProfileWASIClocks}, clocksAliases...),
 		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
 			return registerHosts(ctx, rt, []hostFactory{clocksHosts}, log, wasmcomponent.HostProfileWASIClocks)
@@ -153,6 +155,7 @@ func wasiCLIProfile(log *zap.Logger) wasmcomponent.HostProfile {
 	return wasmcomponent.HostProfile{
 		Name:          wasmcomponent.HostProfileWASICLI,
 		ComponentOnly: true,
+		NeverSuspends: true,
 		Aliases:       append([]string{wasmcomponent.HostProfileWASICLI}, cliAliases...),
 		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
 			return registerHosts(ctx, rt, []hostFactory{cliHosts}, log, wasmcomponent.HostProfileWASICLI)
@@ -175,6 +178,7 @@ func wasiRandomProfile(log *zap.Logger) wasmcomponent.HostProfile {
 	return wasmcomponent.HostProfile{
 		Name:          wasmcomponent.HostProfileWASIRandom,
 		ComponentOnly: true,
+		NeverSuspends: true,
 		Aliases:       append([]string{wasmcomponent.HostProfileWASIRandom}, randomAliases...),
 		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
 			return registerHosts(ctx, rt, []hostFactory{randomHosts}, log, wasmcomponent.HostProfileWASIRandom)

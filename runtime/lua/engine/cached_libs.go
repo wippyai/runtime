@@ -18,6 +18,7 @@ var (
 	cachedCoroutineLib *lua.LTable
 	cachedStringLib    *lua.LTable
 	cachedErrorsLib    *lua.LTable
+	cachedUtf8Lib      *lua.LTable
 
 	// cachedLibs is the ordered set of standard libraries bound as globals by
 	// BindCachedLibs. It is the single source for both binding and StdLibNames.
@@ -58,6 +59,10 @@ func initCachedLibs() {
 		cachedErrorsLib = tmp.GetGlobal(lua.ErrorsLibName).(*lua.LTable)
 		cachedErrorsLib.Immutable = true
 
+		lua.OpenUtf8(tmp)
+		cachedUtf8Lib = tmp.GetGlobal(lua.Utf8LibName).(*lua.LTable)
+		cachedUtf8Lib.Immutable = true
+
 		cachedLibs = []cachedLib{
 			{name: lua.TabLibName, tbl: cachedTableLib},
 			{name: lua.MathLibName, tbl: cachedMathLib},
@@ -65,6 +70,7 @@ func initCachedLibs() {
 			{name: lua.CoroutineLibName, tbl: cachedCoroutineLib},
 			{name: lua.StringLibName, tbl: cachedStringLib},
 			{name: lua.ErrorsLibName, tbl: cachedErrorsLib},
+			{name: lua.Utf8LibName, tbl: cachedUtf8Lib},
 		}
 	})
 }

@@ -98,11 +98,15 @@ func HashNodeWithProto(node *Node, proto *glua.FunctionProto) string {
 // Dependency edges (of type runtime.Edge) carry an alias, which is later propagated into
 // the final runtime configuration as part of the runtime.Dependency wrapper.
 type MemoryGraph struct {
-	graph                 *graph.Graph[registry.ID, Edge]
-	fingerprints          *fingerprintCache
-	nodes                 map[registry.ID]*Node
-	nodeLevels            map[registry.ID]int
-	dependentsCache       map[registry.ID][]*Node
+	graph           *graph.Graph[registry.ID, Edge]
+	fingerprints    *fingerprintCache
+	nodes           map[registry.ID]*Node
+	nodeLevels      map[registry.ID]int
+	dependentsCache map[registry.ID][]*Node
+	// moduleDefs indexes module definitions by name. It is replaced, never
+	// mutated, whenever the set of module nodes changes, so readers may keep
+	// the returned map after the lock is released.
+	moduleDefs            map[string]*runtime.ModuleDef
 	dependencyLevelsCache [][]*Node
 	unversioned           int
 	mu                    sync.RWMutex
@@ -117,6 +121,7 @@ func NewMemoryGraph() *MemoryGraph {
 		nodes:           make(map[registry.ID]*Node),
 		nodeLevels:      make(map[registry.ID]int),
 		dependentsCache: make(map[registry.ID][]*Node),
+		moduleDefs:      make(map[string]*runtime.ModuleDef),
 		cacheValid:      true,
 	}
 }
@@ -138,6 +143,7 @@ func (m *MemoryGraph) Snapshot() *MemoryGraph {
 		nodes:           nodes,
 		nodeLevels:      levels,
 		dependentsCache: make(map[registry.ID][]*Node),
+		moduleDefs:      m.moduleDefs,
 		cacheValid:      true,
 	}
 }
@@ -168,6 +174,9 @@ func (m *MemoryGraph) snapshotReachable(entrypoint registry.ID, preloads []regis
 			snapshot.unversioned++
 		}
 		snapshot.nodeLevels[id] = m.nodeLevels[id]
+		if mod := snapshot.nodes[id].Module; mod != nil {
+			snapshot.moduleDefs[mod.Name] = mod
+		}
 	}
 	for id := range ids {
 		neighbors, _ := m.graph.GetNeighbors(id)
@@ -253,6 +262,33 @@ func (m *MemoryGraph) SetManifestIfRevision(id registry.ID, revision uint64, man
 	return true
 }
 
+// ModuleDefs returns the module definitions keyed by name. The map is shared
+// and must not be modified.
+func (m *MemoryGraph) ModuleDefs() map[string]*runtime.ModuleDef {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.moduleDefs
+}
+
+// replaceModuleDefLocked publishes a new module index with old removed and
+// next added. Must be called with mu held.
+func (m *MemoryGraph) replaceModuleDefLocked(old, next *runtime.ModuleDef) {
+	if old == next {
+		return
+	}
+	defs := make(map[string]*runtime.ModuleDef, len(m.moduleDefs)+1)
+	for name, mod := range m.moduleDefs {
+		defs[name] = mod
+	}
+	if old != nil && defs[old.Name] == old {
+		delete(defs, old.Name)
+	}
+	if next != nil {
+		defs[next.Name] = next
+	}
+	m.moduleDefs = defs
+}
+
 // invalidateCacheLocked marks all caches as invalid. Must be called with mu held.
 func (m *MemoryGraph) invalidateCacheLocked() {
 	m.fingerprints = &fingerprintCache{}
@@ -322,6 +358,7 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 		m.unversioned++
 	}
 	m.nodeLevels[n.ID] = 0
+	m.replaceModuleDefLocked(nil, n.Module)
 	m.invalidateCacheLocked()
 	return nil
 }
@@ -378,6 +415,7 @@ func (m *MemoryGraph) UpdateNode(n *Node, deps []Import) error {
 	}
 
 	m.graph = nextGraph
+	m.replaceModuleDefLocked(m.nodes[n.ID].Module, n.Module)
 	if !versionedNode(m.nodes[n.ID]) {
 		m.unversioned--
 	}
@@ -411,6 +449,7 @@ func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 		return err
 	}
 
+	m.replaceModuleDefLocked(m.nodes[id].Module, nil)
 	if !versionedNode(m.nodes[id]) {
 		m.unversioned--
 	}

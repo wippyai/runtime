@@ -17,7 +17,7 @@ func init() {
 		HeadObject,
 		CreateMultipartUpload, PresignedUploadPartURLs,
 		CompleteMultipartUpload, AbortMultipartUpload,
-		OpenReader,
+		OpenReader, CopyObject,
 	)
 }
 
@@ -35,6 +35,7 @@ const (
 	CompleteMultipartUpload dispatcher.CommandID = 169
 	AbortMultipartUpload    dispatcher.CommandID = 173
 	OpenReader              dispatcher.CommandID = 174
+	CopyObject              dispatcher.CommandID = 175
 )
 
 // ListObjectsCmd lists objects in cloud storage.

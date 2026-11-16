@@ -4,6 +4,7 @@ package json
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"io"
 	"math"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,13 +33,11 @@ const DefaultMaxDepth = 128
 
 type EncodeOptions struct {
 	MaxDepth                int
-	AllowSparseArrays       bool
 	TreatMixedKeysAsObjects bool
 }
 
 var DefaultEncodeOptions = EncodeOptions{
 	MaxDepth:                DefaultMaxDepth,
-	AllowSparseArrays:       false,
 	TreatMixedKeysAsObjects: false,
 }
 
@@ -67,6 +65,30 @@ type encodeState struct {
 	visited map[*lua.LTable]bool
 	entries []objectEntry
 }
+
+// hashedIndex reads array position i from a table's hash part, using the key
+// representation go-lua stores for it (see arrayIndex).
+func hashedIndex(dict map[lua.LValue]lua.LValue, i int) lua.LValue {
+	var value lua.LValue
+	var ok bool
+	if i < lua.MaxArrayIndex {
+		value, ok = dict[lua.LNumber(i)]
+	} else {
+		value, ok = dict[lua.LInteger(i)]
+	}
+	if !ok {
+		return lua.LNil
+	}
+	return value
+}
+
+// indexedValue is a positive integer key held in a table's hash part.
+type indexedValue struct {
+	value lua.LValue
+	index int64
+}
+
+func compareIndexedValues(a, b indexedValue) int { return cmp.Compare(a.index, b.index) }
 
 // objectEntry is one hash key of a table being written as a JSON object.
 // rank orders entries whose written keys are equal: Strdict keys first, then
@@ -207,26 +229,10 @@ func validationError(l *lua.LState, goErr error, context string) int {
 	return 2
 }
 
-func evaluationResultError(result *jsonschema.EvaluationResult) error {
-	if result == nil {
-		return errors.New("validation failed")
-	}
-	details := result.DetailedErrors()
-	if len(details) == 0 {
-		return errors.New("validation failed")
-	}
-
-	keys := make([]string, 0, len(details))
-	for key := range details {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	first := keys[0]
-	if len(keys) == 1 {
-		return fmt.Errorf("%s: %s", first, details[first])
-	}
-	return fmt.Errorf("%s: %s (+%d more)", first, details[first], len(keys)-1)
+func validationFailed(l *lua.LState, result *jsonschema.EvaluationResult) int {
+	l.Push(lua.LFalse)
+	l.Push(validationFailure(l, result))
+	return 2
 }
 
 func Encode(value lua.LValue) ([]byte, error) {
@@ -287,6 +293,12 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 	case *lua.LTable:
 		return j.marshalTableDirect(converted)
 	case *lua.LUserData:
+		if converted == luavalue.JSONNull {
+			return []byte("null"), nil
+		}
+		if text, ok := luavalue.JSONRawText(converted); ok {
+			return []byte(text), nil
+		}
 		if str, ok := converted.Value.(string); ok {
 			return json.Marshal(str)
 		}
@@ -305,6 +317,24 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 
 func isInteger(n lua.LNumber) bool {
 	return float64(n) == math.Floor(float64(n))
+}
+
+// arrayIndex reports whether key is a positive integer and returns it. go-lua
+// stores integer keys in [1, MaxArrayIndex) as LNumber and every other integer
+// key as LInteger, so both representations name array positions.
+func arrayIndex(key lua.LValue) (int64, bool) {
+	switch k := key.(type) {
+	case lua.LNumber:
+		f := float64(k)
+		if f >= 1 && f < math.MaxInt64 && f == math.Trunc(f) {
+			return int64(f), true
+		}
+	case lua.LInteger:
+		if k > 0 {
+			return int64(k), true
+		}
+	}
+	return 0, false
 }
 
 // marshalTableDirect writes JSON directly without intermediate Go structures
@@ -348,16 +378,29 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 		}
 	}
 
-	// Check Dict part
+	// Check Dict part. Integer keys past the array part are counted so that
+	// their contiguity is checked against the entry count, not their values.
+	arrayLen := int64(len(table.Array))
+	var hashedPastArray, maxHashedKey int64
+	var beyondInt64 lua.LNumber
 	if table.Dict != nil {
 		for key, value := range table.Dict {
 			if value != lua.LNil {
-				if num, ok := key.(lua.LNumber); ok && isInteger(num) && num > 0 {
+				if index, ok := arrayIndex(key); ok {
 					hasNumericKeys = true
-					idx := int(num)
-					if idx > maxNumericKey {
-						maxNumericKey = idx
+					if index > arrayLen {
+						hashedPastArray++
+						maxHashedKey = max(maxHashedKey, index)
+					} else {
+						maxNumericKey = max(maxNumericKey, int(index))
 					}
+				} else if num, ok := key.(lua.LNumber); ok && num > 0 && isInteger(num) {
+					// An integral float beyond int64 is still a numeric key, and
+					// no array of this table can reach it.
+					hasNumericKeys = true
+					hashedPastArray++
+					maxHashedKey = math.MaxInt64
+					beyondInt64 = max(beyondInt64, num)
 				} else {
 					hasStringKeys = true
 				}
@@ -381,31 +424,21 @@ func (j *jsonValue) marshalTableDirect(table *lua.LTable) ([]byte, error) {
 	}
 
 	if isObject {
-		return j.writeObjectDirect(buf, table, maxNumericKey)
+		return j.writeObjectDirect(buf, table)
 	}
 
-	// Check for sparse array
-	if maxNumericKey > 0 && !j.options.AllowSparseArrays {
-		actualCount := 0
-		if table.Array != nil {
-			for _, value := range table.Array {
-				if value != lua.LNil {
-					actualCount++
-				}
+	// Holes inside the array part encode as null. Keys stored past it must
+	// continue the array without a gap: distinct integers above arrayLen are
+	// contiguous exactly when the largest is arrayLen plus their count.
+	if hashedPastArray > 0 {
+		if maxHashedKey != arrayLen+hashedPastArray {
+			key := strconv.FormatInt(maxHashedKey, 10)
+			if beyondInt64 > 0 {
+				key = strconv.FormatFloat(float64(beyondInt64), 'f', 0, 64)
 			}
+			return nil, fmt.Errorf("%w: integer key %s past an array of %d elements", errSparseArray, key, arrayLen)
 		}
-		if table.Dict != nil {
-			for key, value := range table.Dict {
-				if value != lua.LNil {
-					if num, ok := key.(lua.LNumber); ok && isInteger(num) && num > 0 {
-						actualCount++
-					}
-				}
-			}
-		}
-		if actualCount != maxNumericKey {
-			return nil, errSparseArray
-		}
+		maxNumericKey = int(maxHashedKey)
 	}
 
 	return j.writeArrayDirect(buf, table, maxNumericKey)
@@ -420,20 +453,12 @@ func (j *jsonValue) writeArrayDirect(buf *bytes.Buffer, table *lua.LTable, maxNu
 	first := true
 
 	for i := 1; i <= maxNumericKey; i++ {
-		var value = lua.LNil
-
-		// Check Array part
-		if table.Array != nil && i-1 < len(table.Array) {
-			if v := table.Array[i-1]; v != lua.LNil {
-				value = v
-			}
+		value := lua.LNil
+		if i <= len(table.Array) {
+			value = table.Array[i-1]
 		}
-
-		// Check Dict part for numeric keys
 		if value == lua.LNil && table.Dict != nil {
-			if v, ok := table.Dict[lua.LNumber(i)]; ok {
-				value = v
-			}
+			value = hashedIndex(table.Dict, i)
 		}
 
 		if !first {
@@ -452,7 +477,7 @@ func (j *jsonValue) writeArrayDirect(buf *bytes.Buffer, table *lua.LTable, maxNu
 	return result, nil
 }
 
-func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxNumericKey int) ([]byte, error) {
+func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable) ([]byte, error) {
 	buf.WriteByte('{')
 	first := true
 
@@ -479,30 +504,44 @@ func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxN
 		return j.writeValueOptimized(buf, value)
 	}
 
-	// Write numeric keys first (if treating mixed as objects)
-	if maxNumericKey > 0 {
-		for i := 1; i <= maxNumericKey; i++ {
-			var value = lua.LNil
-
-			// Check Array part
-			if table.Array != nil && i-1 < len(table.Array) {
-				if v := table.Array[i-1]; v != lua.LNil {
-					value = v
-				}
+	// Positive integer keys come first in ascending order: the array part by
+	// position, merged with integer keys held in the hash part, so the work
+	// follows the table's entries rather than the value of its largest key.
+	var hashed []indexedValue
+	for key, value := range table.Dict {
+		if value == lua.LNil {
+			continue
+		}
+		if index, ok := arrayIndex(key); ok {
+			if index <= int64(len(table.Array)) && table.Array[index-1] != lua.LNil {
+				continue // the array part holds this position
 			}
+			hashed = append(hashed, indexedValue{index: index, value: value})
+		}
+	}
+	if len(hashed) > 1 {
+		slices.SortFunc(hashed, compareIndexedValues)
+	}
 
-			// Check Dict part
-			if value == lua.LNil && table.Dict != nil {
-				if v, ok := table.Dict[lua.LNumber(i)]; ok {
-					value = v
-				}
+	next := 0
+	for i, value := range table.Array {
+		index := int64(i + 1)
+		for next < len(hashed) && hashed[next].index < index {
+			if err := writeKeyValue(strconv.FormatInt(hashed[next].index, 10), hashed[next].value); err != nil {
+				return nil, err
 			}
-
-			if value != lua.LNil {
-				if err := writeKeyValue(strconv.Itoa(i), value); err != nil {
-					return nil, err
-				}
-			}
+			next++
+		}
+		if value == lua.LNil {
+			continue
+		}
+		if err := writeKeyValue(strconv.FormatInt(index, 10), value); err != nil {
+			return nil, err
+		}
+	}
+	for ; next < len(hashed); next++ {
+		if err := writeKeyValue(strconv.FormatInt(hashed[next].index, 10), hashed[next].value); err != nil {
+			return nil, err
 		}
 	}
 
@@ -525,13 +564,17 @@ func (j *jsonValue) writeObjectDirect(buf *bytes.Buffer, table *lua.LTable, maxN
 			if value == lua.LNil {
 				continue
 			}
+			if _, ok := arrayIndex(key); ok {
+				continue // written with the integer keys above
+			}
 			switch k := key.(type) {
 			case lua.LNumber:
-				if isInteger(k) && k > 0 {
-					continue // written with the numeric keys above
-				}
 				entries = append(entries, objectEntry{
 					key: strconv.FormatFloat(float64(k), 'f', -1, 64), value: value, rank: rankDictNumber,
+				})
+			case lua.LInteger:
+				entries = append(entries, objectEntry{
+					key: strconv.FormatInt(int64(k), 10), value: value, rank: rankDictNumber,
 				})
 			case lua.LString:
 				entries = append(entries, objectEntry{key: string(k), value: value, rank: rankDictString})
@@ -663,7 +706,7 @@ func schemaValidateFunc(l *lua.LState) int {
 	}
 
 	if !result.IsValid() {
-		return validationError(l, evaluationResultError(result), "validation failed")
+		return validationFailed(l, result)
 	}
 
 	l.Push(lua.LTrue)
@@ -694,7 +737,7 @@ func schemaValidateStringFunc(l *lua.LState) int {
 
 	result := schema.Validate([]byte(jsonStr))
 	if !result.IsValid() {
-		return validationError(l, evaluationResultError(result), "validation failed")
+		return validationFailed(l, result)
 	}
 
 	l.Push(lua.LTrue)
@@ -707,9 +750,12 @@ func getSchemaJSON(schemaArg lua.LValue) ([]byte, error) {
 		return []byte(v), nil
 	case *lua.LTable:
 		return Encode(v)
-	default:
-		return nil, errors.New("schema must be a string or table")
+	case *lua.LUserData:
+		if text, ok := luavalue.JSONRawText(v); ok {
+			return []byte(text), nil
+		}
 	}
+	return nil, errors.New("schema must be a string, table or json.raw value")
 }
 
 func compileSchema(schemaJSON []byte) (*jsonschema.Schema, error) {

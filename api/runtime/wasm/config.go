@@ -49,6 +49,11 @@ type (
 		// every call.
 		RetainedMemoryCheckInterval int `json:"retained_memory_check_interval,omitempty"`
 
+		// MemoryBytes caps the linear memory one instance may hold, across all of
+		// its memories. Zero leaves linear memory unbounded. A non-zero value must
+		// be a multiple of 64 KiB and must not exceed 4 GiB.
+		MemoryBytes int64 `json:"memory_bytes,omitempty"`
+
 		// AsyncifyStackBytes requests guest-allocated suspension storage per core module.
 		// Zero selects the backend default (64 KiB). Storage counts toward linear memory.
 		AsyncifyStackBytes uint32 `json:"asyncify_stack_bytes,omitempty"`
@@ -133,6 +138,7 @@ type (
 
 type limitsConfigJSON struct {
 	MaxRetainedMemoryBytes      *int64 `json:"max_retained_memory_bytes,omitempty" yaml:"max_retained_memory_bytes,omitempty"`
+	MemoryBytes                 int64  `json:"memory_bytes,omitempty" yaml:"memory_bytes,omitempty"`
 	MaxExecutionMS              int    `json:"max_execution_ms,omitempty" yaml:"max_execution_ms,omitempty"`
 	MaxOpenSockets              int    `json:"max_open_sockets,omitempty" yaml:"max_open_sockets,omitempty"`
 	SocketTimeoutMS             int    `json:"socket_timeout_ms,omitempty" yaml:"socket_timeout_ms,omitempty"`
@@ -162,6 +168,7 @@ func (c *LimitsConfig) UnmarshalYAML(unmarshal func(any) error) error {
 func (c *LimitsConfig) applyDecoded(decoded limitsConfigJSON) {
 	*c = LimitsConfig{
 		AsyncifyStackBytes:          decoded.AsyncifyStackBytes,
+		MemoryBytes:                 decoded.MemoryBytes,
 		MaxExecutionMS:              decoded.MaxExecutionMS,
 		MaxOpenSockets:              decoded.MaxOpenSockets,
 		SocketTimeoutMS:             decoded.SocketTimeoutMS,
@@ -183,6 +190,7 @@ func (c LimitsConfig) MarshalYAML() (any, error) {
 func (c LimitsConfig) encoded() limitsConfigJSON {
 	encoded := limitsConfigJSON{
 		AsyncifyStackBytes:          c.AsyncifyStackBytes,
+		MemoryBytes:                 c.MemoryBytes,
 		MaxExecutionMS:              c.MaxExecutionMS,
 		MaxOpenSockets:              c.MaxOpenSockets,
 		SocketTimeoutMS:             c.SocketTimeoutMS,
@@ -648,6 +656,11 @@ func validateLimits(limits LimitsConfig) error {
 	}
 	if limits.MaxExecutionMS < 0 || int64(limits.MaxExecutionMS) > math.MaxInt64/int64(time.Millisecond) {
 		return ErrInvalidExecutionLimit
+	}
+	if limits.MemoryBytes != 0 {
+		if err := validateMemoryBytes(limits.MemoryBytes); err != nil {
+			return err
+		}
 	}
 	if limits.MaxRetainedMemoryBytes < 0 {
 		return ErrInvalidRetainedMemoryLimit

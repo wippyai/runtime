@@ -21,6 +21,7 @@ const (
 	WSDispatcherName           boot.Name = "dispatcher.ws"
 	ExecDispatcherName         boot.Name = "dispatcher.exec"
 	StreamDispatcherName       boot.Name = "dispatcher.stream"
+	XMLDispatcherName          boot.Name = "dispatcher.xml"
 	TTYDispatcherName          boot.Name = "dispatcher.tty"
 	SQLDispatcherName          boot.Name = "dispatcher.sql"
 	CDCDispatcherName          boot.Name = "dispatcher.cdc"

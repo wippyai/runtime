@@ -179,20 +179,20 @@ func newScope(l *lua.LState) int {
 		return 0
 	}
 
-	sc := secsystem.NewScope(nil)
+	var policies []security.Policy
 
 	if l.GetTop() >= 1 {
 		policiesTable := l.CheckTable(1)
 		policiesTable.ForEach(func(_, policyValue lua.LValue) {
 			if policyUD, ok := policyValue.(*lua.LUserData); ok {
 				if pol, ok := policyUD.Value.(security.Policy); ok {
-					sc = sc.With(pol)
+					policies = append(policies, pol)
 				}
 			}
 		})
 	}
 
-	l.Push(wrapScope(l, sc))
+	l.Push(wrapScope(l, secsystem.NewScope(policies)))
 	return 1
 }
 

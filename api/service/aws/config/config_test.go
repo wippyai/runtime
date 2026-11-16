@@ -102,6 +102,55 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "region is required",
 		},
+		{
+			name: "valid with resolved env directives",
+			config: Config{
+				Region:             "us-east-1",
+				AccessKeyID:        "AWS_KEY",
+				SecretAccessKey:    "AWS_SECRET",
+				AccessKeyIDEnv:     "KEY_VAR",
+				SecretAccessKeyEnv: "SECRET_VAR",
+			},
+			wantErr: false,
+		},
+		{
+			name: "access key directive unresolved",
+			config: Config{
+				Region:             "us-east-1",
+				AccessKeyIDEnv:     "KEY_VAR",
+				SecretAccessKeyEnv: "SECRET_VAR",
+			},
+			wantErr: true,
+			errMsg:  "access_key_id_env names environment variable KEY_VAR, which is not set",
+		},
+		{
+			name: "secret directive unresolved",
+			config: Config{
+				Region:             "us-east-1",
+				AccessKeyID:        "AWS_KEY",
+				SecretAccessKeyEnv: "SECRET_VAR",
+			},
+			wantErr: true,
+			errMsg:  "secret_access_key_env names environment variable SECRET_VAR, which is not set",
+		},
+		{
+			name: "secret missing",
+			config: Config{
+				Region:      "us-east-1",
+				AccessKeyID: "AWS_KEY",
+			},
+			wantErr: true,
+			errMsg:  "secret_access_key is required",
+		},
+		{
+			name: "access key missing",
+			config: Config{
+				Region:          "us-east-1",
+				SecretAccessKey: "AWS_SECRET",
+			},
+			wantErr: true,
+			errMsg:  "access_key_id is required",
+		},
 	}
 
 	for _, tt := range tests {

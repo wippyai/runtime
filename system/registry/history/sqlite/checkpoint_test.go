@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
@@ -31,14 +32,14 @@ func TestHistoryWALPolicySurvivesConnectionReplacement(t *testing.T) {
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode))
 		require.Equal(t, "wal", mode)
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA wal_autocheckpoint").Scan(&checkpoint))
-		require.Equal(t, 1000, checkpoint)
+		require.Equal(t, 0, checkpoint, "history commits never checkpoint inline")
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&synchronous))
 		require.Equal(t, 1, synchronous, "preserve NORMAL synchronization")
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeys))
 		require.Equal(t, 1, foreignKeys)
 		require.NoError(t, conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout))
 		require.Equal(t, 5000, busyTimeout)
-		_, err = conn.ExecContext(ctx, "PRAGMA wal_autocheckpoint=0")
+		_, err = conn.ExecContext(ctx, "PRAGMA wal_autocheckpoint=1000")
 		require.NoError(t, err)
 		require.ErrorIs(t, conn.Raw(func(any) error { return driver.ErrBadConn }), driver.ErrBadConn)
 		_ = conn.Close()
@@ -59,9 +60,12 @@ func TestHistoryWALCheckpointProgress(t *testing.T) {
 		head = version.FromParent(head, uint(i))
 		require.NoError(t, hist.Save(head, cs, true))
 	}
-	info, err := os.Stat(file + "-wal")
-	require.NoError(t, err)
-	require.Less(t, info.Size(), int64(8<<20), "history must recycle the WAL before shutdown")
+	// The background checkpointer backfills the database file while history
+	// stays open.
+	require.Eventually(t, func() bool {
+		info, err := os.Stat(file)
+		return err == nil && info.Size() > 1200*4096
+	}, 10*time.Second, 10*time.Millisecond, "history must checkpoint the WAL before shutdown")
 	got, err := hist.Get(head)
 	require.NoError(t, err)
 	require.Len(t, got, 1)

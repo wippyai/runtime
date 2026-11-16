@@ -5,7 +5,6 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,11 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// TestRegistryComponentRestoresDependenciesOffline pins the dependency access
-// policy the registry component hands to startup restore. The recorded module
-// has no local artifact, so an offline restore refuses it by evidence while an
-// online restore would reach the Hub for a download instead.
-func TestRegistryComponentRestoresDependenciesOffline(t *testing.T) {
+// A failed integrity check stops startup and releases the opened history.
+func TestRegistryComponentRefusesAlteredDependency(t *testing.T) {
 	rootDir := t.TempDir()
 	dbPath := filepath.Join(rootDir, "registry.db")
 	lockPath := filepath.Join(rootDir, "wippy.lock")
@@ -43,6 +39,8 @@ modules:
       root: true
 `), 0o600))
 
+	require.NoError(t, os.MkdirAll(filepath.Join(vendorDir, "wippy"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(vendorDir, "wippy", "llm-0.4.46.wapp"), []byte("altered artifact"), 0o600))
 	seedDependencyResolution(t, dbPath, "wippy/llm", "0.4.46", "sha256:"+hexDigest)
 
 	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
@@ -59,23 +57,20 @@ modules:
 	require.NoError(t, err)
 
 	_, err = loader.Load(ctx)
-	require.Error(t, err, "startup must refuse a recorded module that has no local artifact")
+	require.Error(t, err, "startup must refuse an altered recorded artifact")
 
 	var apiErr apierror.Error
 	require.ErrorAs(t, err, &apiErr)
 
-	offline := offlineDependencyError(t, err)
-	require.Contains(t, offline.Error(), "offline startup")
-	require.Contains(t, offline.Details().GetString("hint", ""), "wippy update/install")
-	require.Equal(t, "wippy/llm@0.4.46", offline.Details().GetString("module", ""))
+	require.Contains(t, err.Error(), "digest mismatch")
 
 	// A failed start releases the history it opened: sqlite drops the WAL
 	// sidecars only when the last connection closes cleanly.
 	require.NoFileExists(t, dbPath+"-wal", "history left open after a failed start")
 	require.NoFileExists(t, dbPath+"-shm", "history left open after a failed start")
-	entries, readErr := os.ReadDir(vendorDir)
+	stored, readErr := os.ReadFile(filepath.Join(vendorDir, "wippy", "llm-0.4.46.wapp"))
 	require.NoError(t, readErr)
-	require.Empty(t, entries, "a refused startup must not materialize any artifact")
+	require.Equal(t, []byte("altered artifact"), stored)
 }
 
 // seedDependencyResolution records one dependency resolution as the head of a
@@ -98,22 +93,4 @@ func seedDependencyResolution(t *testing.T, dbPath, module, moduleVersion, diges
 	}).Canonical()
 	require.NoError(t, history.SaveWithDependencyResolution(head, nil, resolution, true))
 	require.NoError(t, history.Close())
-}
-
-// offlineDependencyError returns the categorized offline refusal carried by the
-// startup error chain. Component loading wraps its cause in its own detail-free
-// categorized error, so the chain is walked rather than matched at the top.
-func offlineDependencyError(t *testing.T, err error) apierror.Error {
-	t.Helper()
-	for current := err; current != nil; current = errors.Unwrap(current) {
-		var candidate apierror.Error
-		if !errors.As(current, &candidate) {
-			continue
-		}
-		if candidate.Details() != nil && candidate.Details().GetString("hint", "") != "" {
-			return candidate
-		}
-	}
-	require.FailNow(t, "startup error chain carries no offline dependency refusal", "%v", err)
-	return nil
 }

@@ -61,7 +61,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Decode and initialize configuration
 	cfg, err := entryutil.DecodeEntryConfig[awsconfigapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return NewDecodeConfigError(err)
+		return NewDecodeConfigError(entry.ID.String(), err)
 	}
 
 	// Create AWS config
@@ -111,7 +111,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	// Decode and initialize updated configuration
 	cfg, err := entryutil.DecodeEntryConfig[awsconfigapi.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return NewDecodeConfigError(err)
+		return NewDecodeConfigError(entry.ID.String(), err)
 	}
 
 	// Create new AWS config
@@ -237,14 +237,15 @@ func (r *configResource) Release() {
 }
 
 // createAWSConfig creates an AWS configuration from Config. Region and
-// credentials arrive already resolved by the central *_env decode pass.
+// credentials arrive resolved and validated by the central decode pass, so
+// declared static credentials are complete and an entry without them uses the
+// SDK default credential chain.
 func (m *Manager) createAWSConfig(ctx context.Context, cfg *awsconfigapi.Config) (aws.Config, error) {
 	options := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 	}
 
-	// Add credentials if provided
-	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
+	if cfg.StaticCredentials() {
 		options = append(options, config.WithCredentialsProvider(
 			aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) {
 				return aws.Credentials{

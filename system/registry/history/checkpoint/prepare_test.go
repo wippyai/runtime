@@ -11,11 +11,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/internal/sqliteconn"
 )
 
 func TestPrepareProjectionReadsEachPayloadOnce(t *testing.T) {
-	db := sqliteconn.Open("file:" + filepath.Join(t.TempDir(), "prepare.db"))
+	var config sqlapi.SQLiteCheckpointConfig
+	config.InitDefaults()
+	db, err := sqliteconn.Open("file:"+filepath.Join(t.TempDir(), "prepare.db"), config)
+	require.NoError(t, err)
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	for _, query := range []string{

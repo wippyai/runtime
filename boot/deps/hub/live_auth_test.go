@@ -82,7 +82,7 @@ func TestDependencyHandlerUsesCurrentCredentialsAfterStartup(t *testing.T) {
 	// UI authentication writes this exact runtime credential override. A fresh
 	// catalog client already sees it; the existing install handler must too.
 	auth.SetRuntimeToken(server.URL, "test-first-login")
-	catalog, err := newHubClientFromAuth()
+	catalog, err := NewClientFromAuth("")
 	require.NoError(t, err)
 	versions, err := catalog.ListAllVersions(t.Context(), "acme", "private")
 	require.NoError(t, err)
@@ -120,4 +120,35 @@ func TestDependencyHandlerUsesCurrentCredentialsAfterStartup(t *testing.T) {
 	expected.Store("Bearer test-environment")
 	_, err = deps.ResolveWorkspaceDependencies(ctx, requests)
 	require.NoError(t, err)
+}
+
+func TestExplicitRegistryClientUsesCurrentCredentials(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv(auth.EnvToken, "")
+	t.Setenv(auth.EnvRegistry, "https://default.invalid")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
+	var expected atomic.Value
+	expected.Store("")
+	_, handler := modulev1connect.NewModuleServiceHandler(&privateModuleService{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, expected.Load().(string), r.Header.Get("Authorization"))
+		handler.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	t.Cleanup(func() { auth.ClearRuntimeToken(server.URL) })
+	client, err := NewClientFromAuth(server.URL)
+	require.NoError(t, err)
+	for _, token := range []string{"", "first-login", "rotated-login", ""} {
+		if token == "" {
+			auth.ClearRuntimeToken(server.URL)
+			expected.Store("")
+		} else {
+			auth.SetRuntimeToken(server.URL, token)
+			expected.Store("Bearer " + token)
+		}
+		versions, err := client.ListAllVersions(t.Context(), "acme", "private")
+		require.NoError(t, err)
+		require.Len(t, versions, 1)
+	}
 }

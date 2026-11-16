@@ -34,6 +34,10 @@ no source directory is required and unrelated local source is not consulted
 unless workspace.include_host_dependencies is explicitly enabled.
 When enabled, host source dependencies join the application's dependency graph.
 
+Directory precedence, highest first: explicit --src-dir and --modules-dir flags,
+existing lock file, directories in wippy.yaml in the working directory, defaults
+(src: ./src, modules: .wippy).
+
 With module arguments, updates only the specified modules to their highest version
 compatible with other locked dependencies. New transitive dependencies are auto-added.
 If updating would require changing other locked modules, shows impact and asks for confirmation.
@@ -71,39 +75,22 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	lockFilePath, _ := cmd.Flags().GetString("lock-file")
 	registryURL, _ := cmd.Flags().GetString("registry")
 
-	// Get flag values and check if explicitly set
-	srcDir, _ := cmd.Flags().GetString("src-dir")
-	modulesDir, _ := cmd.Flags().GetString("modules-dir")
-	srcDirChanged := cmd.Flags().Changed("src-dir")
-	modulesDirChanged := cmd.Flags().Changed("modules-dir")
-	destination := ""
-	if modulesDirChanged {
-		destination = modulesDir
-	}
-	releaseWorkspace, err := holdWorkspaceForChange(lockFilePath, destination)
+	releaseWorkspace, err := holdWorkspaceForChange(lockFilePath, "")
 	if err != nil {
 		return err
 	}
 	defer releaseWorkspace()
 
-	// Load existing lock file to get current directories
-	var existingDirs *lock.Directories
-	if stat, err := os.Stat(lockFilePath); err == nil && !stat.IsDir() {
-		if existingLock, err := lock.New(lockFilePath); err == nil {
-			dirs := existingLock.GetDirectories()
-			existingDirs = &dirs
-		}
+	dirs, err := lockCommandDirectories(cmd, lockFilePath)
+	if err != nil {
+		return err
 	}
-
-	// Use existing directories unless flags explicitly override
-	if existingDirs != nil {
-		if !srcDirChanged && existingDirs.Src != "" {
-			srcDir = existingDirs.Src
-		}
-		if !modulesDirChanged && existingDirs.Modules != "" {
-			modulesDir = existingDirs.Modules
-		}
+	srcDir, modulesDir := dirs.Src, dirs.Modules
+	releaseDestination, err := holdWorkspaceChangePath(lock.RuntimeLockPath(filepath.Dir(lockFilePath), modulesDir))
+	if err != nil {
+		return err
 	}
+	defer releaseDestination()
 
 	// Get auth credentials
 	projectDir, _ := os.Getwd()

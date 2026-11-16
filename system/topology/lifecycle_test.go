@@ -454,3 +454,12 @@ func TestNameAlreadyRegisteredError(t *testing.T) {
 
 var _ topology.Topology = (*mockTopology)(nil)
 var _ topology.PIDRegistry = (*mockPIDRegistry)(nil)
+
+func TestLifecycle_OnComplete_PreservesOutdatedExit(t *testing.T) {
+	topo := newMockTopology()
+	lc := NewLifecycle(topo, nil, zap.NewNop())
+	child := pid.PID{UniqID: "child"}
+	lc.OnComplete(context.Background(), child, &runtime.Result{Error: supervisor.ErrExit, Outdated: true})
+	require.True(t, topo.notified[child.String()].Outdated)
+	require.NoError(t, topo.notified[child.String()].Error)
+}

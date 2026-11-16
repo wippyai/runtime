@@ -3,10 +3,20 @@
 package workflow
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	bindings "go.temporal.io/sdk/internalbindings"
+	"go.temporal.io/sdk/workflow"
 )
 
 func TestQueryTypeState(t *testing.T) {
@@ -76,26 +86,86 @@ func TestCompletedFlag(t *testing.T) {
 	assert.True(t, completed)
 }
 
-func TestSignalQueueWithLimit(t *testing.T) {
-	var signals []incomingSignal
-
-	// Add signals
-	for i := 0; i < 5; i++ {
-		if len(signals) >= maxSignalQueueSize {
-			break
-		}
-		signals = append(signals, incomingSignal{Name: "test"})
+func TestAcceptedSignalsSurviveQueuePressure(t *testing.T) {
+	for _, internal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("internal=%t", internal), func(t *testing.T) {
+			var received []string
+			d, env := newRouterDefinition(t, &recordingProcess{step: func(events []process.Event, out *process.StepOutput) error {
+				for _, event := range events {
+					received = append(received, event.Data.(*relay.Package).Messages[0].Topic)
+				}
+				out.Idle()
+				return nil
+			}})
+			for i := 0; i < 10002; i++ {
+				topic := fmt.Sprintf("event-%d", i)
+				if internal {
+					d.enqueueInternalSignal(topic, payload.Payloads{payload.NewString(topic)})
+				} else {
+					wire, err := d.dc.ToPayloads(payload.Payloads{payload.NewString(topic)})
+					require.NoError(t, err)
+					require.NoError(t, d.handleSignal(topic, wire, nil))
+				}
+			}
+			d.OnWorkflowTaskStarted(0)
+			require.Equal(t, 10002, len(received))
+			require.Equal(t, eventDeliveryChangeID, env.versions[0].changeID)
+			for i, topic := range received {
+				require.Equal(t, fmt.Sprintf("event-%d", i), topic)
+			}
+		})
 	}
-
-	assert.Len(t, signals, 5)
 }
 
-func TestSignalQueueDrop(t *testing.T) {
-	// Simulate queue full scenario
-	signals := make([]incomingSignal, maxSignalQueueSize)
-	dropped := len(signals) >= maxSignalQueueSize
+type childStartedEnvironment struct{ *recordedEnvironment }
 
-	assert.True(t, dropped)
+func (*childStartedEnvironment) Now() time.Time { return time.Unix(0, 0) }
+
+func (e *childStartedEnvironment) ExecuteChildWorkflow(params bindings.ExecuteWorkflowParams, done bindings.ResultHandler, started func(bindings.WorkflowExecution, error)) {
+	e.recordedEnvironment.ExecuteChildWorkflow(params, done, started)
+	started(bindings.WorkflowExecution{ID: fmt.Sprintf("child-%d", len(e.children))}, nil)
+}
+
+func TestAcceptedChildExitsSurviveQueuePressure(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
+			testChildExitQueuePressure(t, legacy)
+		})
+	}
+}
+
+func testChildExitQueuePressure(t *testing.T, legacy bool) {
+	t.Helper()
+	var received []pid.PID
+	d, recorded := newRouterDefinition(t, &recordingProcess{step: func(events []process.Event, out *process.StepOutput) error {
+		for _, event := range events {
+			if event.Type == process.EventMessage {
+				exit := event.Data.(*relay.Package).Messages[0].Payloads[0].Data().(*topology.ExitEvent)
+				received = append(received, exit.From)
+			}
+		}
+		out.Idle()
+		return nil
+	}})
+	if legacy {
+		recorded.version = workflow.DefaultVersion
+	}
+	d.env = &childStartedEnvironment{recorded}
+	for i := 0; i < 1002; i++ {
+		require.NoError(t, d.executeProcessSpawn(&process.SpawnCmd{Start: &process.Start{Source: registry.NewID("test", "child")}}, uint64(i)))
+		// The SDK supplies generated workflow IDs when none is requested.
+		recorded.childDone[i](nil, nil)
+	}
+	d.OnWorkflowTaskStarted(0)
+	count := 1002
+	if legacy {
+		count = legacyChildExitLimit
+	}
+	require.Len(t, received, count)
+	require.Equal(t, eventDeliveryChangeID, recorded.versions[0].changeID)
+	for i, child := range received {
+		require.Equal(t, fmt.Sprintf("child-%d", i+1), child.UniqID)
+	}
 }
 
 func TestUpdateQueueUpdate(t *testing.T) {

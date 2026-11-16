@@ -68,3 +68,29 @@ entries:
       assert2: app.lib:assert
     modules:
       - hash
+
+  - name: minhash
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash.minhash sketches, band keys, similarity and streaming
+    source: file://minhash.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash
+
+  - name: minhash_errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: hash
+      description: hash.minhash error handling
+    source: file://minhash_errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - hash

@@ -17,6 +17,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/internal/sqliteconn"
 	"github.com/wippyai/runtime/internal/version"
 	"github.com/wippyai/runtime/system/registry/history/checkpoint"
@@ -82,7 +83,12 @@ func benchmarkPersistedLoadState(b *testing.B, backend, profile string, count in
 			}
 		})
 		hist = h
-		db = sqliteconn.Open("file:" + path)
+		var config sqlapi.SQLiteCheckpointConfig
+		config.InitDefaults()
+		db, err = sqliteconn.Open("file:"+path, config)
+		if err != nil {
+			b.Fatal(err)
+		}
 		versionsTable, changesetsTable, parameter = "versions", "changesets", "?"
 		checkpointsTable = "replay_checkpoints"
 		byteQuery = "SELECT COALESCE(SUM(length(data)), 0) FROM changesets"

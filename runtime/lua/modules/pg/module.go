@@ -501,7 +501,7 @@ func pgOpen(l *lua.LState) int {
 	resID := registry.ParseID(id)
 	res, raw, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if err != nil {
-		return pushPGError(l, lua.LNil, newPGError(l, lua.Internal, fmt.Sprintf("failed to acquire pg scope: %v", err)))
+		return pushPGError(l, lua.LNil, newAcquireError(l, err))
 	}
 
 	svc, ok := raw.(pgapi.ScopeService)
@@ -542,6 +542,21 @@ func newPGError(l *lua.LState, kind lua.Kind, message string) *lua.Error {
 	return lua.NewLuaError(l, message).
 		WithKind(kind).
 		WithRetryable(false)
+}
+
+// newAcquireError classifies a pg.open acquire failure by the kind and
+// retryability its cause declares, so a scope whose service is starting or
+// stopping reads as retryable Unavailable and an unknown scope as NotFound.
+// A cause that declares neither reads as non-retryable Internal.
+func newAcquireError(l *lua.LState, cause error) *lua.Error {
+	err := lua.WrapErrorWithLua(l, fmt.Errorf("failed to acquire pg scope: %w", cause), "")
+	if err.Kind() == lua.Unknown {
+		err = err.WithKind(lua.Internal)
+	}
+	if err.Retryable() == lua.TernaryUnknown {
+		err = err.WithRetryable(false)
+	}
+	return err
 }
 
 func pushPGError(l *lua.LState, v lua.LValue, err *lua.Error) int {

@@ -36,6 +36,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(csapi.CompleteMultipartUpload, dispatcher.HandlerFunc(d.handleCompleteMultipartUpload))
 	register(csapi.AbortMultipartUpload, dispatcher.HandlerFunc(d.handleAbortMultipartUpload))
 	register(csapi.OpenReader, dispatcher.HandlerFunc(d.handleOpenReader))
+	register(csapi.CopyObject, dispatcher.HandlerFunc(d.handleCopyObject))
 }
 
 // multipartStorage asserts the optional multipart capability on a provider.
@@ -45,6 +46,15 @@ func multipartStorage(s csapi.Storage) (csapi.MultipartStorage, error) {
 		return nil, csapi.ErrMultipartUnsupported
 	}
 	return mp, nil
+}
+
+// copyStorage asserts the optional server-side copy capability on a provider.
+func copyStorage(s csapi.Storage) (csapi.CopyStorage, error) {
+	cs, ok := s.(csapi.CopyStorage)
+	if !ok {
+		return nil, csapi.ErrCopyUnsupported
+	}
+	return cs, nil
 }
 
 func (d *Dispatcher) handleListObjects(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -210,6 +220,21 @@ func (d *Dispatcher) handleOpenReader(ctx context.Context, cmd dispatcher.Comman
 		}
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, csapi.OpenReaderResponse{Size: size, ETag: etag, Error: err}, nil)
+		}
+	}()
+	return nil
+}
+
+func (d *Dispatcher) handleCopyObject(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	c := cmd.(*csapi.CopyObjectCmd)
+	go func() {
+		var result *csapi.CopyResult
+		cs, err := copyStorage(c.Storage)
+		if err == nil {
+			result, err = cs.CopyObject(ctx, c.SrcKey, c.DstKey, c.Options)
+		}
+		if ctx.Err() == nil {
+			receiver.CompleteYield(tag, csapi.CopyObjectResponse{Result: result, Error: err}, nil)
 		}
 	}()
 	return nil

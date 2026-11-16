@@ -57,11 +57,12 @@ type Parameter struct {
 type LinkOption func(*linkStage)
 
 type linkStage struct {
-	strictModules     map[string]struct{}
-	dependencyEntries []registry.Entry
-	explicitDeps      bool
-	strict            bool
-	strictModuleScope bool
+	strictModules       map[string]struct{}
+	dependencyEntries   []registry.Entry
+	explicitDeps        bool
+	strict              bool
+	strictModuleScope   bool
+	deferDefaultAppends bool
 }
 
 // Link creates a new linking stage that resolves requirements to their values
@@ -83,6 +84,14 @@ func WithDependencies(entries []registry.Entry) LinkOption {
 		s.dependencyEntries = entries
 		s.explicitDeps = true
 	}
+}
+
+// WithDeferredDefaultAppends leaves default append contributions for deployment
+// composition. Reusable packs still resolve direct-set defaults for embedding,
+// but cannot bake an append default that a host binding must later replace.
+// Deferred targets are validated against a copy without changing their data.
+func WithDeferredDefaultAppends() LinkOption {
+	return func(s *linkStage) { s.deferDefaultAppends = true }
 }
 
 // WithStrictRequirements makes unresolved requirements fail the link stage.
@@ -347,7 +356,8 @@ func (s *linkStage) processRequirement(
 
 	// Apply value to each target
 	for _, target := range req.definition.Targets {
-		if err := s.applyTarget(target, value, req.entry.ID.NS, entries, mutator, transcoder); err != nil {
+		if err := s.applyTarget(target, value, req.entry.ID.NS, entries, mutator, transcoder,
+			s.deferDefaultAppends && len(bindings) == 0); err != nil {
 			return NewRequirementTargetError(req.entry.ID.String(), target.Entry, target.Path, err)
 		}
 	}
@@ -425,6 +435,7 @@ func (s *linkStage) applyTarget(
 	entries *[]registry.Entry,
 	mutator *entry.Mutator,
 	transcoder payload.Transcoder,
+	deferAppend bool,
 ) error {
 	// Find target entries
 	targetEntries := s.findTargetEntries(target.Entry, requirementNS, entries)
@@ -441,6 +452,12 @@ func (s *linkStage) applyTarget(
 
 	// Apply to each target entry
 	for _, targetEntry := range targetEntries {
+		if isAppend && deferAppend {
+			// prepareOptionMutationTarget owns both payload and metadata before
+			// Mutator writes. Copying the entry keeps validation non-mutating.
+			validation := *targetEntry
+			targetEntry = &validation
+		}
 		if err := prepareOptionMutationTarget(targetEntry, transcoder); err != nil {
 			return NewSetValueInEntryError(targetEntry.ID.String(), err)
 		}

@@ -297,12 +297,7 @@ func (tc *integrationTestContext) registerContract(t *testing.T, contractID regi
 	defer sub.Close()
 
 	wg.Add(1)
-	tc.bus.Send(tc.ctx, event.Event{
-		System: apicontract.System,
-		Kind:   apicontract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   def,
-	})
+	tc.bus.Send(tc.ctx, changeEvent(apicontract.RegisterDefinition, contractID.String(), def))
 	wg.Wait()
 }
 
@@ -317,12 +312,7 @@ func (tc *integrationTestContext) registerBinding(t *testing.T, bindingID regist
 	defer sub.Close()
 
 	wg.Add(1)
-	tc.bus.Send(tc.ctx, event.Event{
-		System: apicontract.System,
-		Kind:   apicontract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   binding,
-	})
+	tc.bus.Send(tc.ctx, changeEvent(apicontract.RegisterBinding, bindingID.String(), binding))
 	wg.Wait()
 }
 
@@ -1603,4 +1593,14 @@ func TestIntegration_ActorPropagation_AsyncCall(t *testing.T) {
 	require.Nil(t, result.Error, "script error: %v", result.Error)
 	require.NotNil(t, result.Value)
 	assert.Equal(t, "actor:async-owner", string(result.Value.Data().(lua.LString)))
+}
+
+// changeEvent wraps one change in a change batch sent and answered on path.
+func changeEvent(kind apicontract.ChangeKind, path event.Path, data any) event.Event {
+	return event.Event{
+		System: apicontract.System,
+		Kind:   apicontract.ApplyChanges,
+		Path:   path,
+		Data:   apicontract.Changes{{Kind: kind, Path: path, Data: data}},
+	}
 }

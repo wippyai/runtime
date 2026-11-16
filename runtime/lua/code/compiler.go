@@ -165,26 +165,16 @@ func (c *Compiler) Compile(
 	entrypoint registry.ID,
 	options *BuildOptions,
 ) (*CompiledMain, error) {
-	if options == nil {
-		options = NewBuildOptions()
-	}
-
 	memo := newBuildMemo()
-	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo.runtime, c.toolchainIdentity)
+	key, err := c.mainKey(memGraph, entrypoint, options, memo.runtime)
 	if err != nil {
 		return nil, err
 	}
-	key := retainedMainKey{
-		ID:      entrypoint,
-		Tag:     tag,
-		Options: BuildOptionsFingerprint(options),
-	}
-
-	c.retainedMu.RLock()
-	cached, ok := c.retainedMains[key]
-	c.retainedMu.RUnlock()
-	if ok {
+	if cached, ok := c.retainedMain(key); ok {
 		return cached, nil
+	}
+	if options == nil {
+		options = NewBuildOptions()
 	}
 
 	rt, err := memGraph.Build(entrypoint)
@@ -245,6 +235,37 @@ func (c *Compiler) Compile(
 	compiled.Main = mainProto
 
 	return c.retainMain(key, compiled), nil
+}
+
+// retained returns the code retained for the entrypoint's current version and
+// options, without building it. The graph is only read.
+func (c *Compiler) retained(memGraph *MemoryGraph, entrypoint registry.ID, options *BuildOptions) (*CompiledMain, bool) {
+	key, err := c.mainKey(memGraph, entrypoint, options, make(map[registry.ID]string))
+	if err != nil {
+		return nil, false
+	}
+	return c.retainedMain(key)
+}
+
+// mainKey identifies a build by the runtime fingerprint of the entrypoint's
+// closure and the build options.
+func (c *Compiler) mainKey(memGraph *MemoryGraph, entrypoint registry.ID, options *BuildOptions, memo map[registry.ID]string) (retainedMainKey, error) {
+	tag, err := runtimeFingerprintMemo(memGraph, entrypoint, memo, c.toolchainIdentity)
+	if err != nil {
+		return retainedMainKey{}, err
+	}
+	optionsFP := defaultBuildOptionsFingerprint
+	if options != nil {
+		optionsFP = BuildOptionsFingerprint(options)
+	}
+	return retainedMainKey{ID: entrypoint, Tag: tag, Options: optionsFP}, nil
+}
+
+func (c *Compiler) retainedMain(key retainedMainKey) (*CompiledMain, bool) {
+	c.retainedMu.RLock()
+	defer c.retainedMu.RUnlock()
+	cached, ok := c.retainedMains[key]
+	return cached, ok
 }
 
 func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) error {

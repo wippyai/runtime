@@ -32,6 +32,16 @@ func ModuleTypes() *io.Manifest {
 				Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build(),
 		},
 		{
+			Name: "decode_with_nulls",
+			Type: typ.Func().Param("str", typ.String).Returns(typ.Any, typ.NewOptional(typ.LuaError)).
+				Spec(contract.NewSpec().WithEffects(effect.ErrorReturn{ValueIndex: 0, ErrorIndex: 1})).Build(),
+		},
+		{
+			Name: "raw",
+			Type: typ.Func().Param("text", typ.String).Returns(typ.Any, typ.NewOptional(typ.LuaError)).
+				Spec(contract.NewSpec().WithEffects(effect.ErrorReturn{ValueIndex: 0, ErrorIndex: 1})).Build(),
+		},
+		{
 			Name: "validate",
 			Type: typ.Func().Param("schema", schemaParam).Param("data", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
 		},
@@ -41,6 +51,8 @@ func ModuleTypes() *io.Manifest {
 		},
 	})
 
-	m.SetExport(moduleType)
+	moduleFields := typ.NewRecord().Field("null", typ.Any).Build()
+
+	m.SetExport(typ.NewIntersection(moduleType, moduleFields))
 	return m
 }

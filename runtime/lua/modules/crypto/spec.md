@@ -186,15 +186,21 @@ Decrypts ChaCha20-Poly1305 encrypted data.
 
 Creates and signs JWT token.
 
+ES256 requires a P-256 private key in SEC1 or PKCS#8 PEM format, including
+`.p8` keys. Its signature uses the JOSE 64-byte `R || S` encoding.
+In workflows, signing records the signature through the existing side-effect
+mechanism so replay reuses the original token.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | payload | table | yes | - | JWT claims |
-| key | string | yes | - | Signing key (secret for HMAC, PEM private key for RS256) |
-| alg | string | no | "HS256" | Algorithm: "HS256", "HS384", "HS512", "RS256" |
+| key | string | yes | - | Signing key (secret for HMAC, PEM private key for RS256 and ES256) |
+| alg | string | no | "HS256" | Algorithm: "HS256", "HS384", "HS512", "RS256", "ES256" |
 
 **payload fields:**
+
 - Any claim fields (sub, iss, exp, iat, etc.)
-- `_header`: optional table for custom JWT header fields (e.g., {kid = "key-id"})
+- `_header`: optional table for custom JWT header fields (e.g., {kid = "key-id"}). `alg`, if set, must equal the `alg` argument
 
 **Returns:** `string, error` - JWT token string or nil + structured error
 
@@ -203,19 +209,28 @@ Creates and signs JWT token.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | payload not table | errors.INVALID | no |
+| unsupported algorithm | errors.INVALID | no |
 | invalid RSA private key (RS256) | errors.INVALID | no |
+| invalid EC private key or not P-256 (ES256) | errors.INVALID | no |
+| `_header` not a table | errors.INVALID | no |
+| `_header.alg` differs from alg | errors.INVALID | no |
 | token signing fails | errors.INTERNAL | no |
 
 ### crypto.jwt.verify(token: string, key: string, alg?: string, require_exp?: boolean) → table, error
 
 Verifies and decodes JWT token.
 
+ES256 requires a P-256 public key. The token's header algorithm must match the
+expected algorithm.
+In workflows, ES256 time claims are checked against workflow time so replay
+preserves the original validation decision.
+
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | token | string | yes | - | JWT token to verify |
-| key | string | yes | - | Verification key (secret for HMAC, PEM public key for RS256) |
-| alg | string | no | "HS256" | Expected algorithm: "HS256", "HS384", "HS512", "RS256" |
-| require_exp | boolean | no | true | Require exp claim and validate expiration |
+| key | string | yes | - | Verification key (secret for HMAC, PEM public key for RS256 and ES256) |
+| alg | string | no | "HS256" | Expected algorithm: "HS256", "HS384", "HS512", "RS256", "ES256" |
+| require_exp | boolean | no | true | Require exp claim; any supplied expiration is always validated |
 
 **Returns:** `table, error` - JWT claims as table or nil + structured error
 
@@ -223,12 +238,14 @@ Verifies and decodes JWT token.
 
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
+| unsupported algorithm | errors.INVALID | no |
 | token format invalid | errors.INTERNAL | no |
 | signature invalid | errors.INTERNAL | no |
 | algorithm mismatch | errors.INTERNAL | no |
 | token expired | errors.INTERNAL | no |
 | missing exp (when require_exp=true) | errors.INTERNAL | no |
 | invalid RSA public key (RS256) | errors.INTERNAL | no |
+| invalid EC public key or not P-256 (ES256) | errors.INTERNAL | no |
 
 ### crypto.pbkdf2(password: string, salt: string, iterations: integer, key_length: integer, hash?: string) → string, error
 

@@ -44,11 +44,16 @@ func NewID(ns, name string) ID {
 // legacy name-only values that contain a namespace separator.
 func (t ID) Canonical() ID {
 	ns, name := canonicalIDParts(t)
-	canonicalString := ns + ":" + name
-	if t.NS == ns && t.Name == name && t.str == canonicalString {
+	if t.NS == ns && t.Name == name && isJoinedID(t.str, ns, name) {
 		return t
 	}
 	return NewID(ns, name)
+}
+
+// isJoinedID reports whether s equals ns + ":" + name.
+func isJoinedID(s string, ns Namespace, name Name) bool {
+	return len(s) == len(ns)+1+len(name) && s[len(ns)] == ':' &&
+		strings.HasPrefix(s, ns) && strings.HasSuffix(s, name)
 }
 
 func (t *ID) String() string {

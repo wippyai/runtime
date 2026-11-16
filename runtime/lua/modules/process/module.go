@@ -685,11 +685,11 @@ func registryRegister(l *lua.LState) int {
 	}
 
 	if l.GetTop() >= 3 && l.Get(3) != lua.LNil {
-		num, ok := l.Get(3).(lua.LNumber)
-		if !ok {
+		num := l.Get(3)
+		if num.Type() != lua.LTNumber && num.Type() != lua.LTInteger {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be a number (process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG)"))
 		}
-		mode = topology.RegistrationMode(int(num))
+		mode = topology.RegistrationMode(int(lua.LVAsNumber(num)))
 	}
 
 	// Mounting a name on a foreign PID is gated by an explicit second-axis
@@ -817,9 +817,13 @@ func registryLookup(l *lua.LState) int {
 
 	name := l.CheckString(1)
 	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
-		number, ok := l.Get(2).(lua.LNumber)
-		if !ok || (number != lua.LNumber(topology.Local) && number != lua.LNumber(topology.Eventual) &&
-			number != lua.LNumber(topology.Consistent) && number != lua.LNumber(topology.Strong)) {
+		raw := l.Get(2)
+		if raw.Type() != lua.LTNumber && raw.Type() != lua.LTInteger {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG"))
+		}
+		number := lua.LVAsNumber(raw)
+		if number != lua.LNumber(topology.Local) && number != lua.LNumber(topology.Eventual) &&
+			number != lua.LNumber(topology.Consistent) && number != lua.LNumber(topology.Strong) {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG"))
 		}
 		timeout, invalid := lookupTimeout(l, topology.RegistrationMode(number))
@@ -941,8 +945,8 @@ func registryUnregister(l *lua.LState) int {
 	// Check for mode argument.
 	mode := topology.Local
 	if l.GetTop() >= 2 {
-		if modeVal, ok := l.Get(2).(lua.LNumber); ok {
-			mode = topology.RegistrationMode(int(modeVal))
+		if modeVal := l.Get(2); modeVal.Type() == lua.LTNumber || modeVal.Type() == lua.LTInteger {
+			mode = topology.RegistrationMode(int(lua.LVAsNumber(modeVal)))
 		}
 	}
 
@@ -1019,9 +1023,10 @@ func inbox(l *lua.LState) int {
 
 func events(l *lua.LState) int {
 	req := &engine.SubscribeRequest{
-		Topic:   topology.TopicEvents,
-		BufSize: 0,
-		Handler: nil, // events use default PayloadsToLua conversion
+		Topic:           topology.TopicEvents,
+		BufSize:         0,
+		Handler:         nil,  // events use default PayloadsToLua conversion
+		RetainOnUpgrade: true, // lifecycle events belong to the process, not its code incarnation
 	}
 	l.Push(req)
 	return -1 // yield

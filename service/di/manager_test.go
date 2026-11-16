@@ -3,6 +3,7 @@
 package di
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	apidi "github.com/wippyai/runtime/api/service/di"
+	contractsys "github.com/wippyai/runtime/system/contract"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -103,13 +105,25 @@ func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
-func setupDIManagerTest() (*Manager, event.Bus) {
+func newDIManager() (*Manager, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	transcoder := &MockTranscoder{}
 
 	manager := NewManager(bus, transcoder, logger)
 	return manager, bus
+}
+
+// setupDIManagerTest returns a manager wired to a running contract registry and
+// the listener context that confirms its changes.
+func setupDIManagerTest(t *testing.T) (context.Context, *Manager, event.Bus) {
+	t.Helper()
+	manager, bus := newDIManager()
+	ctx := awaitContext(t, bus)
+	plane := contractsys.NewContractRegistry(bus, nil)
+	require.NoError(t, plane.Start(ctxapi.NewRootContext()))
+	t.Cleanup(func() { _ = plane.Stop() })
+	return ctx, manager, bus
 }
 
 func TestNewManager(t *testing.T) {
@@ -128,14 +142,13 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManager_DefinitionAdd(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	var events []event.Event
+	var events []contract.Change
 	var mu sync.Mutex
 
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(evt event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(evt contract.Change) {
 		mu.Lock()
 		events = append(events, evt)
 		mu.Unlock()
@@ -287,17 +300,16 @@ func TestManager_DefinitionAdd(t *testing.T) {
 }
 
 func TestManager_DefinitionUpdate(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	updateSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.UpdateDefinition, func(_ event.Event) {
+	updateSub, err := subscribeChanges(ctx, bus, contract.UpdateDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -352,17 +364,16 @@ func TestManager_DefinitionUpdate(t *testing.T) {
 }
 
 func TestManager_DefinitionDelete(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	addSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	addSub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer addSub.Close()
 
-	deleteSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.DeleteDefinition, func(_ event.Event) {
+	deleteSub, err := subscribeChanges(ctx, bus, contract.DeleteDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -404,17 +415,16 @@ func TestManager_DefinitionDelete(t *testing.T) {
 }
 
 func TestManager_BindingOperations(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(_ event.Event) {
+	bindingSub, err := subscribeChanges(ctx, bus, contract.RegisterBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -603,17 +613,16 @@ func TestManager_BindingOperations(t *testing.T) {
 }
 
 func TestManager_DefaultBindingValidation(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(_ event.Event) {
+	bindingSub, err := subscribeChanges(ctx, bus, contract.RegisterBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -798,17 +807,16 @@ func TestManager_DefaultBindingValidation(t *testing.T) {
 }
 
 func TestManager_ValidationEdgeCases(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(_ event.Event) {
+	bindingSub, err := subscribeChanges(ctx, bus, contract.RegisterBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -870,8 +878,7 @@ func TestManager_ValidationEdgeCases(t *testing.T) {
 }
 
 func TestManager_UnmarshalError(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, _ := setupDIManagerTest()
+	ctx, manager, _ := setupDIManagerTest(t)
 
 	// Configure transcoder to return error
 	manager.dtt = &MockTranscoder{unmarshalError: fmt.Errorf("unmarshal failed")}
@@ -890,17 +897,16 @@ func TestManager_UnmarshalError(t *testing.T) {
 
 // TestManager_DefaultBindingValidationEdgeCases tests more complex scenarios
 func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(_ event.Event) {
+	bindingSub, err := subscribeChanges(ctx, bus, contract.RegisterBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -1081,23 +1087,22 @@ func TestManager_DefaultBindingValidationEdgeCases(t *testing.T) {
 
 // TestManager_DefaultBindingUpdateScenarios tests complex update scenarios
 func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(_ event.Event) {
+	bindingSub, err := subscribeChanges(ctx, bus, contract.RegisterBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer bindingSub.Close()
 
-	updateSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.UpdateBinding, func(_ event.Event) {
+	updateSub, err := subscribeChanges(ctx, bus, contract.UpdateBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -1344,23 +1349,22 @@ func TestManager_DefaultBindingUpdateScenarios(t *testing.T) {
 
 // TestManager_DefaultBindingDeleteScenarios tests deletion scenarios with default bindings
 func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(_ event.Event) {
+	bindingSub, err := subscribeChanges(ctx, bus, contract.RegisterBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer bindingSub.Close()
 
-	deleteSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.DeleteBinding, func(_ event.Event) {
+	deleteSub, err := subscribeChanges(ctx, bus, contract.DeleteBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
@@ -1488,17 +1492,16 @@ func TestManager_DefaultBindingDeleteScenarios(t *testing.T) {
 
 // TestManager_DefaultBindingErrorMessages tests that error messages are descriptive
 func TestManager_DefaultBindingErrorMessages(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	manager, bus := setupDIManagerTest()
+	ctx, manager, bus := setupDIManagerTest(t)
 
 	var wg sync.WaitGroup
-	sub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterDefinition, func(_ event.Event) {
+	sub, err := subscribeChanges(ctx, bus, contract.RegisterDefinition, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)
 	defer sub.Close()
 
-	bindingSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, contract.RegisterBinding, func(_ event.Event) {
+	bindingSub, err := subscribeChanges(ctx, bus, contract.RegisterBinding, func(_ contract.Change) {
 		wg.Done()
 	})
 	require.NoError(t, err)

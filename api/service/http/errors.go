@@ -18,6 +18,10 @@ var (
 	ErrTLSMTLSRequiresManual = apierror.New(apierror.Invalid, "mTLS (client_auth) requires tls.mode=manual").WithRetryable(apierror.False)
 	ErrTLSMTLSCAWithoutAuth  = apierror.New(apierror.Invalid, "client_ca set but client_auth is empty").WithRetryable(apierror.False)
 	ErrTLSMTLSMissingCA      = apierror.New(apierror.Invalid, "client_auth verification modes require client_ca").WithRetryable(apierror.False)
+
+	ErrServerShutdown         = apierror.New(apierror.Canceled, "http server is shutting down").WithRetryable(apierror.True)
+	ErrServerShutdownNotFound = apierror.New(apierror.Internal, "server shutdown signal not found in context").WithRetryable(apierror.False)
+	ErrInvalidServerShutdown  = apierror.New(apierror.Invalid, "server shutdown signal in context is not a receive channel").WithRetryable(apierror.False)
 )
 
 // NewMissingMetadataError reports missing metadata for a specific field.

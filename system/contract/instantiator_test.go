@@ -84,12 +84,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait()
 
 	// Register binding
@@ -106,12 +101,7 @@ func TestInstantiator_Instantiate(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   testBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), testBinding))
 	wg.Wait()
 
 	// Test successful instantiation
@@ -163,12 +153,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait()
 
 	tests := []struct {
@@ -221,12 +206,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 			}
 
 			wg.Add(1)
-			bus.Send(ctx, event.Event{
-				System: contract.System,
-				Kind:   contract.RegisterBinding,
-				Path:   bindingID.String(),
-				Data:   testBinding,
-			})
+			bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), testBinding))
 			wg.Wait()
 
 			instance, err := instantiator.Instantiate(ctx, bindingID, tt.instanceScope)
@@ -317,12 +297,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait()
 
 	// Register binding
@@ -337,12 +312,7 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   testBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), testBinding))
 	wg.Wait()
 
 	// Create instance and call method
@@ -444,26 +414,16 @@ func TestInstanceImpl_Call_FramesActorScopeAndPolicies(t *testing.T) {
 
 	contractID := registry.NewID("test", "secured_contract")
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   &contract.Definition{Methods: []contract.MethodDef{{Name: "report"}}},
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), &contract.Definition{Methods: []contract.MethodDef{{Name: "report"}}}))
 	wg.Wait()
 
 	bindingID := registry.NewID("test", "secured_binding")
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data: &contract.Binding{
-			Contracts: []contract.BoundContract{
-				{Contract: contractID, Methods: map[string]registry.ID{"report": funcID}},
-			},
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), &contract.Binding{
+		Contracts: []contract.BoundContract{
+			{Contract: contractID, Methods: map[string]registry.ID{"report": funcID}},
 		},
-	})
+	}))
 	wg.Wait()
 
 	instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
@@ -542,27 +502,17 @@ func TestInstanceImpl_Call_WithOptions(t *testing.T) {
 	// Register contract and binding
 	contractID := registry.NewID("test", "options_contract")
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   &contract.Definition{Methods: []contract.MethodDef{{Name: "run"}}},
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), &contract.Definition{Methods: []contract.MethodDef{{Name: "run"}}}))
 	wg.Wait()
 
 	bindingID := registry.NewID("test", "options_binding")
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data: &contract.Binding{
-			Contracts: []contract.BoundContract{{
-				Contract: contractID,
-				Methods:  map[string]registry.ID{"run": funcID},
-			}},
-		},
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), &contract.Binding{
+		Contracts: []contract.BoundContract{{
+			Contract: contractID,
+			Methods:  map[string]registry.ID{"run": funcID},
+		}},
+	}))
 	wg.Wait()
 
 	instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
@@ -680,12 +630,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait()
 
 	bindingID := registry.NewID("test", "context_binding")
@@ -699,12 +644,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   testBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), testBinding))
 	wg.Wait()
 
 	// Test with nil context
@@ -816,12 +756,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait()
 
 	bindingID := registry.NewID("test", "capture_binding")
@@ -835,12 +770,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   testBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), testBinding))
 	wg.Wait()
 
 	t.Run("empty context produces no context", func(t *testing.T) {
@@ -976,12 +906,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterDefinition,
-		Path:   contractID.String(),
-		Data:   testDef,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterDefinition, contractID.String(), testDef))
 	wg.Wait()
 
 	// Register binding that requires origin_id in context
@@ -997,12 +922,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 	}
 
 	wg.Add(1)
-	bus.Send(ctx, event.Event{
-		System: contract.System,
-		Kind:   contract.RegisterBinding,
-		Path:   bindingID.String(),
-		Data:   testBinding,
-	})
+	bus.Send(ctx, changeEvent(contract.RegisterBinding, bindingID.String(), testBinding))
 	wg.Wait()
 
 	t.Run("FIXED: validation now passes when origin_id is in Go context but not scope", func(t *testing.T) {

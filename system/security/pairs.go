@@ -46,25 +46,26 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 		return nil, fmt.Errorf("security registry not available")
 	}
 
-	declaredScope, err := ResolveScope(reg, config.PolicyGroups, config.Policies)
+	declared, err := resolveScope(reg, config.PolicyGroups, config.Policies)
 	if err != nil {
 		return nil, err
 	}
-	policies := declaredScope.Policies()
-	if len(policies) == 0 {
+	if declared.empty() {
 		return nil, fmt.Errorf("security configuration resolved no policies")
 	}
 
-	scope := existingScope
-	if scope == nil && len(policies) > 0 {
-		scope = declaredScope
+	resolvedScope := existingScope
+	if resolvedScope == nil {
+		resolvedScope = declared
+	} else if native, ok := resolvedScope.(*scope); ok {
+		resolvedScope = native.merge(declared)
 	} else {
-		for _, policy := range policies {
-			scope = scope.With(policy)
+		for _, policy := range declared.Policies() {
+			resolvedScope = resolvedScope.With(policy)
 		}
 	}
-	if scope != nil {
-		pairs = append(pairs, security.ScopePair(scope))
+	if resolvedScope != nil {
+		pairs = append(pairs, security.ScopePair(resolvedScope))
 	}
 
 	return pairs, nil
@@ -73,6 +74,14 @@ func ResolveConfigPairs(ctx context.Context, config *security.Config) ([]ctxapi.
 // ResolveScope resolves a declared policy set without inheriting ambient authority.
 // An empty declaration returns an empty scope; unresolved entries fail atomically.
 func ResolveScope(reg security.Registry, groups, policyIDs []registry.ID) (security.Scope, error) {
+	resolved, err := resolveScope(reg, groups, policyIDs)
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
+func resolveScope(reg security.Registry, groups, policyIDs []registry.ID) (*scope, error) {
 	policies := make([]security.Policy, 0, len(groups)+len(policyIDs))
 	var resolutionErrors []error
 	for _, groupID := range groups {
@@ -113,5 +122,5 @@ func ResolveScope(reg security.Registry, groups, policyIDs []registry.ID) (secur
 	if len(resolutionErrors) > 0 {
 		return nil, errors.Join(resolutionErrors...)
 	}
-	return NewScope(policies), nil
+	return makeScope(policies), nil
 }

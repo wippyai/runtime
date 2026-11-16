@@ -33,10 +33,11 @@ func packNormalizationStages(moduleName string, excludeNS, excludeEntries []stri
 		pipelineStages = append(pipelineStages, stages.Link())
 		pipelineStages = append(pipelineStages, stages.Override())
 	} else {
-		// A reusable module artifact keeps its own requirement defaults, but
+		// A reusable module artifact keeps direct-set requirement defaults, but
 		// never bakes in dependency parameters, overrides or disable rules
-		// supplied by any assembling deployment.
-		pipelineStages = append(pipelineStages, stages.Link(stages.WithDependencies(nil)))
+		// supplied by any assembling deployment. Append defaults remain
+		// declarative so an explicit host binding cannot retain old authority.
+		pipelineStages = append(pipelineStages, stages.Link(stages.WithDependencies(nil), stages.WithDeferredDefaultAppends()))
 	}
 	return pipelineStages
 }

@@ -36,6 +36,12 @@ import (
 // This function executes between the Load and Start phases of the boot process.
 // If modules are missing, it auto-installs them before loading entries.
 func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
+	return LoadFromLockFileWithClient(ctx, logger, nil)
+}
+
+// LoadFromLockFileWithClient loads the deployment using an explicitly selected
+// Hub client for missing artifacts. A nil client retains the default registry.
+func LoadFromLockFileWithClient(ctx context.Context, logger *zap.Logger, hubClient *hub.Client) error {
 	lockFilePath := lock.DefaultFilename
 	explicitLock := false
 	if cfg := boot.GetConfig(ctx); cfg != nil {
@@ -88,7 +94,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
-	if err := ensureModulesInstalledFromLock(ctx, lockObj, logger); err != nil {
+	if err := ensureModulesInstalledFromLockWithClient(ctx, lockObj, logger, hubClient); err != nil {
 		return NewEnsureModulesInstalledError(err)
 	}
 
@@ -215,7 +221,21 @@ func ensureModulesInstalledFromLockWithClient(
 		}
 
 		wappPath := filepath.Join(vendorPath, lock.WappPath(name, mod.Version))
-		if _, err := os.Stat(wappPath); err == nil {
+		_, statErr := os.Stat(wappPath)
+		if os.IsNotExist(statErr) {
+			if relative, err := hub.ImmutableWappRelativePath(name, mod.Version, mod.Hash); err == nil {
+				cached := filepath.Join(vendorPath, relative)
+				if _, err := os.Stat(cached); err == nil {
+					if err := hub.MaterializeVerifiedArtifact(cached, wappPath, mod.Hash, 0); err != nil {
+						return NewModuleIntegrityError(mod.Name, err)
+					}
+					statErr = nil
+				} else if !os.IsNotExist(err) {
+					return NewModuleIntegrityError(mod.Name, err)
+				}
+			}
+		}
+		if statErr == nil {
 			if err := verifyModuleArtifact(wappPath, mod.Hash, "", 0); err != nil {
 				return NewModuleIntegrityError(mod.Name, err)
 			}
@@ -230,8 +250,8 @@ func ensureModulesInstalledFromLockWithClient(
 				}
 			}
 			continue
-		} else if !os.IsNotExist(err) {
-			return NewModuleIntegrityError(mod.Name, err)
+		} else if !os.IsNotExist(statErr) {
+			return NewModuleIntegrityError(mod.Name, statErr)
 		}
 
 		missingModules = append(missingModules, mod)
@@ -399,6 +419,14 @@ func LoadEntriesFromModuleLoadPaths(
 	return loadEntriesFromModulePaths(ctx, modulePaths, logger)
 }
 
+// LoadUnlinkedEntriesFromModuleLoadPaths preserves source declarations for
+// reusable module packing. The caller owns normalization; deployment loading
+// continues through LoadEntriesFromModuleLoadPaths.
+func LoadUnlinkedEntriesFromModuleLoadPaths(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
+	ConfigureSourceLoader(ctx, modulePaths, logger)
+	return readEntriesFromModulePaths(ctx, modulePaths, logger)
+}
+
 // ConfigureSourceLoader registers the current deployment inputs and the
 // normalization path used to reload them.
 func ConfigureSourceLoader(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) {
@@ -514,6 +542,17 @@ func registerSources(ctx context.Context, modulePaths []lock.ModuleLoadPath) *mo
 
 // loadEntriesFromModulePaths loads entries from annotated deployment paths.
 func loadEntriesFromModulePaths(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
+	loaded, err := readEntriesFromModulePaths(ctx, modulePaths, logger)
+	if err != nil {
+		return nil, err
+	}
+	if err := NormalizeEntries(ctx, &loaded); err != nil {
+		return nil, err
+	}
+	return loaded, nil
+}
+
+func readEntriesFromModulePaths(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
 		return nil, ErrTranscoderNotFound
@@ -586,10 +625,6 @@ func loadEntriesFromModulePaths(ctx context.Context, modulePaths []lock.ModuleLo
 			}
 			entries = append(entries, entry)
 		}
-	}
-
-	if err := NormalizeEntries(ctx, &entries); err != nil {
-		return nil, err
 	}
 
 	return entries, nil

@@ -7,12 +7,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -32,9 +30,9 @@ import (
 // run does not explicitly select a limit.
 const DefaultMaxSteps uint64 = 10000
 
-// ImportLoader loads a library's Lua source code by registry ID.
-// Returns the source code string or an error if not found.
-type ImportLoader func(id registry.ID) (source string, err error)
+// ImportLoader returns the compiled prototype of a library by registry ID.
+// Implementations own caching and invalidation of the prototype.
+type ImportLoader func(id registry.ID) (*lua.FunctionProto, error)
 
 // yieldResult holds the result of a dispatched yield
 type yieldResult struct {
@@ -220,7 +218,7 @@ func NewHost(log *zap.Logger, provider ModuleProvider, opts ...HostOption) *Host
 	return h
 }
 
-// WithImportLoader sets the import loader for loading library sources.
+// WithImportLoader sets the import loader for resolving library prototypes.
 func (h *Host) WithImportLoader(loader ImportLoader) *Host {
 	h.importLoader = loader
 	return h
@@ -483,7 +481,7 @@ func (h *Host) createModuleBinder(modules []string, imports map[string]registry.
 		// Load imports (library entries from registry)
 		if h.importLoader != nil && len(imports) > 0 {
 			for alias, id := range imports {
-				source, err := h.importLoader(id)
+				proto, err := h.importLoader(id)
 				if err != nil {
 					return NewImportError(alias, id, err)
 				}
@@ -492,7 +490,7 @@ func (h *Host) createModuleBinder(modules []string, imports map[string]registry.
 				// environment so those modules stay reachable only inside the
 				// import's code, never the eval'd program's globals.
 				granted := importModules[alias]
-				lv, err := h.loadLibrarySource(l, source, alias, granted, available)
+				lv, err := loadLibrary(l, proto, granted, available)
 				if err != nil {
 					return NewImportError(alias, id, err)
 				}
@@ -514,22 +512,12 @@ func (h *Host) createModuleBinder(modules []string, imports map[string]registry.
 	}
 }
 
-// loadLibrarySource compiles and executes a library source, returning the
-// library's return value. When granted is non-empty the library runs under a
-// private environment that exposes those modules (and a scoped require for
-// them) so they remain reachable only inside the import, never in the eval'd
-// program's globals.
-func (h *Host) loadLibrarySource(l *lua.LState, source, name string, granted []string, available map[string]*luaapi.ModuleDef) (lua.LValue, error) {
-	chunk, err := parse.Parse(strings.NewReader(source), name)
-	if err != nil {
-		return nil, err
-	}
-
-	proto, err := lua.CompileWithOptions(chunk, name, lua.CompileOptions{})
-	if err != nil {
-		return nil, err
-	}
-
+// loadLibrary executes a compiled library prototype, returning the library's
+// return value. When granted is non-empty the library runs under a private
+// environment that exposes those modules (and a scoped require for them) so
+// they remain reachable only inside the import, never in the eval'd program's
+// globals.
+func loadLibrary(l *lua.LState, proto *lua.FunctionProto, granted []string, available map[string]*luaapi.ModuleDef) (lua.LValue, error) {
 	fn := l.NewFunctionFromProto(proto)
 
 	if len(granted) > 0 {
@@ -558,8 +546,10 @@ func (h *Host) loadLibrarySource(l *lua.LState, source, name string, granted []s
 func privilegedImportEnv(l *lua.LState, granted []string, available map[string]*luaapi.ModuleDef) (*lua.LTable, error) {
 	base := l.Get(lua.GlobalsIndex).(*lua.LTable)
 
-	env := l.NewTable()
-	mt := l.NewTable()
+	// Both tables hold a known set of string keys: the granted modules plus
+	// require, and __index.
+	env := l.CreateTable(0, len(granted)+1)
+	mt := l.CreateTable(0, 1)
 	mt.RawSetString("__index", base)
 	l.SetMetatable(env, mt)
 

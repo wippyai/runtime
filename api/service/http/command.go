@@ -96,13 +96,18 @@ func (c *RequestCmd) Release() {
 // Response represents the result of an HTTP request.
 // Returned via emit() by the handler.
 type Response struct {
-	Headers    map[string][]string
-	Cookies    map[string]string
-	URL        string
-	Error      string
-	Body       []byte
-	StatusCode int
-	StreamID   uint64
+	Headers map[string][]string
+	Cookies map[string]string
+	URL     string
+	Error   string
+	// DeniedTarget is the URL, host or socket the security policy denied.
+	// It is set together with Denied.
+	DeniedTarget string
+	Body         []byte
+	StatusCode   int
+	StreamID     uint64
+	// Denied reports that Error is a security policy denial, not a transport failure.
+	Denied bool
 }
 
 // RequestBatchCmd executes multiple HTTP requests concurrently.

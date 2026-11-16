@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/internal/sqliteconn"
 	"github.com/wippyai/runtime/internal/version"
 	"github.com/wippyai/runtime/system/registry/history/postgres"
@@ -728,7 +729,10 @@ func persistedHistoryFactories() []historyFactory {
 				history, err := sqlite.NewSQLite(path, zap.NewNop())
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, history.Close()) })
-				db := sqliteconn.Open("file:" + path + "?_busy_timeout=5000&_foreign_keys=on")
+				var config sqlapi.SQLiteCheckpointConfig
+				config.InitDefaults()
+				db, err := sqliteconn.Open("file:"+path+"?_busy_timeout=5000&_foreign_keys=on", config)
+				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close()) })
 				return &historyFixture{
 					history:          history,

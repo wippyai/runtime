@@ -61,7 +61,9 @@ func (engine) Open(ctx context.Context, ec config.EngineConfig) (sqlservice.Open
 	if !ok {
 		return sqlservice.OpenedDB{}, sqlservice.NewInvalidConfigTypeError(fmt.Sprintf("%T", ec), config.SQLite)
 	}
-	db, observer, err := openSQLite(ctx, dsn, cfg.MaxMutationChanges, cfg.MaxMutationBytes)
+	checkpoint := cfg.Checkpoint
+	checkpoint.InitDefaults()
+	db, observer, err := openSQLite(ctx, dsn, checkpoint, cfg.MaxMutationChanges, cfg.MaxMutationBytes)
 	if err != nil {
 		return sqlservice.OpenedDB{}, sqlservice.NewConnectionPoolCreationError(err)
 	}

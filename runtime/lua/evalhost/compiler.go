@@ -33,8 +33,9 @@ var DefaultAllowedClasses = []string{
 	luaapi.ClassNondeterministic, // Allow if not in forbidden
 }
 
-// ModuleProvider returns available module definitions dynamically.
-type ModuleProvider func() []*luaapi.ModuleDef
+// ModuleProvider returns the available module definitions keyed by name. The
+// returned map is shared and must not be modified.
+type ModuleProvider func() map[string]*luaapi.ModuleDef
 
 // Program represents a compiled Lua program.
 type Program struct {
@@ -78,14 +79,9 @@ func NewCompiler(provider ModuleProvider, opts ...CompilerOption) *Compiler {
 	return c
 }
 
-// getModules returns a map of available modules from the provider.
+// getModules returns the available modules keyed by name.
 func (c *Compiler) getModules() map[string]*luaapi.ModuleDef {
-	modules := c.moduleProvider()
-	available := make(map[string]*luaapi.ModuleDef, len(modules))
-	for _, m := range modules {
-		available[m.Name] = m
-	}
-	return available
+	return c.moduleProvider()
 }
 
 // Compile compiles Lua source into a Program.
@@ -121,13 +117,18 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 		return nil, NewParseError(err)
 	}
 
-	compileOpts, err := compileOptionsForSourceAndModules(chunk, modules, available)
+	types, err := programTypesForSourceAndModules(chunk, modules, available)
 	if err != nil {
 		return nil, NewCompileScriptError(err)
 	}
-	proto, err := lua.CompileWithOptions(chunk, "eval", compileOpts)
+	// The type names are passed resolved, so the compiler does not decode the
+	// type info it would otherwise only read names from.
+	proto, err := lua.CompileWithOptions(chunk, "eval", lua.CompileOptions{TypeNames: types.names})
 	if err != nil {
 		return nil, NewCompileScriptError(err)
+	}
+	if len(types.info) > 0 {
+		proto.SetTypeInfo(types.info)
 	}
 
 	return &Program{
@@ -138,7 +139,14 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 	}, nil
 }
 
-func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef) (lua.CompileOptions, error) {
+// programTypes holds the encoded type manifest of a program and the names of
+// the types it defines.
+type programTypes struct {
+	names map[string]struct{}
+	info  []byte
+}
+
+func programTypesForSourceAndModules(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef) (programTypes, error) {
 	manifest := typeio.NewManifest("eval")
 	conflicts := make(map[string]struct{})
 	for _, name := range modules {
@@ -169,43 +177,91 @@ func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, avail
 		}
 	}
 
-	typeCfg := luacode.DefaultTypeCheckConfig()
-	typeCfg.Enabled = true
-	typeCfg.Strict = false
-	checker := luacode.NewTypeChecker(typeCfg, modulesForNames(modules, available))
-	sourceManifest, _ := checker.CheckParsed(chunk, "eval", nil)
-	if sourceManifest != nil {
-		for typeName, t := range sourceManifest.Types {
-			if typeName == "" || t == nil {
-				continue
-			}
-			if _, blocked := conflicts[typeName]; blocked {
-				continue
-			}
-			if existing, ok := manifest.Types[typeName]; ok {
-				if typ.TypeEquals(existing, t) {
-					continue
-				}
-				delete(manifest.Types, typeName)
-				conflicts[typeName] = struct{}{}
-				continue
-			}
-			manifest.Types[typeName] = t
+	for typeName, t := range sourceDeclaredTypes(chunk, modules, available) {
+		if typeName == "" || t == nil {
+			continue
 		}
+		if _, blocked := conflicts[typeName]; blocked {
+			continue
+		}
+		if existing, ok := manifest.Types[typeName]; ok {
+			if typ.TypeEquals(existing, t) {
+				continue
+			}
+			delete(manifest.Types, typeName)
+			conflicts[typeName] = struct{}{}
+			continue
+		}
+		manifest.Types[typeName] = t
 	}
 
 	if len(manifest.Types) == 0 {
-		return lua.CompileOptions{}, nil
+		return programTypes{}, nil
 	}
 	data, err := manifest.Encode()
 	if err != nil {
-		return lua.CompileOptions{}, err
+		return programTypes{}, err
 	}
 	typeNames := make(map[string]struct{}, len(manifest.Types))
 	for name := range manifest.Types {
 		typeNames[name] = struct{}{}
 	}
-	return lua.CompileOptions{TypeInfo: data, TypeNames: typeNames}, nil
+	return programTypes{info: data, names: typeNames}, nil
+}
+
+// sourceDeclaredTypes returns the types the chunk declares, resolved by the
+// type checker. The checker exports only type definitions of the main chunk's
+// own blocks, so a chunk without one exports none and is not checked.
+func sourceDeclaredTypes(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef) map[string]typ.Type {
+	if !declaresTypes(chunk) {
+		return nil
+	}
+	typeCfg := luacode.DefaultTypeCheckConfig()
+	typeCfg.Enabled = true
+	typeCfg.Strict = false
+	checker := luacode.NewTypeChecker(typeCfg, modulesForNames(modules, available))
+	sourceManifest, _ := checker.CheckParsed(chunk, "eval", nil)
+	if sourceManifest == nil {
+		return nil
+	}
+	return sourceManifest.Types
+}
+
+// declaresTypes reports whether a type definition appears in the statements
+// or their nested blocks. Function bodies are separate scopes and are not
+// searched.
+func declaresTypes(stmts []ast.Stmt) bool {
+	for _, stmt := range stmts {
+		switch s := stmt.(type) {
+		case *ast.TypeDefStmt:
+			return true
+		case *ast.DoBlockStmt:
+			if declaresTypes(s.Stmts) {
+				return true
+			}
+		case *ast.WhileStmt:
+			if declaresTypes(s.Stmts) {
+				return true
+			}
+		case *ast.RepeatStmt:
+			if declaresTypes(s.Stmts) {
+				return true
+			}
+		case *ast.IfStmt:
+			if declaresTypes(s.Then) || declaresTypes(s.Else) {
+				return true
+			}
+		case *ast.NumberForStmt:
+			if declaresTypes(s.Stmts) {
+				return true
+			}
+		case *ast.GenericForStmt:
+			if declaresTypes(s.Stmts) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func modulesForNames(names []string, available map[string]*luaapi.ModuleDef) []*luaapi.ModuleDef {
