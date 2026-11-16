@@ -96,8 +96,11 @@ type (
 
 	// SQLiteCheckpointConfig tunes the background WAL checkpointer. Managed
 	// writable-file connections never checkpoint main on commit; a dedicated
-	// connection runs a PASSIVE checkpoint every Interval and escalates to TRUNCATE when the WAL
-	// holds more than MaxWALPages pages.
+	// connection runs a PASSIVE checkpoint every Interval. Above MaxWALPages,
+	// PASSIVE gets bounded writer turns, yielding between turns independently
+	// of storage work. TRUNCATE runs only after all frames are backfilled,
+	// verified while the single application writer is reserved. Readers or new
+	// writes can defer truncation beyond the size threshold.
 	SQLiteCheckpointConfig struct {
 		Interval    time.Duration `json:"interval,omitzero"`
 		MaxWALPages int           `json:"max_wal_pages,omitempty"`

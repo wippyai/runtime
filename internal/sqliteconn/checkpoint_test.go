@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rqlite/go-sqlite3"
 	"github.com/stretchr/testify/require"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
@@ -128,7 +129,9 @@ func TestCheckpointerBoundsWALUnderSustainedWrites(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		defer active.Store(false)
-		for range 1000 {
+		// Keep the load active until reclamation is observed, including when
+		// storage is slow enough to outlast an arbitrary transaction count.
+		for {
 			select {
 			case <-stop:
 				return
@@ -145,7 +148,7 @@ func TestCheckpointerBoundsWALUnderSustainedWrites(t *testing.T) {
 	t.Cleanup(stopWriter)
 	c.Attach(db)
 	require.Eventually(t, func() bool {
-		return commits.Load() > 0 && active.Load() && sizeOf(t, file+"-wal") <= threshold
+		return commits.Load() >= 128 && active.Load() && sizeOf(t, file+"-wal") <= threshold
 	}, 10*time.Second, time.Millisecond, "checkpoint must make progress while the writer is still committing")
 	stopWriter()
 	var rows int64
@@ -290,4 +293,171 @@ func TestCheckpointDefersForPinnedReaderWithoutHoldingWriter(t *testing.T) {
 	release()
 	require.NoError(t, c.checkpointer.checkpoint(ctx))
 	require.Zero(t, sizeOf(t, file+"-wal"), "checkpoint retries after the reader releases")
+}
+
+func TestCheckpointWriteAcquisitionWithLargeWAL(t *testing.T) {
+	for _, scenario := range []string{"reader_released_after_passive", "commit_after_passive", "cancel_during_backfill"} {
+		t.Run(scenario, func(t *testing.T) {
+			const rows = 8192 // About 32 MiB, independent of machine speed.
+			appCtx := context.Background()
+			ctx, cancel := context.WithCancel(appCtx)
+			defer cancel()
+			file := filepath.Join(t.TempDir(), "app.db")
+			c, err := NewConnector("file:"+file+"?_journal_mode=WAL", sqlapi.SQLiteCheckpointConfig{Interval: time.Hour, MaxWALPages: 256})
+			require.NoError(t, err)
+			db := sql.OpenDB(c)
+			db.SetMaxOpenConns(1)
+			c.Attach(db)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			_, err = db.ExecContext(ctx, "CREATE TABLE items (id INTEGER PRIMARY KEY, value BLOB)")
+			require.NoError(t, err)
+			insertRows(t, db, rows)
+			releaseReader := sync.OnceFunc(pinReader(t, file))
+			t.Cleanup(releaseReader)
+			if scenario != "commit_after_passive" {
+				insertRows(t, db, rows)
+			}
+
+			// Delay backfill at SQLite's authorizer boundary to represent slow
+			// storage deterministically, rather than relying on disk throughput.
+			// PASSIVE and the actual checkpoint SQL still run against the real WAL.
+			checkpointing := make(chan struct{}, 1)
+			resume := make(chan struct{})
+			resumeCheckpoint := sync.OnceFunc(func() { close(resume) })
+			t.Cleanup(resumeCheckpoint)
+			var slow atomic.Bool
+			require.NoError(t, c.checkpointer.own.Close())
+			maintenance := newDriver(0)
+			hook := maintenance.ConnectHook
+			maintenance.ConnectHook = func(conn *sqlite3.SQLiteConn) error {
+				if err := hook(conn); err != nil {
+					return err
+				}
+				conn.RegisterAuthorizer(func(op int, pragma, mode, _ string) int {
+					if op == sqlite3.SQLITE_PRAGMA && pragma == "wal_checkpoint" && (mode == "PASSIVE" || mode == "TRUNCATE") && slow.CompareAndSwap(true, false) {
+						checkpointing <- struct{}{}
+						<-resume
+					}
+					return sqlite3.SQLITE_OK
+				})
+				return nil
+			}
+			c.checkpointer.own = sql.OpenDB(&Connector{driver: maintenance, dsn: c.dsn})
+			c.checkpointer.own.SetMaxOpenConns(1)
+
+			// Queue maintenance behind an application turn. The old code has
+			// already run PASSIVE here; a large tail can remain or arrive before
+			// it borrows the connection for TRUNCATE.
+			conn, err := db.Conn(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+			waits := db.Stats().WaitCount
+			done := make(chan error, 1)
+			go func() { done <- c.checkpointer.checkpoint(ctx) }()
+			require.Eventually(t, func() bool { return db.Stats().WaitCount > waits }, 5*time.Second, time.Millisecond)
+			if scenario == "commit_after_passive" {
+				tx, err := conn.BeginTx(ctx, nil)
+				require.NoError(t, err)
+				_, err = tx.ExecContext(ctx, "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i < ?) INSERT INTO items(value) SELECT zeroblob(3000) FROM n", rows)
+				require.NoError(t, err)
+				require.NoError(t, tx.Commit())
+			}
+			walSize := sizeOf(t, file+"-wal")
+			require.Greater(t, walSize, int64(rows*testPageSize))
+			require.Less(t, walSize, int64(80<<20), "fixture must remain bounded")
+			releaseReader()
+			slow.Store(true)
+			require.NoError(t, conn.Close())
+			select {
+			case <-checkpointing:
+				time.AfterFunc(500*time.Millisecond, resumeCheckpoint)
+			case err := <-done:
+				t.Fatalf("checkpoint finished before backfilling the tail: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("checkpoint did not start backfilling the tail")
+			}
+			if scenario == "cancel_during_backfill" {
+				cancel()
+			}
+
+			start := time.Now()
+			tx, err := db.BeginTx(appCtx, nil)
+			acquisition := time.Since(start)
+			require.NoError(t, err)
+			_, err = tx.ExecContext(appCtx, "INSERT INTO items(value) VALUES ('foreground')")
+			require.NoError(t, err)
+			require.NoError(t, tx.Commit())
+			if scenario == "cancel_during_backfill" {
+				require.ErrorIs(t, <-done, context.Canceled)
+			} else {
+				require.NoError(t, <-done)
+			}
+			slow.Store(false)
+			t.Logf("WAL %d bytes; application BeginTx acquisition %s", walSize, acquisition)
+			require.Less(t, acquisition, 250*time.Millisecond, "checkpoint must not reserve the writer for backlog storage work")
+			require.NoError(t, c.checkpointer.checkpoint(appCtx))
+			require.Zero(t, sizeOf(t, file+"-wal"), "later PASSIVE and reset must reclaim the WAL")
+		})
+	}
+}
+
+func TestAttachedCheckpointWriteAcquisitionWithLargeWAL(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	c, err := NewConnector("file:"+filepath.Join(dir, "app.db")+"?_journal_mode=WAL", sqlapi.SQLiteCheckpointConfig{Interval: time.Hour, MaxWALPages: 1 << 20})
+	require.NoError(t, err)
+	checkpointing := make(chan struct{}, 1)
+	resume := make(chan struct{})
+	resumeCheckpoint := sync.OnceFunc(func() { close(resume) })
+	hook := c.driver.ConnectHook
+	c.driver.ConnectHook = func(conn *sqlite3.SQLiteConn) error {
+		if err := hook(conn); err != nil {
+			return err
+		}
+		conn.RegisterAuthorizer(func(op int, pragma, mode, schema string) int {
+			if op == sqlite3.SQLITE_PRAGMA && pragma == "wal_checkpoint" && mode == "PASSIVE" && schema == "aux" {
+				checkpointing <- struct{}{}
+				<-resume
+			}
+			return sqlite3.SQLITE_OK
+		})
+		return nil
+	}
+	db := sql.OpenDB(c)
+	db.SetMaxOpenConns(1)
+	c.Attach(db)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	t.Cleanup(resumeCheckpoint)
+	_, err = db.ExecContext(ctx, "CREATE TABLE items (id INTEGER PRIMARY KEY, value BLOB)")
+	require.NoError(t, err)
+	file := filepath.Join(dir, "aux #.db")
+	_, err = db.ExecContext(ctx, "ATTACH DATABASE ? AS aux", file)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "PRAGMA aux.journal_mode=WAL")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "CREATE TABLE aux.items (value BLOB)")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i < 8192) INSERT INTO aux.items SELECT zeroblob(3000) FROM n")
+	require.NoError(t, err)
+	require.Greater(t, sizeOf(t, file+"-wal"), int64(32<<20))
+	require.Less(t, sizeOf(t, file+"-wal"), int64(40<<20))
+	done := make(chan error, 1)
+	go func() { done <- c.checkpointer.checkpoint(ctx) }()
+	select {
+	case <-checkpointing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("attached checkpoint did not start")
+	}
+	time.AfterFunc(500*time.Millisecond, resumeCheckpoint)
+	start := time.Now()
+	tx, err := db.BeginTx(ctx, nil)
+	acquisition := time.Since(start)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, "INSERT INTO items(value) VALUES ('foreground')")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, <-done)
+	t.Logf("application BeginTx acquisition during attached backfill: %s", acquisition)
+	require.Less(t, acquisition, 250*time.Millisecond, "attached storage work must run outside the application writer turn")
+	require.Greater(t, sizeOf(t, file), int64(32<<20))
 }
