@@ -209,7 +209,54 @@ func TestPostgresHistory_SaveAndGet(t *testing.T) {
 		fmt.Sprintf(`SELECT curr_version FROM %q.schema_version WHERE name = 'registry_history'`, schemaName),
 	).Scan(&schemaVersion)
 	require.NoError(t, err)
-	assert.Equal(t, "1.1", schemaVersion)
+	assert.Equal(t, "1.2", schemaVersion)
+}
+
+func TestPostgresHistoryReplayReadsLaterPagesAfterEarlierCallback(t *testing.T) {
+	dsn := os.Getenv("WIPPY_POSTGRES_HISTORY_TEST_DSN")
+	if strings.TrimSpace(dsn) == "" {
+		t.Skip("WIPPY_POSTGRES_HISTORY_TEST_DSN is not set")
+	}
+
+	schemaName := fmt.Sprintf("wippy_registry_replay_streaming_%d", os.Getpid())
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	_, err = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	require.NoError(t, err)
+	defer func() {
+		_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schemaName))
+	}()
+
+	hist, err := NewPostgres(dsn, schemaName, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.Save(v1, nil, true))
+	require.NoError(t, hist.Save(v2, nil, true))
+	_, err = db.ExecContext(t.Context(), fmt.Sprintf(`INSERT INTO %q.versions(id,parent_id) SELECT id,id-1 FROM generate_series(3,3000) id`, schemaName))
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), fmt.Sprintf("INSERT INTO %q.changesets(version_id,data) SELECT id,$1 FROM %q.versions WHERE id>2", schemaName, schemaName), []byte{0x90})
+	require.NoError(t, err)
+	target, err := hist.GetVersion(3000)
+	require.NoError(t, err)
+
+	callbackCount := 0
+	err = hist.ReplayChanges(context.Background(), target, func(registry.ChangeSet) error {
+		callbackCount++
+		if callbackCount == 1 {
+			_, deleteErr := db.ExecContext(context.Background(), fmt.Sprintf("DELETE FROM %q.changesets WHERE version_id = $1", schemaName), target.ID())
+			return deleteErr
+		}
+		return nil
+	})
+	require.ErrorContains(t, err, "changeset not found for version")
+	require.Greater(t, callbackCount, 1)
+	require.Less(t, callbackCount, 2999)
 }
 
 func TestMigrateEntryMetadata_RewritesPostgresBranches(t *testing.T) {

@@ -29,3 +29,27 @@ func TestDependencyBaselineContext(t *testing.T) {
 	require.Equal(t, baseline, state)
 	require.Equal(t, changes, DependencyChangesFromContext(ctx))
 }
+
+func TestDependencyReplayStateContext(t *testing.T) {
+	baseline := State{{ID: NewID("source", "root"), Kind: NamespaceDependency}}
+	changes := []ChangeSet{{{Kind: EntryDelete, Entry: baseline[0]}}}
+	projection := NewReplayState()
+	ctx := WithDependencyBaseline(context.Background(), baseline, changes)
+	ctx = WithDependencyReplayState(ctx, baseline, projection)
+
+	got, ok := DependencyReplayStateFromContext(ctx)
+	require.True(t, ok)
+	require.Same(t, projection, got)
+	require.Equal(t, changes, DependencyChangesFromContext(ctx))
+	gotBaseline, ok := DependencyBaselineFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, baseline, gotBaseline)
+}
+
+func TestDependencyBaselineReplacesInheritedReplayState(t *testing.T) {
+	projection := NewReplayState()
+	ctx := WithDependencyReplayState(context.Background(), nil, projection)
+	replacement := WithDependencyBaseline(ctx, State{{ID: NewID("test", "baseline")}}, nil)
+	_, present := DependencyReplayStateFromContext(replacement)
+	require.False(t, present, "an explicit baseline replaces the previous operation's replay projection")
+}

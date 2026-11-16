@@ -3,6 +3,7 @@
 package hub
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -43,16 +44,56 @@ func TestOwnedDependencyReplayOrdering(t *testing.T) {
 			for i, operation := range tc.changes {
 				transactions[i] = regapi.ChangeSet{operation}
 			}
-			ctx := regapi.WithDependencyBaseline(newTestContext(), nil, transactions)
-			got, err := handler.replayOwnedDependencyChanges(ctx, regapi.State{definition, worker}, nil, payload.GetTranscoder(ctx))
-			require.NoError(t, err)
-			require.ElementsMatch(t, tc.want, got)
+			for _, path := range []string{"raw", "compact"} {
+				t.Run(path, func(t *testing.T) {
+					ctx := newTestContext()
+					if path == "raw" {
+						ctx = regapi.WithDependencyBaseline(ctx, nil, transactions)
+					} else {
+						projection := regapi.NewReplayState()
+						for _, transaction := range transactions {
+							require.NoError(t, projection.ApplyDependencyChanges(transaction, payload.GetTranscoder(ctx)))
+						}
+						ctx = regapi.WithDependencyReplayState(ctx, nil, projection)
+					}
+					got, err := handler.replayOwnedDependencyChanges(ctx, regapi.State{definition, worker}, nil, payload.GetTranscoder(ctx))
+					require.NoError(t, err)
+					require.ElementsMatch(t, tc.want, got)
+				})
+			}
 		})
 	}
 	ctx := regapi.WithDependencyBaseline(newTestContext(), nil, []regapi.ChangeSet{{{Kind: regapi.EntryUpdate, Entry: changed}}})
 	got, err := handler.replayOwnedDependencyChanges(ctx, nil, nil, payload.GetTranscoder(ctx))
 	require.NoError(t, err)
 	require.Empty(t, got, "history cannot resurrect a removed owner's entries")
+}
+
+func TestExpandReplayGuardRequiresDependencyEvidence(t *testing.T) {
+	base := newTestContext()
+	for _, tc := range []struct {
+		ctx  context.Context
+		name string
+		want bool
+	}{
+		{name: "raw-empty", ctx: regapi.WithDependencyBaseline(base, nil, nil), want: false},
+		{name: "compact-empty", ctx: regapi.WithDependencyReplayState(base, nil, regapi.NewReplayState()), want: false},
+		{name: "raw-config-only", ctx: regapi.WithDependencyBaseline(base, nil, nil), want: false},
+		{name: "compact-config-only", ctx: func() context.Context {
+			state := regapi.NewReplayState()
+			require.NoError(t, state.Apply(base, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: regapi.Entry{ID: regapi.NewID("app", "config"), Kind: regapi.EntryKind}}}))
+			return regapi.WithDependencyReplayState(base, nil, state)
+		}(), want: false},
+		{name: "compact-dependency", ctx: func() context.Context {
+			state := regapi.NewReplayState()
+			require.NoError(t, state.Apply(base, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: hardeningRoot("app.deps:worker", "acme/worker", "*")}}))
+			return regapi.WithDependencyReplayState(base, nil, state)
+		}(), want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, hasDependencyReplayChanges(tc.ctx))
+		})
+	}
 }
 
 func BenchmarkOwnedDependencyReplay(b *testing.B) {

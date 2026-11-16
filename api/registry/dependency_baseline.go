@@ -2,11 +2,16 @@
 
 package registry
 
-import "context"
+import (
+	"context"
+
+	"github.com/wippyai/runtime/api/payload"
+)
 
 type dependencyBaselineContextKey struct{}
 
 type dependencyBaseline struct {
+	replay  *ReplayState
 	state   State
 	changes []ChangeSet
 }
@@ -38,4 +43,38 @@ func DependencyChangesFromContext(ctx context.Context) []ChangeSet {
 	}
 	baseline, _ := ctx.Value(dependencyBaselineContextKey{}).(dependencyBaseline)
 	return baseline.changes
+}
+
+// WithDependencyReplayState carries the compact replay projection alongside
+// the deployment baseline. The projection is immutable once attached to a
+// directive context.
+func WithDependencyReplayState(ctx context.Context, baseline State, state *ReplayState) context.Context {
+	changes := DependencyChangesFromContext(ctx)
+	return context.WithValue(ctx, dependencyBaselineContextKey{}, dependencyBaseline{state: baseline, changes: changes, replay: state})
+}
+
+// DependencyReplayStateFromContext returns the compact replay projection when
+// the registry supplied one for the current restore or version transition.
+func DependencyReplayStateFromContext(ctx context.Context) (*ReplayState, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	baseline, ok := ctx.Value(dependencyBaselineContextKey{}).(dependencyBaseline)
+	return baseline.replay, ok && baseline.replay != nil
+}
+
+// DependencyReplayState returns the compact replay projection for ctx. Legacy
+// callers that carry ordered changesets are reduced through the same state
+// reducer used by checkpoint-backed restores.
+func DependencyReplayState(ctx context.Context, transcoder payload.Transcoder) (*ReplayState, error) {
+	if state, ok := DependencyReplayStateFromContext(ctx); ok {
+		return state, nil
+	}
+	state := NewReplayState()
+	for _, changes := range DependencyChangesFromContext(ctx) {
+		if err := state.ApplyDependencyChanges(changes, transcoder); err != nil {
+			return nil, err
+		}
+	}
+	return state, nil
 }

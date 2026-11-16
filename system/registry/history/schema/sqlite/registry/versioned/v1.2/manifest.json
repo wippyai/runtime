@@ -1,0 +1,6 @@
+{
+  "curr_version": "1.2",
+  "min_compatible_version": "1.0",
+  "description": "cache composable registry replay state",
+  "schema_update_files": ["checkpoints.sql"]
+}
