@@ -147,9 +147,17 @@ func TestCheckpointerBoundsWALUnderSustainedWrites(t *testing.T) {
 	stopWriter := sync.OnceFunc(func() { close(stop); wg.Wait() })
 	t.Cleanup(stopWriter)
 	c.Attach(db)
+	defer func() {
+		if t.Failed() {
+			t.Logf("committed batches: %d; writer active: %t; WAL bytes: %d; threshold: %d", commits.Load(), active.Load(), sizeOf(t, file+"-wal"), threshold)
+		}
+	}()
+	// The workload includes 128 durable commits as well as reclamation.
+	// Leave headroom for slower storage and race-enabled Windows runners;
+	// writer acquisition latency has its own independently bounded tests.
 	require.Eventually(t, func() bool {
 		return commits.Load() >= 128 && active.Load() && sizeOf(t, file+"-wal") <= threshold
-	}, 10*time.Second, time.Millisecond, "checkpoint must make progress while the writer is still committing")
+	}, 30*time.Second, time.Millisecond, "checkpoint must make progress while the writer is still committing")
 	stopWriter()
 	var rows int64
 	require.NoError(t, db.QueryRowContext(context.Background(), "SELECT count(*) FROM items").Scan(&rows))

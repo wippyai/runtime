@@ -249,6 +249,11 @@ func checkpointAttachments(ctx context.Context, own *sql.DB, conn *sql.Conn) err
 		}
 		uri := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=rw"}).String()
 		if _, err := maintenance.ExecContext(ctx, "ATTACH DATABASE ? AS "+quoted, uri); err != nil {
+			// Discovery released the application connection, so the caller
+			// may have detached and removed this database in the meantime.
+			if _, statErr := os.Stat(attached.file); errors.Is(statErr, fs.ErrNotExist) {
+				continue
+			}
 			return err
 		}
 		checkpointErr := execSchema(ctx, maintenance, attached.schema, "PASSIVE")
