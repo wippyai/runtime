@@ -443,7 +443,7 @@ func TestIntegration_JoinAndGetMembers(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(1), result.Value.Data())
+	assert.Equal(t, lua.LInteger(1), result.Value.Data())
 }
 
 func TestIntegration_JoinAndLeave(t *testing.T) {
@@ -472,7 +472,7 @@ func TestIntegration_JoinAndLeave(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(1), result.Value.Data())
+	assert.Equal(t, lua.LInteger(1), result.Value.Data())
 
 	// Leave
 	result = runPGScriptWithPID(t, tc, testPID, `
@@ -492,7 +492,7 @@ func TestIntegration_JoinAndLeave(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(0), result.Value.Data())
+	assert.Equal(t, lua.LInteger(0), result.Value.Data())
 }
 
 func TestIntegration_LeaveNotJoined(t *testing.T) {
@@ -530,7 +530,7 @@ func TestIntegration_GetMembersEmptyGroup(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(0), result.Value.Data())
+	assert.Equal(t, lua.LInteger(0), result.Value.Data())
 }
 
 func TestIntegration_GetLocalMembers(t *testing.T) {
@@ -559,7 +559,7 @@ func TestIntegration_GetLocalMembers(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(1), result.Value.Data())
+	assert.Equal(t, lua.LInteger(1), result.Value.Data())
 }
 
 func TestIntegration_WhichGroups(t *testing.T) {
@@ -596,7 +596,7 @@ func TestIntegration_WhichGroups(t *testing.T) {
 		return #groups
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(2), result.Value.Data())
+	assert.Equal(t, lua.LInteger(2), result.Value.Data())
 }
 
 func TestIntegration_WhichGroupsEmpty(t *testing.T) {
@@ -613,7 +613,7 @@ func TestIntegration_WhichGroupsEmpty(t *testing.T) {
 		return #groups
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(0), result.Value.Data())
+	assert.Equal(t, lua.LInteger(0), result.Value.Data())
 }
 
 func TestIntegration_MultipleProcessesInGroup(t *testing.T) {
@@ -646,7 +646,7 @@ func TestIntegration_MultipleProcessesInGroup(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(3), result.Value.Data())
+	assert.Equal(t, lua.LInteger(3), result.Value.Data())
 }
 
 func TestIntegration_JoinMultipleGroups(t *testing.T) {
@@ -677,7 +677,7 @@ func TestIntegration_JoinMultipleGroups(t *testing.T) {
 		return #groups
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(3), result.Value.Data())
+	assert.Equal(t, lua.LInteger(3), result.Value.Data())
 
 	// Each group should have 1 member
 	for _, group := range []string{"alpha", "beta", "gamma"} {
@@ -688,7 +688,7 @@ func TestIntegration_JoinMultipleGroups(t *testing.T) {
 			return #members
 		`)
 		require.NoError(t, result.Error)
-		assert.Equal(t, lua.LNumber(1), result.Value.Data(), "group %s should have 1 member", group)
+		assert.Equal(t, lua.LInteger(1), result.Value.Data(), "group %s should have 1 member", group)
 	}
 }
 
@@ -893,7 +893,7 @@ func TestIntegration_ConcurrentJoins(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(numGoroutines), result.Value.Data())
+	assert.Equal(t, lua.LInteger(numGoroutines), result.Value.Data())
 }
 
 func TestIntegration_MultiJoinSameGroup(t *testing.T) {
@@ -924,7 +924,7 @@ func TestIntegration_MultiJoinSameGroup(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(3), result.Value.Data())
+	assert.Equal(t, lua.LInteger(3), result.Value.Data())
 
 	// Leave once - should reduce count by 1
 	result = runPGScriptWithPID(t, tc, testPID, `
@@ -936,7 +936,7 @@ func TestIntegration_MultiJoinSameGroup(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(2), result.Value.Data())
+	assert.Equal(t, lua.LInteger(2), result.Value.Data())
 }
 
 // --- Additional integration tests ---
@@ -971,7 +971,7 @@ func TestIntegration_LeaveReducesToZero(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(0), result.Value.Data())
+	assert.Equal(t, lua.LInteger(0), result.Value.Data())
 }
 
 func TestIntegration_LeaveExtraReturnsError(t *testing.T) {
@@ -1068,7 +1068,7 @@ func TestIntegration_GetLocalMembersEmptyGroup(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(0), result.Value.Data())
+	assert.Equal(t, lua.LInteger(0), result.Value.Data())
 }
 
 func TestIntegration_JoinLeaveJoinAgain(t *testing.T) {
@@ -1106,7 +1106,7 @@ func TestIntegration_JoinLeaveJoinAgain(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(1), result.Value.Data())
+	assert.Equal(t, lua.LInteger(1), result.Value.Data())
 }
 
 // ==========================================================================
@@ -1396,7 +1396,7 @@ func TestIntegration_WhichGroupsAfterLeave(t *testing.T) {
 		return #groups
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(1), result.Value.Data())
+	assert.Equal(t, lua.LInteger(1), result.Value.Data())
 }
 
 // --- which_local_groups integration tests ---
@@ -1425,7 +1425,7 @@ func TestIntegration_WhichLocalGroups(t *testing.T) {
 		return #groups
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(2), result.Value.Data())
+	assert.Equal(t, lua.LInteger(2), result.Value.Data())
 }
 
 func TestIntegration_WhichLocalGroupsEmpty(t *testing.T) {
@@ -1442,7 +1442,7 @@ func TestIntegration_WhichLocalGroupsEmpty(t *testing.T) {
 		return #groups
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(0), result.Value.Data())
+	assert.Equal(t, lua.LInteger(0), result.Value.Data())
 }
 
 // --- batch join/leave integration tests ---
@@ -1467,7 +1467,7 @@ func TestIntegration_BatchJoin(t *testing.T) {
 		return #groups
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(3), result.Value.Data())
+	assert.Equal(t, lua.LInteger(3), result.Value.Data())
 }
 
 func TestIntegration_BatchLeave(t *testing.T) {
@@ -1501,7 +1501,7 @@ func TestIntegration_BatchLeave(t *testing.T) {
 		return #members
 	`)
 	require.NoError(t, result.Error)
-	assert.Equal(t, lua.LNumber(1), result.Value.Data())
+	assert.Equal(t, lua.LInteger(1), result.Value.Data())
 }
 
 func TestIntegration_BatchJoinEmptyTable(t *testing.T) {

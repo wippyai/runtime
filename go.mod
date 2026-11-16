@@ -63,13 +63,13 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.25.1
 	github.com/tree-sitter/tree-sitter-python v0.25.0
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/wippyai/go-lua v1.7.2-0.20261115203926-1c19f1e6819f
+	github.com/wippyai/go-lua v1.7.2-0.20261115224114-591aa2add451
 	github.com/wippyai/module-registry-proto-go v0.0.2-0.20260908140534-f6e2910c835f
 	github.com/wippyai/tree-sitter-markdown v0.0.3
 	github.com/wippyai/tree-sitter-sql v0.0.4
 	github.com/wippyai/tty v0.0.0-20261003165107-bf08248c5f14
 	github.com/wippyai/wapp v0.1.3-0.20261003195239-f1e565edf8ff
-	github.com/wippyai/wasm-runtime v0.0.0-20261115182744-34f8776faaf7
+	github.com/wippyai/wasm-runtime v0.0.0-20261115205547-9dec38f707cb
 	github.com/xuri/excelize/v2 v2.11.1
 	go.bytecodealliance.org v0.7.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0

@@ -52,7 +52,7 @@ func TestExtraLua_VariousGroupNames(t *testing.T) {
 				return #members
 			`, g, g))
 			require.NoError(t, result.Error)
-			assert.Equal(t, lua.LNumber(1), result.Value.Data(),
+			assert.Equal(t, lua.LInteger(1), result.Value.Data(),
 				"after join, group %q should report 1 member", g)
 		})
 	}
@@ -85,7 +85,7 @@ func TestExtraLua_RepeatedJoinLeaveCycles(t *testing.T) {
 				return #members
 			`, k, k))
 			require.NoError(t, result.Error)
-			assert.Equal(t, lua.LNumber(0), result.Value.Data(),
+			assert.Equal(t, lua.LInteger(0), result.Value.Data(),
 				"after %d matched join/leave cycles, group must be empty", k)
 		})
 	}
@@ -115,7 +115,7 @@ func TestExtraLua_WhichGroupsListsAfterJoins(t *testing.T) {
 			require.NoError(t, result.Error)
 			// At least n groups should be visible (others may exist from
 			// prior tests sharing the scope).
-			got := result.Value.Data().(lua.LNumber)
+			got := result.Value.Data().(lua.LInteger)
 			assert.GreaterOrEqual(t, int(got), n,
 				"expected at least %d groups after %d joins", n, n)
 		})
