@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,13 +23,14 @@ import (
 // connections run with wal_autocheckpoint=0, so a commit never copies WAL
 // frames into the database file; this worker does it instead.
 //
-// Every interval it runs a PASSIVE checkpoint on its own connection, then
-// checks the WAL size and maintains application-attached databases.
-// Over the bound (readers pin old snapshots, or writers outpace PASSIVE
-// backfill) it reserves a writer turn and attempts TRUNCATE on its own
-// connection. A pinned reader makes it defer after a short maintenance wait
-// instead of occupying the writer pool for the application's busy timeout.
-// Later intervals retry; the configured threshold is not a hard size limit.
+// Every interval it checks the WAL size and runs PASSIVE on its own
+// connection, then maintains application-attached databases.
+// Over the bound it gives PASSIVE bounded writer turns to catch up, yielding
+// to application transactions between turns even while storage work continues.
+// It only attempts TRUNCATE after verifying that all frames are backfilled
+// with the writer reserved, so TRUNCATE never copies a new backlog.
+// Reader lock waits use a short maintenance timeout; the configured threshold
+// is not a hard size limit.
 type checkpointer struct {
 	failure  error
 	closeErr error
@@ -97,42 +99,107 @@ func (c *checkpointer) run(ctx context.Context) {
 	}
 }
 
-// checkpoint backfills the WAL without blocking while it is within the bound
-// and truncates it through the writer pool when it exceeds the bound.
+// checkpoint backfills on the maintenance connection. Over the size bound,
+// writer turns are time-sliced independently of the checkpoint's storage work.
 func (c *checkpointer) checkpoint(ctx context.Context) error {
-	// Copy frames without reserving a writer turn. A later TRUNCATE then
-	// mostly resets the WAL instead of doing all backfill on the writer pool.
-	if err := exec(ctx, c.own, "PASSIVE"); err != nil {
-		return err
-	}
 	over, err := c.overBound(ctx)
 	if err != nil {
 		return err
 	}
-	conn, err := c.writer.Conn(ctx)
-	if err != nil {
-		// The application pool owns connection/open errors. A closing pool
-		// cannot lend a connection; cancellation stops this wait on shutdown.
-		return nil
-	}
-	defer conn.Close()
+	var conn *sql.Conn
 	if over {
-		if err := exec(ctx, c.own, "TRUNCATE"); err != nil {
+		conn, err = c.checkpointWithWriterTurns(ctx)
+	} else {
+		if err := exec(ctx, c.own, "PASSIVE"); err != nil {
 			return err
 		}
+		conn, err = c.writer.Conn(ctx)
+		if err != nil {
+			return nil // The application pool owns connection/open errors.
+		}
 	}
-	return checkpointAttachments(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if conn == nil {
+		return nil // The application pool is closing.
+	}
+	defer conn.Close()
+	return checkpointAttachments(ctx, c.own, conn)
 }
 
-// checkpointAttachments uses the application connection because attachments
-// belong to that physical connection. PASSIVE retains the ordinary SQLite
-// checkpoint policy without waiting on readers through the app's busy handler.
-func checkpointAttachments(ctx context.Context, conn *sql.Conn) error {
+// checkpointWithWriterTurns gives backfill time to catch up under sustained
+// writes without lending the application connection for an entire I/O call.
+// PASSIVE never takes SQLite's writer lock, so returning the pool connection
+// lets queued transactions run even if the checkpoint is still copying/syncing.
+func (c *checkpointer) checkpointWithWriterTurns(ctx context.Context) (*sql.Conn, error) {
+	type result struct {
+		err       error
+		remaining int
+	}
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	conn, err := c.writer.Conn(ctx)
+	if err != nil {
+		return nil, nil
+	}
+	done := make(chan result, 1)
+	go func() {
+		remaining, err := checkpointSchema(workCtx, c.own, "main", "PASSIVE")
+		done <- result{err: err, remaining: remaining}
+	}()
+	for {
+		timer := time.NewTimer(checkpointWriterSlice)
+		select {
+		case completed := <-done:
+			timer.Stop()
+			if completed.err != nil {
+				_ = conn.Close()
+				return nil, completed.err
+			}
+			if completed.remaining == 0 {
+				// A commit may have arrived after PASSIVE completed while we
+				// waited for this turn. NOOP checks without copying or syncing.
+				remaining, err := checkpointSchema(ctx, c.own, "main", "NOOP")
+				if err == nil && remaining == 0 {
+					err = exec(ctx, c.own, "TRUNCATE")
+				}
+				if err != nil {
+					_ = conn.Close()
+					return nil, err
+				}
+			}
+			return conn, nil
+		case <-timer.C:
+			// Close hands this physical connection to a queued application
+			// operation before we request another turn through the same pool.
+			_ = conn.Close()
+			conn, err = c.writer.Conn(ctx)
+			if err != nil {
+				cancel()
+				<-done
+				return nil, nil
+			}
+		case <-ctx.Done():
+			timer.Stop()
+			_ = conn.Close()
+			cancel()
+			<-done
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// checkpointAttachments discovers writable WAL attachments on their physical
+// application connection, then releases that turn before backfilling through
+// temporary attachments on the maintenance connection.
+func checkpointAttachments(ctx context.Context, own *sql.DB, conn *sql.Conn) error {
 	rows, err := conn.QueryContext(ctx, "PRAGMA database_list")
 	if err != nil {
 		return err
 	}
-	var schemas []string
+	type attachment struct{ schema, file string }
+	var attachments []attachment
 	for rows.Next() {
 		var index int
 		var schema, file string
@@ -141,18 +208,58 @@ func checkpointAttachments(ctx context.Context, conn *sql.Conn) error {
 			return err
 		}
 		if schema != "main" && schema != "temp" && file != "" {
-			schemas = append(schemas, schema)
+			attachments = append(attachments, attachment{schema, file})
 		}
 	}
 	err = errors.Join(rows.Err(), rows.Close())
 	if err != nil {
 		return err
 	}
-	for _, schema := range schemas {
-		if err := execSchema(ctx, conn, schema, "PASSIVE"); err != nil {
+	writable := attachments[:0]
+	for _, attached := range attachments {
+		remaining, err := checkpointSchema(ctx, conn, attached.schema, "NOOP")
+		if err != nil {
 			if checkpointReadOnly(err) {
 				continue
 			}
+			return err
+		}
+		if remaining >= 0 {
+			writable = append(writable, attached)
+		}
+	}
+	if err := conn.Close(); err != nil {
+		return err
+	}
+	if len(writable) == 0 {
+		return nil
+	}
+	maintenance, err := own.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer maintenance.Close()
+	for _, attached := range writable {
+		quoted := `"` + strings.ReplaceAll(attached.schema, `"`, `""`) + `"`
+		// URI quoting preserves filenames containing '?' or '#'; mode=rw
+		// avoids recreating a file removed after discovery.
+		path := filepath.ToSlash(attached.file)
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path // Windows drive paths need file:///C:/... form.
+		}
+		uri := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=rw"}).String()
+		if _, err := maintenance.ExecContext(ctx, "ATTACH DATABASE ? AS "+quoted, uri); err != nil {
+			// Discovery released the application connection, so the caller
+			// may have detached and removed this database in the meantime.
+			if _, statErr := os.Stat(attached.file); errors.Is(statErr, fs.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		checkpointErr := execSchema(ctx, maintenance, attached.schema, "PASSIVE")
+		// Clean up the pooled attachment even when shutdown canceled the checkpoint.
+		_, detachErr := maintenance.ExecContext(context.Background(), "DETACH DATABASE "+quoted)
+		if err := errors.Join(checkpointErr, detachErr); err != nil {
 			return err
 		}
 	}
@@ -193,6 +300,10 @@ const (
 // under sustained traffic. The writer pool's normal busy timeout is unchanged.
 const checkpointBusyTimeout = 50 * time.Millisecond
 
+// A scheduling slice, not a query or transaction timeout: storage work keeps
+// running on the maintenance connection after the application writer is yielded.
+const checkpointWriterSlice = 50 * time.Millisecond
+
 type queryer interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
@@ -204,16 +315,26 @@ func exec(ctx context.Context, db queryer, mode string) error {
 }
 
 func execSchema(ctx context.Context, db queryer, schema, mode string) error {
+	_, err := checkpointSchema(ctx, db, schema, mode)
+	return err
+}
+
+// checkpointSchema returns the remaining WAL frames, or -1 when busy or not
+// in WAL mode. NOOP inspects this count without doing checkpoint storage work.
+func checkpointSchema(ctx context.Context, db queryer, schema, mode string) (int, error) {
 	var busy, frames, backfilled int
 	quoted := `"` + strings.ReplaceAll(schema, `"`, `""`) + `"`
 	err := db.QueryRowContext(ctx, "PRAGMA "+quoted+".wal_checkpoint("+mode+")").Scan(&busy, &frames, &backfilled)
 	if err != nil {
 		if checkpointBusy(err) {
-			return nil
+			return -1, nil
 		}
-		return fmt.Errorf("sqlite %s checkpoint: %w", mode, err)
+		return -1, fmt.Errorf("sqlite %s checkpoint: %w", mode, err)
 	}
-	return nil
+	if busy != 0 || frames < 0 || backfilled < 0 {
+		return -1, nil
+	}
+	return frames - backfilled, nil
 }
 
 func (c *checkpointer) record(err error) {
