@@ -146,11 +146,19 @@ func executorExec(l *lua.LState) int {
 		return 0
 	}
 
+	timeout, optErr := statementTimeout(l, 2)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	if wrapper.tx != nil {
 		yield := AcquireTxExecuteYield()
 		yield.Tx = wrapper.tx
 		yield.Query = wrapper.query
 		yield.Params = wrapper.args
+		yield.Timeout = timeout
 		l.Push(yield)
 		return -1
 	}
@@ -159,6 +167,7 @@ func executorExec(l *lua.LState) int {
 	yield.DB = wrapper.db
 	yield.Query = wrapper.query
 	yield.Params = wrapper.args
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }
@@ -169,11 +178,19 @@ func executorQuery(l *lua.LState) int {
 		return 0
 	}
 
+	timeout, optErr := statementTimeout(l, 2)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	if wrapper.tx != nil {
 		yield := AcquireTxQueryYield()
 		yield.Tx = wrapper.tx
 		yield.Query = wrapper.query
 		yield.Params = wrapper.args
+		yield.Timeout = timeout
 		l.Push(yield)
 		return -1
 	}
@@ -182,6 +199,7 @@ func executorQuery(l *lua.LState) int {
 	yield.DB = wrapper.db
 	yield.Query = wrapper.query
 	yield.Params = wrapper.args
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }

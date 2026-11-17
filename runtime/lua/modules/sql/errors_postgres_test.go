@@ -3,14 +3,17 @@
 package sql
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 	"github.com/lib/pq/pqerror"
 	lua "github.com/wippyai/go-lua"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
 )
 
 func TestPostgresErrorClassification(t *testing.T) {
@@ -110,5 +113,21 @@ func TestPostgresWrappingPreservesMetadata(t *testing.T) {
 	}
 	if !errors.Is(wrapped, native) {
 		t.Fatal("native cause is lost")
+	}
+}
+
+func TestPostgresStatementTimeoutClassification(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	native := &pgconn.PgError{Code: "57014", Message: "canceling statement due to user request"}
+	wrapped := wrapSQLError(l, &sqlapi.StatementTimeoutError{Timeout: time.Second, Err: native}, "query")
+	if wrapped.Kind() != lua.Timeout || wrapped.Retryable() != lua.TernaryFalse {
+		t.Fatalf("kind/retryable = %q/%v, want %q/false", wrapped.Kind(), wrapped.Retryable(), lua.Timeout)
+	}
+	if wrapped.Details()["sqlstate"] != "57014" {
+		t.Fatalf("sqlstate = %v, want 57014", wrapped.Details()["sqlstate"])
+	}
+	if !errors.Is(wrapped, native) || !errors.Is(wrapped, context.DeadlineExceeded) {
+		t.Fatal("cause chain is lost")
 	}
 }

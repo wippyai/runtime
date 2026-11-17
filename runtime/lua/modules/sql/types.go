@@ -31,6 +31,11 @@ var executeResultType = typ.NewRecord().
 	Field("last_insert_id", typ.Integer).
 	Build()
 
+// Statement options accepted by query and execute calls
+var statementOptionsType = typ.NewRecord().
+	OptField("timeout", typ.String).
+	Build()
+
 // Interface types
 var (
 	sqlDBType       typ.Type
@@ -56,10 +61,12 @@ var sqlizerType = typ.NewInterface("sql.Sqlizer", []typ.Method{
 var queryExecutorType = typ.NewInterface("sql.QueryExecutor", []typ.Method{
 	{Name: "query", Type: typ.Func().
 		Param("self", typ.Self).
+		OptParam("options", statementOptionsType).
 		Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 		Build()},
 	{Name: "exec", Type: typ.Func().
 		Param("self", typ.Self).
+		OptParam("options", statementOptionsType).
 		Returns(executeResultType, typ.NewOptional(typ.LuaError)).
 		Build()},
 	{Name: "to_sql", Type: typ.Func().
@@ -85,12 +92,14 @@ func init() {
 	statementType = typ.NewInterface("sql.Statement", []typ.Method{
 		{Name: "query", Type: typ.Func().
 			Param("self", typ.Self).
-			Variadic(typ.Any).
+			OptParam("params", typ.Any).
+			OptParam("options", statementOptionsType).
 			Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "execute", Type: typ.Func().
 			Param("self", typ.Self).
-			Variadic(typ.Any).
+			OptParam("params", typ.Any).
+			OptParam("options", statementOptionsType).
 			Returns(executeResultType, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "close", Type: typ.Func().
@@ -104,13 +113,15 @@ func init() {
 		{Name: "query", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("sql", typ.String).
-			Variadic(typ.Any).
+			OptParam("params", typ.Any).
+			OptParam("options", statementOptionsType).
 			Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "execute", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("sql", typ.String).
-			Variadic(typ.Any).
+			OptParam("params", typ.Any).
+			OptParam("options", statementOptionsType).
 			Returns(executeResultType, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "prepare", Type: typ.Func().
@@ -157,13 +168,15 @@ func init() {
 		{Name: "query", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("sql", typ.String).
-			Variadic(typ.Any).
+			OptParam("params", typ.Any).
+			OptParam("options", statementOptionsType).
 			Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "execute", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("sql", typ.String).
-			Variadic(typ.Any).
+			OptParam("params", typ.Any).
+			OptParam("options", statementOptionsType).
 			Returns(executeResultType, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "prepare", Type: typ.Func().
@@ -606,6 +619,7 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("Transaction", transactionType)
 	m.DefineType("DBStats", dbStatsType)
 	m.DefineType("ExecuteResult", executeResultType)
+	m.DefineType("StatementOptions", statementOptionsType)
 	m.DefineType("Sqlizer", sqlizerType)
 	m.DefineType("QueryExecutor", queryExecutorType)
 	m.DefineType("SelectBuilder", selectBuilderType)

@@ -11,10 +11,13 @@ import (
 	lua "github.com/wippyai/go-lua"
 )
 
-func wrapSQLiteError(wrapped *lua.Error, cause error) *lua.Error {
+// sqliteNative attaches the result codes of a SQLite error to wrapped and
+// returns the kind they establish; native reports whether cause carries a
+// SQLite error.
+func sqliteNative(wrapped *lua.Error, cause error) (*lua.Error, lua.Kind, bool, bool) {
 	var native sqlite3.Error
 	if !errors.As(cause, &native) {
-		return wrapped
+		return wrapped, lua.Unknown, false, false
 	}
 	details := wrapped.Details()
 	if details == nil {
@@ -22,9 +25,8 @@ func wrapSQLiteError(wrapped *lua.Error, cause error) *lua.Error {
 	}
 	details["sqlite_code"] = int(native.Code)
 	details["sqlite_extended_code"] = int(native.ExtendedCode)
-	wrapped = wrapped.WithDetails(details)
 	kind, retryable := sqliteErrorKind(native)
-	return classifySQLError(wrapped, kind, retryable)
+	return wrapped.WithDetails(details), kind, retryable, true
 }
 
 func sqliteErrorKind(native sqlite3.Error) (lua.Kind, bool) {

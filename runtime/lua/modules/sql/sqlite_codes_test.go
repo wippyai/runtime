@@ -5,10 +5,12 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/rqlite/go-sqlite3"
 	lua "github.com/wippyai/go-lua"
@@ -119,5 +121,21 @@ func TestSQLWrappingPreservesSQLiteMetadata(t *testing.T) {
 	}
 	if !errors.Is(wrapped, native) {
 		t.Fatal("native cause was lost")
+	}
+}
+
+func TestSQLiteStatementTimeoutClassification(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	native := sqlite3.Error{Code: sqlite3.ErrInterrupt}
+	wrapped := wrapSQLError(l, &sqlapi.StatementTimeoutError{Timeout: time.Second, Err: native}, "query")
+	if wrapped.Kind() != lua.Timeout || wrapped.Retryable() != lua.TernaryFalse {
+		t.Fatalf("kind/retryable = %q/%v, want %q/false", wrapped.Kind(), wrapped.Retryable(), lua.Timeout)
+	}
+	if wrapped.Details()["sqlite_code"] != int(sqlite3.ErrInterrupt) {
+		t.Fatalf("sqlite_code = %v, want %d", wrapped.Details()["sqlite_code"], sqlite3.ErrInterrupt)
+	}
+	if !errors.Is(wrapped, native) || !errors.Is(wrapped, context.DeadlineExceeded) {
+		t.Fatal("cause chain is lost")
 	}
 }
