@@ -311,6 +311,26 @@ func (rm *RouteManager) Build() error {
 		}
 	}
 
+	// Each prefixed router owns its subtree, so unmatched paths below it are
+	// answered by the router instead of falling through to a shorter mount.
+	taken := make(map[string]bool, len(allPatterns))
+	for _, p := range allPatterns {
+		taken[p.pattern] = true
+	}
+	for routerID, routerEntry := range rm.routers {
+		patterns, handler, err := routerFallbackPatterns(routerID, routerEntry)
+		if err != nil {
+			return err
+		}
+		if anyTaken(taken, patterns) {
+			continue
+		}
+		for _, pattern := range patterns {
+			taken[pattern] = true
+			allPatterns = append(allPatterns, patternEntry{handler, pattern})
+		}
+	}
+
 	// Let ServeMux apply its complete method, path, wildcard, and subtree
 	// precedence rules. Convert registration panics into configuration errors so
 	// an invalid route set cannot crash the process during a rebuild.
@@ -325,6 +345,15 @@ func (rm *RouteManager) Build() error {
 	rm.router.Store(&h)
 
 	return nil
+}
+
+func anyTaken(taken map[string]bool, patterns []string) bool {
+	for _, pattern := range patterns {
+		if taken[pattern] {
+			return true
+		}
+	}
+	return false
 }
 
 func registerPattern(mux *http.ServeMux, pattern string, handler http.Handler) (err error) {

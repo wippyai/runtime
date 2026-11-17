@@ -4,6 +4,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -560,4 +561,195 @@ func testGet(t *testing.T, url string) (*http.Response, error) {
 		return nil, err
 	}
 	return http.DefaultClient.Do(req)
+}
+
+func routerSubtreeFixture(t *testing.T, order *[]string) *RouteManager {
+	t.Helper()
+
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	record := func(name string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				*order = append(*order, name)
+				w.Header().Set("X-Order", name)
+				next.ServeHTTP(w, r)
+			})
+		}
+	}
+
+	routerID := registry.NewID("test", "api")
+	require.NoError(t, rm.AddRouter(routerID, "/api/v1",
+		[]func(http.Handler) http.Handler{record("first"), record("second")}, nil))
+	for _, route := range []struct{ name, method, path string }{
+		{"list", http.MethodGet, "/users"},
+		{"create", http.MethodPost, "/users"},
+		{"show", http.MethodGet, "/users/{id}"},
+		{"remove", http.MethodDelete, "/users/{id}"},
+	} {
+		require.NoError(t, rm.AddRoute(routerID, registry.NewID("test", route.name),
+			route.method, route.path, registry.NewID("test", route.name+"_fn"),
+			http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("route"))
+			})))
+	}
+
+	require.NoError(t, rm.Mount("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("spa"))
+	})))
+	require.NoError(t, rm.Build())
+	return rm
+}
+
+func serveWithFrame(rm *RouteManager, method, path string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), method, path, nil)
+	ctx, _ := contextapi.OpenFrameContext(req.Context())
+	rm.ServeHTTP(rec, req.WithContext(ctx))
+	return rec
+}
+
+func TestRouteManager_UnmatchedPathUnderRouterPrefixIsJSON404(t *testing.T) {
+	var order []string
+	rm := routerSubtreeFixture(t, &order)
+
+	for _, path := range []string{"/api/v1/x", "/api/v1/users/1/extra", "/api/v1/", "/api/v1"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut} {
+			rec := serveWithFrame(rm, method, path)
+
+			require.Equal(t, http.StatusNotFound, rec.Code, "%s %s: %s", method, path, rec.Body.String())
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			assert.Empty(t, rec.Header().Get("Allow"))
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, false, body["success"])
+			assert.NotEmpty(t, body["error"])
+		}
+	}
+}
+
+func TestRouteManager_WrongMethodUnderRouterPrefixIsJSON405WithAllow(t *testing.T) {
+	var order []string
+	rm := routerSubtreeFixture(t, &order)
+
+	tests := []struct {
+		method string
+		path   string
+		allow  string
+	}{
+		{http.MethodPut, "/api/v1/users", "GET, HEAD, OPTIONS, POST"},
+		{http.MethodPatch, "/api/v1/users/7", "DELETE, GET, HEAD, OPTIONS"},
+		{http.MethodPost, "/api/v1/users/7", "DELETE, GET, HEAD, OPTIONS"},
+	}
+	for _, tt := range tests {
+		rec := serveWithFrame(rm, tt.method, tt.path)
+
+		require.Equal(t, http.StatusMethodNotAllowed, rec.Code, "%s %s", tt.method, tt.path)
+		assert.Equal(t, tt.allow, rec.Header().Get("Allow"))
+		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		assert.Equal(t, false, body["success"])
+	}
+}
+
+func TestRouteManager_PathsOutsideRouterPrefixReachMount(t *testing.T) {
+	var order []string
+	rm := routerSubtreeFixture(t, &order)
+
+	for _, path := range []string{"/", "/dashboard", "/api", "/api/v10/users", "/apix", "/assets/app.js"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			rec := serveWithFrame(rm, method, path)
+			assert.Equal(t, http.StatusOK, rec.Code, "%s %s", method, path)
+			assert.Equal(t, "spa", rec.Body.String(), "%s %s", method, path)
+		}
+	}
+
+	rec := serveWithFrame(rm, http.MethodGet, "/api/v1/users")
+	assert.Equal(t, "route", rec.Body.String())
+}
+
+func TestRouteManager_RouterMiddlewareRunsForUnmatchedInOrder(t *testing.T) {
+	var order []string
+	rm := routerSubtreeFixture(t, &order)
+
+	rec := serveWithFrame(rm, http.MethodGet, "/api/v1/nope")
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, []string{"first", "second"}, order)
+	assert.Equal(t, "second", rec.Header().Get("X-Order"))
+
+	order = nil
+	rec = serveWithFrame(rm, http.MethodPut, "/api/v1/users")
+	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	assert.Equal(t, []string{"first", "second"}, order)
+}
+
+func TestRouteManager_MiddlewareCanShortCircuitUnmatched(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	deny := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		})
+	}
+	routerID := registry.NewID("test", "api")
+	require.NoError(t, rm.AddRouter(routerID, "/api", []func(http.Handler) http.Handler{deny}, nil))
+	require.NoError(t, rm.Build())
+
+	assert.Equal(t, http.StatusUnauthorized, serveWithFrame(rm, http.MethodGet, "/api/missing").Code)
+}
+
+func TestRouteManager_RootAndCatchAllRoutersKeepBehavior(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	rootID := registry.NewID("test", "root")
+	require.NoError(t, rm.AddRouter(rootID, "", nil, nil))
+	require.NoError(t, rm.AddRoute(rootID, registry.NewID("test", "health"), http.MethodGet, "/health",
+		registry.NewID("test", "health_fn"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("health"))
+		})))
+
+	proxyID := registry.NewID("test", "proxy")
+	require.NoError(t, rm.AddRouter(proxyID, "/proxy", nil, nil))
+	require.NoError(t, rm.AddRoute(proxyID, registry.NewID("test", "any"), config.MethodAny, "/{rest...}",
+		registry.NewID("test", "any_fn"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("proxied"))
+		})))
+
+	rootAnyID := registry.NewID("test", "rootslash")
+	require.NoError(t, rm.AddRouter(rootAnyID, "/slash", nil, nil))
+	require.NoError(t, rm.AddRoute(rootAnyID, registry.NewID("test", "slash"), config.MethodAny, "/",
+		registry.NewID("test", "slash_fn"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("slash"))
+		})))
+
+	require.NoError(t, rm.Mount("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("spa"))
+	})))
+	require.NoError(t, rm.Build())
+
+	assert.Equal(t, "health", serveWithFrame(rm, http.MethodGet, "/health").Body.String())
+	assert.Equal(t, "spa", serveWithFrame(rm, http.MethodGet, "/other").Body.String())
+	assert.Equal(t, "proxied", serveWithFrame(rm, http.MethodPost, "/proxy/a/b").Body.String())
+	assert.Equal(t, "slash", serveWithFrame(rm, http.MethodPost, "/slash/").Body.String())
+}
+
+func TestRouteManager_MountAtRouterPrefixKeepsMount(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "api")
+	require.NoError(t, rm.AddRouter(routerID, "/api", nil, nil))
+	require.NoError(t, rm.Mount("/api", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("mount"))
+	})))
+	require.NoError(t, rm.Build())
+
+	assert.Equal(t, "mount", serveWithFrame(rm, http.MethodGet, "/api/x").Body.String())
+	assert.Equal(t, "mount", serveWithFrame(rm, http.MethodGet, "/api/").Body.String())
 }
