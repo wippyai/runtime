@@ -157,7 +157,7 @@ Parses a time string using a layout format.
 |-------|------|----------|---------|-------|
 | layout | string | yes | - | Go time format layout |
 | value | string | yes | - | Time string to parse |
-| location | Location | no | time.localtz | Default timezone if not in string |
+| location | Location | no | time.utc | Timezone applied when the value carries none |
 
 **Returns:**
 - Success: `Time` object

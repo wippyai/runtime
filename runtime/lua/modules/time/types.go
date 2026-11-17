@@ -35,9 +35,9 @@ func init() {
 
 	// Duration type
 	durationType = typ.NewInterface("time.Duration", []typ.Method{
-		{Name: "nanoseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
-		{Name: "microseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
-		{Name: "milliseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
+		{Name: "nanoseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "microseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
+		{Name: "milliseconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer).Build()},
 		{Name: "seconds", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
 		{Name: "minutes", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},
 		{Name: "hours", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number).Build()},

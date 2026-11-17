@@ -1095,7 +1095,7 @@ func parseFunc(l *lua.LState) int {
 			return 0
 		}
 	} else {
-		loc = stdtime.Local
+		loc = stdtime.UTC
 	}
 
 	t, err := stdtime.ParseInLocation(layout, v, loc)
@@ -1168,7 +1168,7 @@ func durationToString(l *lua.LState) int {
 func durationNanoseconds(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	if d, ok := ud.Value.(*Duration); ok {
-		l.Push(lua.LNumber(d.duration.Nanoseconds()))
+		l.Push(lua.LInteger(d.duration.Nanoseconds()))
 		return 1
 	}
 	l.ArgError(1, "duration expected")
@@ -1178,7 +1178,7 @@ func durationNanoseconds(l *lua.LState) int {
 func durationMicroseconds(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	if d, ok := ud.Value.(*Duration); ok {
-		l.Push(lua.LNumber(d.duration.Microseconds()))
+		l.Push(lua.LInteger(d.duration.Microseconds()))
 		return 1
 	}
 	l.ArgError(1, "duration expected")
@@ -1188,7 +1188,7 @@ func durationMicroseconds(l *lua.LState) int {
 func durationMilliseconds(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	if d, ok := ud.Value.(*Duration); ok {
-		l.Push(lua.LNumber(d.duration.Milliseconds()))
+		l.Push(lua.LInteger(d.duration.Milliseconds()))
 		return 1
 	}
 	l.ArgError(1, "duration expected")
@@ -1390,7 +1390,7 @@ func timeUnix(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Unix()))
+	l.Push(lua.LInteger(t.time.Unix()))
 	return 1
 }
 
@@ -1401,7 +1401,7 @@ func timeUnixNano(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.UnixNano()))
+	l.Push(lua.LInteger(t.time.UnixNano()))
 	return 1
 }
 
@@ -1413,9 +1413,9 @@ func timeDate(l *lua.LState) int {
 	}
 
 	year, month, day := t.time.Date()
-	l.Push(lua.LNumber(year))
-	l.Push(lua.LNumber(month))
-	l.Push(lua.LNumber(day))
+	l.Push(lua.LInteger(year))
+	l.Push(lua.LInteger(month))
+	l.Push(lua.LInteger(day))
 	return 3
 }
 
@@ -1427,9 +1427,9 @@ func timeClock(l *lua.LState) int {
 	}
 
 	hour, minute, sec := t.time.Clock()
-	l.Push(lua.LNumber(hour))
-	l.Push(lua.LNumber(minute))
-	l.Push(lua.LNumber(sec))
+	l.Push(lua.LInteger(hour))
+	l.Push(lua.LInteger(minute))
+	l.Push(lua.LInteger(sec))
 	return 3
 }
 
@@ -1440,7 +1440,7 @@ func timeYear(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Year()))
+	l.Push(lua.LInteger(t.time.Year()))
 	return 1
 }
 
@@ -1451,7 +1451,7 @@ func timeMonth(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Month()))
+	l.Push(lua.LInteger(t.time.Month()))
 	return 1
 }
 
@@ -1462,7 +1462,7 @@ func timeDay(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Day()))
+	l.Push(lua.LInteger(t.time.Day()))
 	return 1
 }
 
@@ -1473,7 +1473,7 @@ func timeHour(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Hour()))
+	l.Push(lua.LInteger(t.time.Hour()))
 	return 1
 }
 
@@ -1484,7 +1484,7 @@ func timeMinute(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Minute()))
+	l.Push(lua.LInteger(t.time.Minute()))
 	return 1
 }
 
@@ -1495,7 +1495,7 @@ func timeSecond(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Second()))
+	l.Push(lua.LInteger(t.time.Second()))
 	return 1
 }
 
@@ -1506,7 +1506,7 @@ func timeNanosecond(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Nanosecond()))
+	l.Push(lua.LInteger(t.time.Nanosecond()))
 	return 1
 }
 
@@ -1517,7 +1517,7 @@ func timeWeekday(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.Weekday()))
+	l.Push(lua.LInteger(t.time.Weekday()))
 	return 1
 }
 
@@ -1528,7 +1528,7 @@ func timeYearDay(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LNumber(t.time.YearDay()))
+	l.Push(lua.LInteger(t.time.YearDay()))
 	return 1
 }
 
