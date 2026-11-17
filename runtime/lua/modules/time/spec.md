@@ -63,7 +63,7 @@ time.SATURDAY   -- 6
 
 -- Location constants (userdata)
 time.utc        -- UTC timezone Location
-time.localtz    -- Local timezone Location
+time.localtz    -- UTC (compatibility alias)
 ```
 
 ## Dependencies
@@ -126,7 +126,7 @@ Constructs a Time from date/time components.
 | minute | integer | yes | - | Minute (0-59) |
 | second | integer | yes | - | Second (0-59) |
 | nanosecond | integer | yes | - | Nanosecond (0-999999999) |
-| location | Location | no | time.localtz | Timezone |
+| location | Location | no | time.utc | Timezone |
 
 **Returns:** Time object
 
@@ -157,7 +157,7 @@ Parses a time string using a layout format.
 |-------|------|----------|---------|-------|
 | layout | string | yes | - | Go time format layout |
 | value | string | yes | - | Time string to parse |
-| location | Location | no | time.localtz | Default timezone if not in string |
+| location | Location | no | time.utc | Timezone applied when the value carries none |
 
 **Returns:**
 - Success: `Time` object
@@ -200,7 +200,7 @@ local d2, err = time.parse_duration(time.SECOND)
 
 ### load_location(name: string) → Location, error
 
-Loads a timezone by IANA name.
+Loads a timezone by IANA name. The name `Local` resolves to UTC.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
@@ -362,7 +362,7 @@ Represents a point in time.
 | in_location | (loc: Location) | Time | Convert to location |
 | location | () | Location | Get current location |
 | utc | () | Time | Convert to UTC |
-| in_local | () | Time | Convert to local timezone |
+| in_local | () | Time | Convert to UTC (compatibility alias) |
 | round | (duration: Duration) | Time | Round to nearest duration |
 | truncate | (duration: Duration) | Time | Truncate to duration |
 
