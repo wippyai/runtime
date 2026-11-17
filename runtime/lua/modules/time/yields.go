@@ -171,7 +171,7 @@ func initModuleTable() {
 	mod.RawSetString("utc", utcUD)
 
 	localUD := &lua.LUserData{
-		Value:     localLocation,
+		Value:     utcLocation,
 		Metatable: value.GetTypeMetatable(nil, locationTypeName),
 	}
 	mod.RawSetString("localtz", localUD)
@@ -230,7 +230,7 @@ func registerTimeMethods() {
 			"in_location":    timeIn,
 			"location":       timeLocation,
 			"utc":            timeUTC,
-			"in_local":       timeLocal,
+			"in_local":       timeUTC,
 			"round":          timeRound,
 			"truncate":       timeTruncate,
 		},
@@ -436,7 +436,7 @@ func timerMessageHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, 
 		return lua.LNil
 	}
 
-	t := stdtime.Unix(0, nsec)
+	t := stdtime.Unix(0, nsec).UTC()
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
@@ -696,7 +696,7 @@ func tickerMessageHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string,
 		return lua.LNil
 	}
 
-	t := stdtime.Unix(0, nsec)
+	t := stdtime.Unix(0, nsec).UTC()
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
@@ -956,7 +956,7 @@ func nowFunc(l *lua.LState) int {
 	}
 
 	ud := l.NewUserData()
-	ud.Value = &Time{time: t}
+	ud.Value = &Time{time: t, utcView: true}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
 	l.Push(ud)
 	return 1
@@ -1060,7 +1060,7 @@ func dateFunc(l *lua.LState) int {
 			return 0
 		}
 	} else {
-		loc = stdtime.Local
+		loc = stdtime.UTC
 	}
 
 	t := stdtime.Date(year, month, day, hour, minute, sec, nsec, loc)
@@ -1074,7 +1074,7 @@ func dateFunc(l *lua.LState) int {
 func unixFunc(l *lua.LState) int {
 	sec := l.CheckInt64(1)
 	nsec := l.CheckInt64(2)
-	t := stdtime.Unix(sec, nsec)
+	t := stdtime.Unix(sec, nsec).UTC()
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
@@ -1129,6 +1129,9 @@ func loadLocationFunc(l *lua.LState) int {
 		return invalidError(l, "empty location name")
 	}
 
+	if name == "Local" {
+		name = "UTC"
+	}
 	loc, err := stdtime.LoadLocation(name)
 	if err != nil {
 		return notFoundError(l, err, "time.load_location")
@@ -1241,7 +1244,7 @@ func locationString(l *lua.LState) int {
 
 func timeToString(l *lua.LState) int {
 	if t, ok := isTime(l, 1); ok {
-		l.Push(lua.LString(t.time.String()))
+		l.Push(lua.LString(t.wall().String()))
 		return 1
 	}
 	l.ArgError(1, "time expected")
@@ -1263,7 +1266,7 @@ func timeAdd(l *lua.LState) int {
 
 	newTime := t.time.Add(duration)
 	ud := l.NewUserData()
-	ud.Value = &Time{time: newTime}
+	ud.Value = &Time{time: newTime, utcView: t.utcView}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
 	l.Push(ud)
 	return 1
@@ -1301,7 +1304,7 @@ func timeAddDate(l *lua.LState) int {
 	months := l.CheckInt(3)
 	days := l.CheckInt(4)
 
-	newTime := t.time.AddDate(years, months, days)
+	newTime := t.wall().AddDate(years, months, days)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: newTime}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
@@ -1368,7 +1371,7 @@ func timeFormat(l *lua.LState) int {
 	}
 
 	layout := l.CheckString(2)
-	l.Push(lua.LString(t.time.Format(layout)))
+	l.Push(lua.LString(t.wall().Format(layout)))
 	return 1
 }
 
@@ -1379,7 +1382,7 @@ func timeFormatRFC3339(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LString(t.time.Format(stdtime.RFC3339)))
+	l.Push(lua.LString(t.wall().Format(stdtime.RFC3339)))
 	return 1
 }
 
@@ -1412,7 +1415,7 @@ func timeDate(l *lua.LState) int {
 		return 0
 	}
 
-	year, month, day := t.time.Date()
+	year, month, day := t.wall().Date()
 	l.Push(lua.LInteger(year))
 	l.Push(lua.LInteger(month))
 	l.Push(lua.LInteger(day))
@@ -1426,7 +1429,7 @@ func timeClock(l *lua.LState) int {
 		return 0
 	}
 
-	hour, minute, sec := t.time.Clock()
+	hour, minute, sec := t.wall().Clock()
 	l.Push(lua.LInteger(hour))
 	l.Push(lua.LInteger(minute))
 	l.Push(lua.LInteger(sec))
@@ -1440,7 +1443,7 @@ func timeYear(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Year()))
+	l.Push(lua.LInteger(t.wall().Year()))
 	return 1
 }
 
@@ -1451,7 +1454,7 @@ func timeMonth(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Month()))
+	l.Push(lua.LInteger(t.wall().Month()))
 	return 1
 }
 
@@ -1462,7 +1465,7 @@ func timeDay(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Day()))
+	l.Push(lua.LInteger(t.wall().Day()))
 	return 1
 }
 
@@ -1473,7 +1476,7 @@ func timeHour(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Hour()))
+	l.Push(lua.LInteger(t.wall().Hour()))
 	return 1
 }
 
@@ -1484,7 +1487,7 @@ func timeMinute(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Minute()))
+	l.Push(lua.LInteger(t.wall().Minute()))
 	return 1
 }
 
@@ -1495,7 +1498,7 @@ func timeSecond(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Second()))
+	l.Push(lua.LInteger(t.wall().Second()))
 	return 1
 }
 
@@ -1506,7 +1509,7 @@ func timeNanosecond(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Nanosecond()))
+	l.Push(lua.LInteger(t.wall().Nanosecond()))
 	return 1
 }
 
@@ -1517,7 +1520,7 @@ func timeWeekday(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.Weekday()))
+	l.Push(lua.LInteger(t.wall().Weekday()))
 	return 1
 }
 
@@ -1528,7 +1531,7 @@ func timeYearDay(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(lua.LInteger(t.time.YearDay()))
+	l.Push(lua.LInteger(t.wall().YearDay()))
 	return 1
 }
 
@@ -1571,7 +1574,7 @@ func timeLocation(l *lua.LState) int {
 		return 0
 	}
 
-	loc := t.time.Location()
+	loc := t.wall().Location()
 	ud := l.NewUserData()
 	ud.Value = &Location{location: loc}
 	ud.Metatable = value.GetTypeMetatable(l, locationTypeName)
@@ -1594,21 +1597,6 @@ func timeUTC(l *lua.LState) int {
 	return 1
 }
 
-func timeLocal(l *lua.LState) int {
-	t, ok := isTime(l, 1)
-	if !ok {
-		l.ArgError(1, "time expected")
-		return 0
-	}
-
-	newTime := t.time.Local()
-	ud := l.NewUserData()
-	ud.Value = &Time{time: newTime}
-	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
-	l.Push(ud)
-	return 1
-}
-
 func timeRound(l *lua.LState) int {
 	t, ok := isTime(l, 1)
 	if !ok {
@@ -1622,7 +1610,7 @@ func timeRound(l *lua.LState) int {
 		return 0
 	}
 
-	newTime := t.time.Round(d.duration)
+	newTime := t.wall().Round(d.duration)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: newTime}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)
@@ -1643,7 +1631,7 @@ func timeTruncate(l *lua.LState) int {
 		return 0
 	}
 
-	newTime := t.time.Truncate(d.duration)
+	newTime := t.wall().Truncate(d.duration)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: newTime}
 	ud.Metatable = value.GetTypeMetatable(l, timeTypeName)

@@ -8,7 +8,17 @@ import (
 
 // Time wraps time.Time for Lua userdata.
 type Time struct {
-	time stdtime.Time
+	time    stdtime.Time
+	utcView bool
+}
+
+// wall returns the calendar representation. Values from now retain their
+// monotonic reading for comparisons and subtraction.
+func (t *Time) wall() stdtime.Time {
+	if t.utcView {
+		return t.time.UTC()
+	}
+	return t.time
 }
 
 // Duration wraps time.Duration for Lua userdata.
@@ -22,7 +32,4 @@ type Location struct {
 }
 
 // Pre-created location values (cached, immutable)
-var (
-	utcLocation   = &Location{location: stdtime.UTC}
-	localLocation = &Location{location: stdtime.Local}
-)
+var utcLocation = &Location{location: stdtime.UTC}
