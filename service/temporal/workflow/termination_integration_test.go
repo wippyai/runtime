@@ -84,9 +84,9 @@ end`,
 	require.Equal(t, "Canceled", result["error_kind"])
 	target, err := pid.ParsePID(result["child"].(string))
 	require.NoError(t, err)
-	description, err := f.temporalClient.DescribeWorkflowExecution(f.ctx, target.UniqID, "")
+	description, err := f.temporalClient.DescribeWorkflow(f.ctx, target.UniqID, "")
 	require.NoError(t, err)
-	require.Equal(t, enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED, description.WorkflowExecutionInfo.Status)
+	require.Equal(t, enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED, description.Status)
 	events := f.temporalClient.GetWorkflowHistory(f.ctx, target.UniqID, "", false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
 	for events.HasNext() {
 		event, err := events.Next()

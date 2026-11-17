@@ -28,6 +28,7 @@ import (
 	syspayload "github.com/wippyai/runtime/system/payload"
 	securitysystem "github.com/wippyai/runtime/system/security"
 	commonpb "go.temporal.io/api/common/v1"
+	sdkpb "go.temporal.io/api/sdk/v1"
 	"go.temporal.io/sdk/converter"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.temporal.io/sdk/temporal"
@@ -80,7 +81,7 @@ type completionCall struct {
 
 func (e *recordedEnvironment) WorkflowInfo() *workflow.Info              { return e.info }
 func (e *recordedEnvironment) GetDataConverter() converter.DataConverter { return e.dc }
-func (e *recordedEnvironment) NewTimer(duration time.Duration, _ workflow.TimerOptions, callback bindings.ResultHandler) *bindings.TimerID {
+func (e *recordedEnvironment) NewTimer(duration time.Duration, _ workflow.TimerOptions, _ []*sdkpb.EventGroupMarker, callback bindings.ResultHandler) *bindings.TimerID {
 	e.timers = append(e.timers, recordedTimer{duration: duration, callback: callback})
 	return nil
 }
@@ -89,7 +90,7 @@ func (e *recordedEnvironment) ExecuteActivity(params bindings.ExecuteActivityPar
 	e.activityDone = append(e.activityDone, callback)
 	return bindings.ActivityID{}
 }
-func (e *recordedEnvironment) SignalExternalWorkflow(namespace, workflowID, runID, topic string, input *commonpb.Payloads, arg any, header *commonpb.Header, childWorkflowOnly bool, callback bindings.ResultHandler) {
+func (e *recordedEnvironment) SignalExternalWorkflow(namespace, workflowID, runID, topic string, input *commonpb.Payloads, arg any, header *commonpb.Header, childWorkflowOnly bool, _ []*sdkpb.EventGroupMarker, callback bindings.ResultHandler) {
 	e.signals = append(e.signals, recordedSignal{
 		namespace: namespace, workflowID: workflowID, runID: runID, topic: topic,
 		input: input, arg: arg, header: header, childWorkflowOnly: childWorkflowOnly, callback: callback,
@@ -99,7 +100,7 @@ func (e *recordedEnvironment) ExecuteChildWorkflow(params bindings.ExecuteWorkfl
 	e.children = append(e.children, params)
 	e.childDone = append(e.childDone, callback)
 }
-func (e *recordedEnvironment) GetVersion(changeID string, min, max workflow.Version) workflow.Version {
+func (e *recordedEnvironment) GetVersion(changeID string, min, max workflow.Version, _ []*sdkpb.EventGroupMarker) workflow.Version {
 	e.versions = append(e.versions, versionCall{changeID: changeID, min: min, max: max})
 	return e.version
 }

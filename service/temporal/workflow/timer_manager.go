@@ -91,7 +91,7 @@ func NewTimerManager(env bindings.WorkflowEnvironment, replayLog *propagator.Rep
 
 // Sleep handles time.sleep command - blocks for a duration.
 func (m *TimerManager) Sleep(duration time.Duration, resume func(data any, err error)) {
-	m.env.NewTimer(duration, workflow.TimerOptions{}, func(_ *commonpb.Payloads, err error) {
+	m.env.NewTimer(duration, workflow.TimerOptions{}, nil, func(_ *commonpb.Payloads, err error) {
 		if err != nil {
 			resume(nil, temporalerrors.FromTemporalError(err))
 			return
@@ -122,7 +122,7 @@ func (m *TimerManager) StartTimer(cmd clockapi.TimerStartCmd, resume func(data a
 	}
 	m.timers[timerID] = timer
 
-	m.env.NewTimer(cmd.Duration, workflow.TimerOptions{}, func(_ *commonpb.Payloads, err error) {
+	m.env.NewTimer(cmd.Duration, workflow.TimerOptions{}, nil, func(_ *commonpb.Payloads, err error) {
 		t, ok := m.timers[timerID]
 		if !ok || t.Canceled {
 			return
@@ -185,7 +185,7 @@ func (m *TimerManager) ResetTimer(timerID uint64, duration time.Duration, resume
 	}
 	m.timers[timerID] = newTimer
 
-	m.env.NewTimer(duration, workflow.TimerOptions{}, func(_ *commonpb.Payloads, err error) {
+	m.env.NewTimer(duration, workflow.TimerOptions{}, nil, func(_ *commonpb.Payloads, err error) {
 		t, ok := m.timers[timerID]
 		if !ok || t.Canceled {
 			return
@@ -289,7 +289,7 @@ func (m *TimerManager) scheduleNextTick(tickerID uint64) {
 		return
 	}
 
-	m.env.NewTimer(ticker.Duration, workflow.TimerOptions{}, func(_ *commonpb.Payloads, err error) {
+	m.env.NewTimer(ticker.Duration, workflow.TimerOptions{}, nil, func(_ *commonpb.Payloads, err error) {
 		t, ok := m.tickers[tickerID]
 		if !ok || t.Stopped {
 			return
