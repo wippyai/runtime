@@ -96,9 +96,17 @@ func stmtQuery(l *lua.LState) int {
 		return 2
 	}
 
+	timeout, optErr := statementTimeout(l, 3)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	yield := AcquireStmtQueryYield()
 	yield.Stmt = stmt.stmt
 	yield.Params = params
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }
@@ -124,9 +132,17 @@ func stmtExecute(l *lua.LState) int {
 		return 2
 	}
 
+	timeout, optErr := statementTimeout(l, 3)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	yield := AcquireStmtExecuteYield()
 	yield.Stmt = stmt.stmt
 	yield.Params = params
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }

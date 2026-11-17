@@ -134,10 +134,18 @@ func dbQuery(l *lua.LState) int {
 		return 2
 	}
 
+	timeout, optErr := statementTimeout(l, 4)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	yield := AcquireQueryYield()
 	yield.DB = db.db
 	yield.Query = query
 	yield.Params = params
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }
@@ -155,10 +163,18 @@ func dbExecute(l *lua.LState) int {
 		return 2
 	}
 
+	timeout, optErr := statementTimeout(l, 4)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	yield := AcquireExecuteYield()
 	yield.DB = db.db
 	yield.Query = query
 	yield.Params = params
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }

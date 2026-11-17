@@ -5,6 +5,7 @@ package sql
 import (
 	"database/sql"
 	"sync"
+	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 )
@@ -41,6 +42,8 @@ type QueryCmd struct {
 	DB     *sql.DB
 	Query  string
 	Params []any
+	// Timeout bounds the statement when positive.
+	Timeout time.Duration
 }
 
 var queryCmdPool = sync.Pool{New: func() any { return &QueryCmd{} }}
@@ -52,6 +55,7 @@ func (c *QueryCmd) Release() {
 	c.DB = nil
 	c.Query = ""
 	c.Params = nil
+	c.Timeout = 0
 	queryCmdPool.Put(c)
 }
 
@@ -60,6 +64,8 @@ type ExecuteCmd struct {
 	DB     *sql.DB
 	Query  string
 	Params []any
+	// Timeout bounds the statement when positive.
+	Timeout time.Duration
 }
 
 var executeCmdPool = sync.Pool{New: func() any { return &ExecuteCmd{} }}
@@ -71,6 +77,7 @@ func (c *ExecuteCmd) Release() {
 	c.DB = nil
 	c.Query = ""
 	c.Params = nil
+	c.Timeout = 0
 	executeCmdPool.Put(c)
 }
 
@@ -112,6 +119,8 @@ func (c *BeginCmd) Release() {
 type StmtQueryCmd struct {
 	Stmt   *sql.Stmt
 	Params []any
+	// Timeout bounds the statement when positive.
+	Timeout time.Duration
 }
 
 var stmtQueryCmdPool = sync.Pool{New: func() any { return &StmtQueryCmd{} }}
@@ -122,6 +131,7 @@ func (c *StmtQueryCmd) CmdID() dispatcher.CommandID { return StmtQuery }
 func (c *StmtQueryCmd) Release() {
 	c.Stmt = nil
 	c.Params = nil
+	c.Timeout = 0
 	stmtQueryCmdPool.Put(c)
 }
 
@@ -129,6 +139,8 @@ func (c *StmtQueryCmd) Release() {
 type StmtExecuteCmd struct {
 	Stmt   *sql.Stmt
 	Params []any
+	// Timeout bounds the statement when positive.
+	Timeout time.Duration
 }
 
 var stmtExecuteCmdPool = sync.Pool{New: func() any { return &StmtExecuteCmd{} }}
@@ -139,6 +151,7 @@ func (c *StmtExecuteCmd) CmdID() dispatcher.CommandID { return StmtExecute }
 func (c *StmtExecuteCmd) Release() {
 	c.Stmt = nil
 	c.Params = nil
+	c.Timeout = 0
 	stmtExecuteCmdPool.Put(c)
 }
 
@@ -162,6 +175,8 @@ type TxQueryCmd struct {
 	Tx     *sql.Tx
 	Query  string
 	Params []any
+	// Timeout bounds the statement when positive.
+	Timeout time.Duration
 }
 
 var txQueryCmdPool = sync.Pool{New: func() any { return &TxQueryCmd{} }}
@@ -173,6 +188,7 @@ func (c *TxQueryCmd) Release() {
 	c.Tx = nil
 	c.Query = ""
 	c.Params = nil
+	c.Timeout = 0
 	txQueryCmdPool.Put(c)
 }
 
@@ -181,6 +197,8 @@ type TxExecuteCmd struct {
 	Tx     *sql.Tx
 	Query  string
 	Params []any
+	// Timeout bounds the statement when positive.
+	Timeout time.Duration
 }
 
 var txExecuteCmdPool = sync.Pool{New: func() any { return &TxExecuteCmd{} }}
@@ -192,6 +210,7 @@ func (c *TxExecuteCmd) Release() {
 	c.Tx = nil
 	c.Query = ""
 	c.Params = nil
+	c.Timeout = 0
 	txExecuteCmdPool.Put(c)
 }
 

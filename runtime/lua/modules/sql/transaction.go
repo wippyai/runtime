@@ -119,10 +119,18 @@ func txQuery(l *lua.LState) int {
 		return 2
 	}
 
+	timeout, optErr := statementTimeout(l, 4)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	yield := AcquireTxQueryYield()
 	yield.Tx = tx.tx
 	yield.Query = query
 	yield.Params = params
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }
@@ -149,10 +157,18 @@ func txExecute(l *lua.LState) int {
 		return 2
 	}
 
+	timeout, optErr := statementTimeout(l, 4)
+	if optErr != nil {
+		l.Push(lua.LNil)
+		l.Push(optErr)
+		return 2
+	}
+
 	yield := AcquireTxExecuteYield()
 	yield.Tx = tx.tx
 	yield.Query = query
 	yield.Params = params
+	yield.Timeout = timeout
 	l.Push(yield)
 	return -1
 }

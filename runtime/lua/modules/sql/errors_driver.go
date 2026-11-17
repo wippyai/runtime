@@ -19,30 +19,20 @@ func wrapSQLError(l *lua.LState, cause error, operation string) *lua.Error {
 	if wrapped == nil {
 		return nil
 	}
-	var native interface {
-		error
-		SQLState() string
-	}
-	if errors.As(cause, &native) {
-		details := wrapped.Details()
-		if details == nil {
-			details = make(map[string]any)
-		}
-		details["sqlstate"] = native.SQLState()
-		for key, value := range postgresErrorDetails(cause) {
-			if value != "" {
-				details[key] = value
-			}
-		}
-		wrapped = wrapped.WithDetails(details)
-		kind, retryable := postgresErrorKind(native.SQLState())
-		return classifySQLError(wrapped, kind, retryable)
+	wrapped, kind, retryable, native := postgresNative(wrapped, cause)
+	if !native {
+		wrapped, kind, retryable, native = sqliteNative(wrapped, cause)
 	}
 	switch {
 	case errors.Is(cause, context.Canceled):
 		return classifySQLError(wrapped, lua.Canceled, false)
 	case errors.Is(cause, context.DeadlineExceeded):
 		return classifySQLError(wrapped, lua.Timeout, false)
+	}
+	if native {
+		return classifySQLError(wrapped, kind, retryable)
+	}
+	switch {
 	case errors.Is(cause, driver.ErrBadConn):
 		return classifySQLError(wrapped, lua.Unavailable, true)
 	case errors.Is(cause, io.EOF), errors.Is(cause, io.ErrUnexpectedEOF):
@@ -55,7 +45,32 @@ func wrapSQLError(l *lua.LState, cause error, operation string) *lua.Error {
 		}
 		return classifySQLError(wrapped, lua.Unavailable, false)
 	}
-	return wrapSQLiteError(wrapped, cause)
+	return wrapped
+}
+
+// postgresNative attaches the SQLSTATE and object names of a PostgreSQL error
+// to wrapped and returns the kind they establish; native reports whether cause
+// carries a PostgreSQL error.
+func postgresNative(wrapped *lua.Error, cause error) (*lua.Error, lua.Kind, bool, bool) {
+	var native interface {
+		error
+		SQLState() string
+	}
+	if !errors.As(cause, &native) {
+		return wrapped, lua.Unknown, false, false
+	}
+	details := wrapped.Details()
+	if details == nil {
+		details = make(map[string]any)
+	}
+	details["sqlstate"] = native.SQLState()
+	for key, value := range postgresErrorDetails(cause) {
+		if value != "" {
+			details[key] = value
+		}
+	}
+	kind, retryable := postgresErrorKind(native.SQLState())
+	return wrapped.WithDetails(details), kind, retryable, true
 }
 
 func classifySQLError(wrapped *lua.Error, kind lua.Kind, retryable bool) *lua.Error {

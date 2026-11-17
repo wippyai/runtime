@@ -254,8 +254,8 @@ Database connection handle. Returned by `sql.get()`. Auto-released on process cl
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | type | () | string, error | Database type (sql.type.*) |
-| query | (sql: string, params?: table) | rows: table[], error | Execute SELECT query |
-| execute | (sql: string, params?: table) | result: table, error | Execute INSERT/UPDATE/DELETE |
+| query | (sql: string, params?: table, options?: table) | rows: table[], error | Execute SELECT query |
+| execute | (sql: string, params?: table, options?: table) | result: table, error | Execute INSERT/UPDATE/DELETE |
 | prepare | (sql: string) | Statement, error | Create prepared statement |
 | begin | (options?: table) | Transaction, error | Begin transaction |
 | release | () | boolean, error | Release database resource |
@@ -273,7 +273,7 @@ Returns database type constant.
 
 **Yields:** no
 
-#### db:query(sql: string, params?: table) → table[], error
+#### db:query(sql: string, params?: table, options?: table) → table[], error
 
 Executes SELECT query and returns rows.
 
@@ -288,6 +288,7 @@ lexicographic string ordering.
 |-------|------|----------|---------|-------|
 | sql | string | yes | - | SQL query with ? placeholders |
 | params | table | no | nil | Array of bind parameters |
+| options | table | no | nil | [Statement options](#statement-options) |
 
 **Returns:**
 - Success: `table[]` - array of row tables with column names as keys
@@ -298,7 +299,9 @@ lexicographic string ordering.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | invalid params type | errors.INVALID | no |
+| invalid options | errors.INVALID | no |
 | SQL syntax error | errors.INVALID | no |
+| timeout exceeded | errors.TIMEOUT | no |
 | query execution error | varies | varies |
 
 **Yields:** until query completes
@@ -311,7 +314,7 @@ for _, row in ipairs(rows) do
 end
 ```
 
-#### db:execute(sql: string, params?: table) → table, error
+#### db:execute(sql: string, params?: table, options?: table) → table, error
 
 Executes INSERT/UPDATE/DELETE query.
 
@@ -319,6 +322,7 @@ Executes INSERT/UPDATE/DELETE query.
 |-------|------|----------|---------|-------|
 | sql | string | yes | - | SQL statement with ? placeholders |
 | params | table | no | nil | Array of bind parameters |
+| options | table | no | nil | [Statement options](#statement-options) |
 
 **Returns:**
 - Success: `table` - {last_insert_id: integer, rows_affected: integer}
@@ -329,7 +333,9 @@ Executes INSERT/UPDATE/DELETE query.
 | Condition | Kind | Retryable |
 |-----------|------|-----------|
 | invalid params type | errors.INVALID | no |
+| invalid options | errors.INVALID | no |
 | SQL syntax error | errors.INVALID | no |
+| timeout exceeded | errors.TIMEOUT | no |
 | execution error | varies | varies |
 
 **Yields:** until execution completes
@@ -339,6 +345,37 @@ local result, err = db:execute("INSERT INTO users (name) VALUES (?)", {"alice"})
 if err then error(err) end
 print("Inserted ID:", result.last_insert_id)
 print("Rows affected:", result.rows_affected)
+```
+
+#### Statement options
+
+`query` and `execute` on DB, Transaction and Statement, and `query`/`exec` on
+QueryExecutor, accept an options table as their last argument.
+
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| timeout | string | no | nil | Positive duration such as `"500ms"` or `"5s"` |
+
+The timeout bounds the statement, including reading its rows, within the
+calling context; without it the statement runs until it completes or the
+calling context ends. A statement that runs past its timeout is interrupted
+(SQLite) or canceled (PostgreSQL) and returns an `errors.TIMEOUT` error that
+is not retryable; driver details such as `sqlstate` or `sqlite_code` stay in
+`err:details()`. Options other than `timeout`, a non-table value, or a
+timeout that is not a positive duration string return `errors.INVALID`
+before the statement runs.
+
+The database handle stays usable after a timeout. Inside a transaction a
+timeout can end the transaction: SQLite rolls back a transaction whose write
+was interrupted, and the PostgreSQL driver closes the connection of a canceled
+statement. Roll the transaction back after a timeout; the rollback releases
+the connection and may report that the transaction is already gone.
+
+```lua
+local rows, err = db:query("SELECT * FROM events WHERE kind = ?", {"login"}, {timeout = "2s"})
+if err and err:kind() == errors.TIMEOUT then
+    -- the statement ran past 2s and was interrupted
+end
 ```
 
 #### db:prepare(sql: string) → Statement, error
@@ -447,19 +484,20 @@ Prepared statement. Auto-closed on process cleanup.
 
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
-| query | (params?: table) | rows: table[], error | Execute as SELECT |
-| execute | (params?: table) | result: table, error | Execute as INSERT/UPDATE/DELETE |
+| query | (params?: table, options?: table) | rows: table[], error | Execute as SELECT |
+| execute | (params?: table, options?: table) | result: table, error | Execute as INSERT/UPDATE/DELETE |
 | close | () | boolean, error | Close statement |
 
 **Methods yield:** query, execute, close
 
-#### stmt:query(params?: table) → table[], error
+#### stmt:query(params?: table, options?: table) → table[], error
 
 Executes prepared statement as SELECT.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | params | table | no | nil | Array of bind parameters |
+| options | table | no | nil | [Statement options](#statement-options) |
 
 **Returns:**
 - Success: `table[]` - array of row tables
@@ -471,17 +509,20 @@ Executes prepared statement as SELECT.
 |-----------|------|-----------|
 | statement closed | errors.INVALID | no |
 | invalid params type | errors.INVALID | no |
+| invalid options | errors.INVALID | no |
+| timeout exceeded | errors.TIMEOUT | no |
 | query error | varies | varies |
 
 **Yields:** until query completes
 
-#### stmt:execute(params?: table) → table, error
+#### stmt:execute(params?: table, options?: table) → table, error
 
 Executes prepared statement as INSERT/UPDATE/DELETE.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | params | table | no | nil | Array of bind parameters |
+| options | table | no | nil | [Statement options](#statement-options) |
 
 **Returns:**
 - Success: `table` - {last_insert_id: integer, rows_affected: integer}
@@ -493,6 +534,8 @@ Executes prepared statement as INSERT/UPDATE/DELETE.
 |-----------|------|-----------|
 | statement closed | errors.INVALID | no |
 | invalid params type | errors.INVALID | no |
+| invalid options | errors.INVALID | no |
+| timeout exceeded | errors.TIMEOUT | no |
 | execution error | varies | varies |
 
 **Yields:** until execution completes
@@ -521,8 +564,8 @@ Database transaction. Auto-rollback on process cleanup if not committed.
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | db_type | () | string, error | Database type |
-| query | (sql: string, params?: table) | rows: table[], error | Execute SELECT in transaction |
-| execute | (sql: string, params?: table) | result: table, error | Execute INSERT/UPDATE/DELETE in transaction |
+| query | (sql: string, params?: table, options?: table) | rows: table[], error | Execute SELECT in transaction |
+| execute | (sql: string, params?: table, options?: table) | result: table, error | Execute INSERT/UPDATE/DELETE in transaction |
 | prepare | (sql: string) | Statement, error | Prepare statement in transaction |
 | commit | () | boolean, error | Commit transaction |
 | rollback | () | boolean, error | Rollback transaction |
@@ -548,13 +591,13 @@ Returns database type constant.
 
 **Yields:** no
 
-#### tx:query(sql: string, params?: table) → table[], error
+#### tx:query(sql: string, params?: table, options?: table) → table[], error
 
 Executes SELECT query within transaction. Same as db:query() but within transaction scope.
 
 **Yields:** until query completes
 
-#### tx:execute(sql: string, params?: table) → table, error
+#### tx:execute(sql: string, params?: table, options?: table) → table, error
 
 Executes INSERT/UPDATE/DELETE within transaction. Same as db:execute() but within transaction scope.
 
@@ -852,13 +895,14 @@ Executes builder-generated queries. Returned by builder:run_with().
 
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
-| query | () | rows: table[], error | Execute as SELECT (yields) |
-| exec | () | result: table, error | Execute as INSERT/UPDATE/DELETE (yields) |
+| query | (options?: table) | rows: table[], error | Execute as SELECT (yields) |
+| exec | (options?: table) | result: table, error | Execute as INSERT/UPDATE/DELETE (yields) |
 | to_sql | () | string, table | Get SQL and args |
 
-#### executor:query() → table[], error
+#### executor:query(options?: table) → table[], error
 
-Executes query and returns rows. Use for SELECT statements.
+Executes query and returns rows. Use for SELECT statements. `options` takes
+the [statement options](#statement-options).
 
 **Returns:**
 - Success: `table[]` - array of row tables
@@ -866,9 +910,10 @@ Executes query and returns rows. Use for SELECT statements.
 
 **Yields:** until query completes
 
-#### executor:exec() → table, error
+#### executor:exec(options?: table) → table, error
 
 Executes query and returns result. Use for INSERT/UPDATE/DELETE statements.
+`options` takes the [statement options](#statement-options).
 
 **Returns:**
 - Success: `table` - {last_insert_id: integer, rows_affected: integer}
@@ -910,7 +955,7 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.NOT_FOUND`, `errors.INTERNAL`, `errors.UNAVAILABLE`
+**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.NOT_FOUND`, `errors.INTERNAL`, `errors.UNAVAILABLE`, `errors.CONFLICT`, `errors.CANCELED`, `errors.TIMEOUT`
 
 ## Example
 

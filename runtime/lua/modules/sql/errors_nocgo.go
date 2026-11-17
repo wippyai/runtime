@@ -6,6 +6,7 @@ package sql
 
 import lua "github.com/wippyai/go-lua"
 
-func wrapSQLiteError(wrapped *lua.Error, _ error) *lua.Error {
-	return wrapped
+// sqliteNative reports no SQLite error: the SQLite driver requires cgo.
+func sqliteNative(wrapped *lua.Error, _ error) (*lua.Error, lua.Kind, bool, bool) {
+	return wrapped, lua.Unknown, false, false
 }

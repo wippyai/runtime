@@ -6,6 +6,7 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -56,7 +57,9 @@ func (d *Dispatcher) handleQuery(ctx context.Context, cmd dispatcher.Command, ta
 	qc := cmd.(*sqlapi.QueryCmd)
 	go func() {
 		start := time.Now()
-		resp := executeQuery(ctx, qc.DB, qc.Query, qc.Params)
+		resp := boundQuery(ctx, qc.Timeout, func(ctx context.Context) sqlapi.QueryResponse {
+			return executeQuery(ctx, qc.DB, qc.Query, qc.Params)
+		})
 		recordSQLOp(d.coll, "query", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
@@ -69,7 +72,9 @@ func (d *Dispatcher) handleExecute(ctx context.Context, cmd dispatcher.Command, 
 	ec := cmd.(*sqlapi.ExecuteCmd)
 	go func() {
 		start := time.Now()
-		resp := executeExec(ctx, ec.DB, ec.Query, ec.Params)
+		resp := boundExec(ctx, ec.Timeout, func(ctx context.Context) sqlapi.ExecuteResponse {
+			return executeExec(ctx, ec.DB, ec.Query, ec.Params)
+		})
 		recordSQLOp(d.coll, "exec", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
@@ -112,7 +117,9 @@ func (d *Dispatcher) handleStmtQuery(ctx context.Context, cmd dispatcher.Command
 	sc := cmd.(*sqlapi.StmtQueryCmd)
 	go func() {
 		start := time.Now()
-		resp := executeStmtQuery(ctx, sc.Stmt, sc.Params)
+		resp := boundQuery(ctx, sc.Timeout, func(ctx context.Context) sqlapi.QueryResponse {
+			return executeStmtQuery(ctx, sc.Stmt, sc.Params)
+		})
 		recordSQLOp(d.coll, "query", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
@@ -125,7 +132,9 @@ func (d *Dispatcher) handleStmtExecute(ctx context.Context, cmd dispatcher.Comma
 	sc := cmd.(*sqlapi.StmtExecuteCmd)
 	go func() {
 		start := time.Now()
-		resp := executeStmtExec(ctx, sc.Stmt, sc.Params)
+		resp := boundExec(ctx, sc.Timeout, func(ctx context.Context) sqlapi.ExecuteResponse {
+			return executeStmtExec(ctx, sc.Stmt, sc.Params)
+		})
 		recordSQLOp(d.coll, "exec", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
@@ -147,7 +156,9 @@ func (d *Dispatcher) handleTxQuery(ctx context.Context, cmd dispatcher.Command, 
 	tc := cmd.(*sqlapi.TxQueryCmd)
 	go func() {
 		start := time.Now()
-		resp := executeTxQuery(ctx, tc.Tx, tc.Query, tc.Params)
+		resp := boundQuery(ctx, tc.Timeout, func(ctx context.Context) sqlapi.QueryResponse {
+			return executeTxQuery(ctx, tc.Tx, tc.Query, tc.Params)
+		})
 		recordSQLOp(d.coll, "query", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
@@ -160,7 +171,9 @@ func (d *Dispatcher) handleTxExecute(ctx context.Context, cmd dispatcher.Command
 	tc := cmd.(*sqlapi.TxExecuteCmd)
 	go func() {
 		start := time.Now()
-		resp := executeTxExec(ctx, tc.Tx, tc.Query, tc.Params)
+		resp := boundExec(ctx, tc.Timeout, func(ctx context.Context) sqlapi.ExecuteResponse {
+			return executeTxExec(ctx, tc.Tx, tc.Query, tc.Params)
+		})
 		recordSQLOp(d.coll, "exec", resp.Error, time.Since(start))
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, resp, nil)
@@ -200,6 +213,43 @@ func (d *Dispatcher) handleTxRollback(_ context.Context, cmd dispatcher.Command,
 		receiver.CompleteYield(tag, nil, err)
 	}()
 	return nil
+}
+
+// boundQuery runs a query under its statement timeout.
+func boundQuery(ctx context.Context, timeout time.Duration, run func(context.Context) sqlapi.QueryResponse) sqlapi.QueryResponse {
+	stmtCtx, cancel := statementContext(ctx, timeout)
+	defer cancel()
+	resp := run(stmtCtx)
+	resp.Error = statementError(ctx, stmtCtx, timeout, resp.Error)
+	return resp
+}
+
+// boundExec runs an exec under its statement timeout.
+func boundExec(ctx context.Context, timeout time.Duration, run func(context.Context) sqlapi.ExecuteResponse) sqlapi.ExecuteResponse {
+	stmtCtx, cancel := statementContext(ctx, timeout)
+	defer cancel()
+	resp := run(stmtCtx)
+	resp.Error = statementError(ctx, stmtCtx, timeout, resp.Error)
+	return resp
+}
+
+// statementContext derives the statement context; a positive timeout bounds it.
+func statementContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// statementError attributes a failure to the statement timeout once it has
+// expired while the call context is still live. Drivers report the interrupt
+// with their own codes (SQLITE_INTERRUPT, SQLSTATE 57014), which do not name
+// the deadline as the cause.
+func statementError(ctx, stmtCtx context.Context, timeout time.Duration, err error) error {
+	if err == nil || timeout <= 0 || ctx.Err() != nil || !errors.Is(stmtCtx.Err(), context.DeadlineExceeded) {
+		return err
+	}
+	return &sqlapi.StatementTimeoutError{Timeout: timeout, Err: err}
 }
 
 // executeQuery runs a query and scans all rows into the response.

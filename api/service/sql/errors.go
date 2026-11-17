@@ -2,7 +2,12 @@
 
 package sql
 
-import apierror "github.com/wippyai/runtime/api/error"
+import (
+	"context"
+	"time"
+
+	apierror "github.com/wippyai/runtime/api/error"
+)
 
 var (
 	ErrHostRequired                 = apierror.New(apierror.Invalid, "host is required").WithRetryable(apierror.False)
@@ -19,3 +24,16 @@ var (
 	ErrInvalidCheckpointInterval    = apierror.New(apierror.Invalid, "checkpoint interval must be non-negative").WithRetryable(apierror.False)
 	ErrInvalidCheckpointMaxWALPages = apierror.New(apierror.Invalid, "checkpoint max WAL pages must be non-negative").WithRetryable(apierror.False)
 )
+
+// StatementTimeoutError reports a statement that ran past its timeout. It
+// matches context.DeadlineExceeded and keeps the driver error reachable.
+type StatementTimeoutError struct {
+	Err     error
+	Timeout time.Duration
+}
+
+func (e *StatementTimeoutError) Error() string {
+	return "statement exceeded timeout " + e.Timeout.String() + ": " + e.Err.Error()
+}
+
+func (e *StatementTimeoutError) Unwrap() []error { return []error{context.DeadlineExceeded, e.Err} }
