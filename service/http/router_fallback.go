@@ -79,7 +79,7 @@ func buildRouterFallbacks(routers map[registry.ID]*RouterEntry) (*routerFallback
 		}
 		// Equivalent prefixes have no single middleware owner. Preserve native
 		// routing for them, including precedence over a shorter prefix.
-		var handler http.Handler = http.NotFoundHandler()
+		handler := http.NotFoundHandler()
 		if counts[prefix] == 1 && !ownsSubtree(router) {
 			probe := http.NewServeMux()
 			noop := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
