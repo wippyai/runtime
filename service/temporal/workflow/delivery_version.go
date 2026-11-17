@@ -15,7 +15,7 @@ const (
 // Decide at task dispatch, when Temporal's command sequencing is initialized,
 // rather than inside the callbacks that collect historical events.
 func (d *Definition) deliverAllAcceptedEvents() bool {
-	return d.env.GetVersion(eventDeliveryChangeID, workflow.DefaultVersion, 1) != workflow.DefaultVersion
+	return d.env.GetVersion(eventDeliveryChangeID, workflow.DefaultVersion, 1, nil) != workflow.DefaultVersion
 }
 
 func (d *Definition) queueSignal(signal incomingSignal) {

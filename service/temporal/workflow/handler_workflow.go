@@ -226,7 +226,7 @@ func (d *Definition) executeSideEffect(cmd *workflowapi.SideEffectCmd, tag uint6
 			return
 		}
 		d.resumeProcess(tag, workflowapi.Result{}, nil)
-	}, "workflow.sideEffect")
+	}, "workflow.sideEffect", nil)
 	return nil
 }
 
@@ -326,7 +326,7 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 
 // executeVersion returns a deterministic version number for workflow code changes.
 func (d *Definition) executeVersion(cmd *workflowapi.VersionCmd, tag uint64) error {
-	version := d.env.GetVersion(cmd.ChangeID, workflow.Version(cmd.MinSupported), workflow.Version(cmd.MaxSupported))
+	version := d.env.GetVersion(cmd.ChangeID, workflow.Version(cmd.MinSupported), workflow.Version(cmd.MaxSupported), nil)
 	d.resumeProcess(tag, workflowapi.VersionResult{Version: int(version)}, nil)
 	return nil
 }
@@ -339,14 +339,14 @@ func (d *Definition) executeUpsertAttrs(cmd *workflowapi.UpsertAttrsCmd, tag uin
 			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
 			return nil
 		}
-		if err := d.env.UpsertTypedSearchAttributes(searchAttributes); err != nil {
+		if err := d.env.UpsertTypedSearchAttributes(searchAttributes, nil); err != nil {
 			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
 			return nil
 		}
 	}
 
 	if len(cmd.Memo) > 0 {
-		if err := d.env.UpsertMemo(map[string]any(cmd.Memo)); err != nil {
+		if err := d.env.UpsertMemo(map[string]any(cmd.Memo), nil); err != nil {
 			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
 			return nil
 		}

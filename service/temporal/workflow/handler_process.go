@@ -111,6 +111,7 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 		nil,
 		header,
 		false,
+		nil,
 		func(_ *commonpb.Payloads, err error) {
 			d.enqueueYieldCompletion(tag, process.SendResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 		},
@@ -147,7 +148,7 @@ func (d *Definition) routeToLocalProcess(cmd *process.SendCmd, tag uint64, from 
 			return
 		}
 		d.resumeProcess(tag, process.SendResult{}, nil)
-	}, "process.send")
+	}, "process.send", nil)
 
 	return nil
 }
@@ -270,7 +271,7 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 
 // executeProcessTerminate handles process.terminate from workflows.
 func (d *Definition) executeProcessTerminate(cmd *process.TerminateCmd, tag uint64) error {
-	if d.env.GetVersion(terminationChangeID, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
+	if d.env.GetVersion(terminationChangeID, workflow.DefaultVersion, 1, nil) == workflow.DefaultVersion {
 		// The former implementation recorded cancellation. Match that command
 		// while replaying existing histories; new versioned calls terminate.
 		return d.executeProcessCancel(&process.CancelCmd{Target: cmd.Target}, tag)
@@ -306,6 +307,7 @@ func (d *Definition) executeProcessCancel(cmd *process.CancelCmd, tag uint64) er
 		"",
 		cmd.Target.UniqID,
 		"",
+		nil,
 		func(_ *commonpb.Payloads, err error) {
 			if err != nil {
 				d.enqueueYieldCompletion(tag, nil, temporalerrors.FromTemporalError(err))

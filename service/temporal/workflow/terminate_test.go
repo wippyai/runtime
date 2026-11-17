@@ -15,6 +15,7 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	historypb "go.temporal.io/api/history/v1"
+	sdkpb "go.temporal.io/api/sdk/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -25,7 +26,7 @@ type terminationEnvironment struct {
 	cancellations int
 }
 
-func (e *terminationEnvironment) RequestCancelExternalWorkflow(_, _, _ string, done bindings.ResultHandler) {
+func (e *terminationEnvironment) RequestCancelExternalWorkflow(_, _, _ string, _ []*sdkpb.EventGroupMarker, done bindings.ResultHandler) {
 	e.cancellations++
 	done(nil, nil)
 }
