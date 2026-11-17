@@ -41,7 +41,7 @@ func TestDeliverMessage_DoesNotConvertBlockedPayloads(t *testing.T) {
 				proc.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewPayload(map[string]any{"index": i}, payload.Golang)}})
 			}
 			for range 10 {
-				proc.flushMessageQueue(proc.subs)
+				proc.flushMessageQueue(proc.subs, nil)
 			}
 			require.Zero(t, tc.calls, "blocked retries must not construct Lua values")
 			require.Len(t, proc.messageQueue, 2)
@@ -53,7 +53,7 @@ func TestDeliverMessage_DoesNotConvertBlockedPayloads(t *testing.T) {
 					result := ch.Receive(proc.state, nil)
 					ReleaseResult(result)
 				}
-				proc.flushMessageQueue(proc.subs)
+				proc.flushMessageQueue(proc.subs, nil)
 				require.Equal(t, i+1, tc.calls)
 				if capacity > 0 {
 					got := ch.buffer.Remove(ch.buffer.Front()).(*lua.LTable)
@@ -79,7 +79,7 @@ func TestDeliverMessage_BlockedTopicHandlerStillRuns(t *testing.T) {
 		if terminal {
 			pls = append(pls, payload.NewTerminal())
 		}
-		require.False(t, proc.deliverMessage(proc.subs, queuedMessage{Topic: "handled", Payloads: pls}))
+		require.False(t, proc.deliverMessage(proc.subs, nil, queuedMessage{Topic: "handled", Payloads: pls}))
 		require.Equal(t, 1, calls)
 		require.Equal(t, terminal, ch.IsClosed())
 		proc.Close()
@@ -98,11 +98,11 @@ func TestDeliverMessage_BlockedHandlerValueStillRetries(t *testing.T) {
 	})
 	qm := queuedMessage{Topic: "handled", Payloads: payload.Payloads{payload.NewPayload("value", payload.Golang)}}
 	for range 3 {
-		require.True(t, proc.deliverMessage(proc.subs, qm))
+		require.True(t, proc.deliverMessage(proc.subs, nil, qm))
 	}
 	require.Equal(t, 3, calls)
 	ch.buffer.Remove(ch.buffer.Front())
-	require.False(t, proc.deliverMessage(proc.subs, qm))
+	require.False(t, proc.deliverMessage(proc.subs, nil, qm))
 	require.Equal(t, 4, calls)
 	require.Equal(t, lua.LString("handled"), ch.buffer.Remove(ch.buffer.Front()))
 }
@@ -132,7 +132,7 @@ func TestDeliverMessage_FormatterWaitsForChannel(t *testing.T) {
 				}, true)
 				qm := queuedMessage{Source: source, Topic: "request", Payloads: payload.Payloads{payload.NewString("value")}}
 				for range 10 {
-					require.True(t, proc.deliverMessage(proc.subs, qm))
+					require.True(t, proc.deliverMessage(proc.subs, nil, qm))
 				}
 				require.Zero(t, calls, "a blocked formatter must not construct discarded values")
 				if capacity == 0 {
@@ -140,7 +140,7 @@ func TestDeliverMessage_FormatterWaitsForChannel(t *testing.T) {
 				} else {
 					ch.buffer.Remove(ch.buffer.Front())
 				}
-				require.False(t, proc.deliverMessage(proc.subs, qm))
+				require.False(t, proc.deliverMessage(proc.subs, nil, qm))
 				require.Equal(t, 1, calls)
 				if capacity == 0 {
 					require.Equal(t, []lua.LValue{lua.LString("formatted"), lua.LTrue}, proc.mainTask.Resumed)
@@ -169,7 +169,7 @@ func TestSetTopicHandlerResetsDeliveryPolicy(t *testing.T) {
 	handler, exists := proc.GetTopicHandler("handled")
 	require.True(t, exists)
 	require.NotNil(t, handler)
-	require.False(t, proc.deliverMessage(proc.subs, queuedMessage{Topic: "handled", Payloads: payload.Payloads{payload.NewString("value")}}))
+	require.False(t, proc.deliverMessage(proc.subs, nil, queuedMessage{Topic: "handled", Payloads: payload.Payloads{payload.NewString("value")}}))
 	require.Equal(t, 1, calls, "a replacement filter must keep eager consumption semantics")
 }
 
@@ -190,13 +190,13 @@ func TestDeferredFormatterPreservesTerminalOrdering(t *testing.T) {
 				pls = append(payload.Payloads{payload.NewString("value")}, pls...)
 			}
 			proc.enqueueMessage(queuedMessage{Topic: "handled", Payloads: pls})
-			proc.flushMessageQueue(proc.subs)
+			proc.flushMessageQueue(proc.subs, nil)
 			require.Zero(t, calls)
 			if combined {
 				require.False(t, ch.IsClosed(), "terminal must wait for its data")
 				require.Len(t, proc.messageQueue, 1)
 				ReleaseResult(ch.Receive(nil, nil))
-				proc.flushMessageQueue(proc.subs)
+				proc.flushMessageQueue(proc.subs, nil)
 				require.Equal(t, 1, calls)
 				require.Equal(t, lua.LString("formatted"), ch.buffer.Front().Value)
 			} else {
@@ -225,7 +225,7 @@ func TestDeferredFormatterPreservesFramedAndClosedDelivery(t *testing.T) {
 				ReleaseResult(ch.Close(nil))
 				qm.Payloads = payload.Payloads{payload.NewString("value")}
 			}
-			require.False(t, proc.deliverMessage(proc.subs, qm), "framed overflow and closed-channel messages must not be retained")
+			require.False(t, proc.deliverMessage(proc.subs, nil, qm), "framed overflow and closed-channel messages must not be retained")
 			require.Equal(t, 1, calls)
 		})
 	}
@@ -243,7 +243,7 @@ func BenchmarkDeliverMessage_Blocked(b *testing.B) {
 	qm := queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewPayload(map[string]any{"entries": []any{map[string]any{"name": "entry", "value": 42}}}, payload.Golang)}}
 	b.ReportAllocs()
 	for b.Loop() {
-		if !proc.deliverMessage(proc.subs, qm) {
+		if !proc.deliverMessage(proc.subs, nil, qm) {
 			b.Fatal("blocked message was dropped")
 		}
 	}

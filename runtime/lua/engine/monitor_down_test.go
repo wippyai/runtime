@@ -31,7 +31,7 @@ func TestMonitorDownIsDeliveredWithoutFailingTheProcess(t *testing.T) {
 		Source:   topology.SystemPID,
 		Payloads: []payload.Payload{payload.New(&topology.ExitEvent{From: testPID(), Kind: topology.MonitorDown})},
 	})
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if err := proc.LinkDownError(); err != nil {
 		t.Fatalf("a monitor failed the process: %v", err)

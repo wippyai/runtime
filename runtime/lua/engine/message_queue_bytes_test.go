@@ -57,7 +57,7 @@ func TestMessageQueueByteLimitRejectsLargePayload(t *testing.T) {
 		t.Fatal("overflow did not stop the existing producer")
 	}
 
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 	if !ch.IsClosed() {
 		t.Fatal("overflow terminal did not close the subscription")
 	}
@@ -98,7 +98,7 @@ func TestMessageQueueByteLimitBoundsSlowConsumer(t *testing.T) {
 	// With a rendezvous channel and no waiting consumer, the first value stays
 	// in Process.messageQueue; the next value exceeds the byte budget.
 	proc.enqueueMessage(message())
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 	proc.enqueueMessage(message())
 	if got := proc.messageQueueBytes[topic]; got != messageBytes {
 		t.Fatalf("expected %d retained bytes, got %d", messageBytes, got)

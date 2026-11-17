@@ -32,7 +32,7 @@ func TestUpgradeCapturesUnresumedDelivery(t *testing.T) {
 			proc.updateChannelRefs(proc.channels, result.Block, result.Release)
 			ReleaseResult(result)
 			proc.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("unread")}})
-			proc.flushMessageQueue(proc.subs)
+			proc.flushMessageQueue(proc.subs, nil)
 			require.NotEmpty(t, task.Resumed, "receiver has been woken but has not run")
 			require.Empty(t, proc.messageQueue)
 			proc.captureUpgradeMessages()
@@ -49,7 +49,7 @@ func TestBufferedMailboxDeliveryMovesBeforeResultRelease(t *testing.T) {
 	require.NoError(t, err)
 	sub.retainOnUpgrade = true
 	p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("unread")}})
-	p.flushMessageQueue(p.subs)
+	p.flushMessageQueue(p.subs, nil)
 	wrapper := sub.channel.buffer.Front().Value.(*bufferedDelivery)
 	task := p.createTask(p.state.NewFunction(func(*lua.LState) int { return 0 }))
 	p.applyExternalChannelResult(sub.channel.Receive(task.Thread(), nil))
@@ -69,7 +69,7 @@ func TestDrainedMailboxIsNotReplayed(t *testing.T) {
 	require.NoError(t, err)
 	sub.retainOnUpgrade = true
 	p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("discarded")}})
-	p.flushMessageQueue(p.subs)
+	p.flushMessageQueue(p.subs, nil)
 	require.Equal(t, 1, sub.channel.Drain())
 	require.Zero(t, sub.channel.Drain())
 	p.captureUpgradeMessages()
@@ -155,7 +155,7 @@ func TestUpgradeCapturesSharedMailboxBufferOnce(t *testing.T) {
 			require.NoError(t, err)
 			first.retainOnUpgrade, second.retainOnUpgrade = true, true
 			p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("once")}})
-			p.flushMessageQueue(p.subs)
+			p.flushMessageQueue(p.subs, nil)
 			p.captureUpgradeMessages()
 			require.Len(t, p.upgradeMessages, 1, "two subscriptions to one buffer must not duplicate an accepted message")
 		})
@@ -178,7 +178,7 @@ func TestUpgradeCapturesAutomaticallyClosedMailbox(t *testing.T) {
 			if !combined {
 				p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewTerminal()}})
 			}
-			p.flushMessageQueue(p.subs)
+			p.flushMessageQueue(p.subs, nil)
 			require.True(t, sub.channel.IsClosed())
 			require.Equal(t, 1, sub.channel.Size())
 			require.Empty(t, p.messageQueue)
@@ -200,7 +200,7 @@ func TestUpgradeDoesNotRestoreExplicitlyUnlistenedMailbox(t *testing.T) {
 	require.NoError(t, err)
 	sub.retainOnUpgrade = true
 	p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewString("retired")}})
-	p.flushMessageQueue(p.subs)
+	p.flushMessageQueue(p.subs, nil)
 	require.True(t, p.UnsubscribeChannel(sub.channel))
 	p.captureUpgradeMessages()
 	require.Empty(t, p.upgradeMessages, "explicit unlisten retires the mailbox")
@@ -216,7 +216,7 @@ func TestAutomaticMailboxClosurePrunesConsumedBuffers(t *testing.T) {
 		p.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{
 			payload.NewPayload(lua.LString("value"), payload.Lua), payload.NewTerminal(),
 		}})
-		p.flushMessageQueue(p.subs)
+		p.flushMessageQueue(p.subs, nil)
 		require.Len(t, p.closedMailboxes, 1, "repeated terminal/read cycles must not accumulate empty buffers")
 		ReleaseResult(sub.channel.Receive(nil, nil))
 	}
@@ -261,7 +261,7 @@ func TestUpgradeRetiresUnframedProducerBacklog(t *testing.T) {
 				old.enqueueMessage(qm)
 			}
 			old.enqueueMessage(queuedMessage{Topic: "ordinary", Payloads: payload.Payloads{payload.NewString("kept")}})
-			old.flushMessageQueue(old.subs)
+			old.flushMessageQueue(old.subs, nil)
 			require.Equal(t, 1, ch.Size())
 			require.Len(t, old.messageQueue, 2)
 			old.captureUpgradeMessages()
@@ -364,7 +364,7 @@ func TestUpgradeRejectsLateProducerFramesWithoutMailbox(t *testing.T) {
 	require.NoError(t, err)
 	frame := &SubscriptionFrame{Epoch: staleEpoch, SubID: subID, Gen: gen.Load(), Payloads: payload.Payloads{payload.NewPayload(lua.LString("stale"), payload.Lua)}}
 	next.enqueueMessage(queuedMessage{Topic: "timer", Payloads: payload.Payloads{NewSubscriptionFramePayload(frame)}})
-	next.flushMessageQueue(next.subs)
+	next.flushMessageQueue(next.subs, nil)
 	require.Zero(t, ch.Size(), "a late old frame must not match the replacement's recreated subscription")
 }
 
@@ -379,7 +379,7 @@ func TestUpgradeReplaysBufferedEnvelopeThroughReplacementHandler(t *testing.T) {
 		return lua.LString("old handler")
 	})
 	old.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewPayload(lua.LInteger(42), payload.Lua)}})
-	old.flushMessageQueue(old.subs)
+	old.flushMessageQueue(old.subs, nil)
 	require.Empty(t, old.messageQueue)
 	old.captureUpgradeMessages()
 	old.clearExecution()
@@ -390,7 +390,7 @@ func TestUpgradeReplaysBufferedEnvelopeThroughReplacementHandler(t *testing.T) {
 		require.Equal(t, lua.LInteger(42), pls[0].Data(), "new handler receives the original envelope, not the old decoded value")
 		return lua.LString("new handler")
 	})
-	next.flushMessageQueue(next.subs)
+	next.flushMessageQueue(next.subs, nil)
 	result := newSub.channel.Receive(nil, nil)
 	defer ReleaseResult(result)
 	require.Equal(t, lua.LString("new handler"), result.Updates[0].GetResult()[0])
@@ -405,7 +405,7 @@ func TestUpgradeCapturesReceiveYieldBeforeChannelUpdates(t *testing.T) {
 	require.NoError(t, err)
 	sub.retainOnUpgrade = true
 	proc.enqueueMessage(queuedMessage{Topic: "data", Payloads: payload.Payloads{payload.NewPayload(lua.LString("unread"), payload.Lua)}})
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	// A blocked local sender makes the buffered receive yield channel updates.
 	// Another ready coroutine can upgrade before those updates are applied.
@@ -445,7 +445,7 @@ func TestUpgradeMailboxSurvivesRepeatedTransfer(t *testing.T) {
 		sub, err := from.subs.add("data", 1)
 		require.NoError(t, err)
 		sub.retainOnUpgrade = true
-		from.flushMessageQueue(from.subs)
+		from.flushMessageQueue(from.subs, nil)
 		from.captureUpgradeMessages()
 		from.clearExecution()
 		require.NoError(t, from.TransferUpgradeState(to))

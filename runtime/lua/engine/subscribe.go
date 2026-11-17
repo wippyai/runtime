@@ -110,6 +110,13 @@ func (m *subscribeContext) get(topic string) (*subscription, bool) {
 	return sub, exists
 }
 
+func (m *subscribeContext) hasChannel(ch *Channel) bool {
+	m.mu.RLock()
+	_, exists := m.byChannel[ch]
+	m.mu.RUnlock()
+	return exists
+}
+
 // match finds a subscription that matches the given topic.
 // Only exact match - no glob patterns.
 func (m *subscribeContext) match(topic string) (*subscription, bool) {

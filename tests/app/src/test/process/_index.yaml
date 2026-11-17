@@ -78,6 +78,13 @@ entries:
     modules:
       - time
 
+  - name: events_select_worker
+    kind: process.lua
+    source: file://events_select_worker.lua
+    method: main
+    modules:
+      - time
+
   - name: lifecycle_link_worker
     kind: process.lua
     meta:
@@ -269,6 +276,17 @@ entries:
       - time
     imports:
       assert2: app.lib:assert
+
+  - name: events_select
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Receive accepted lifecycle events through nonblocking select
+    source: file://events_select.lua
+    method: main
+    modules:
+      - time
 
   - name: lifecycle_link
     kind: function.lua
