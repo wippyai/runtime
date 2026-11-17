@@ -31,8 +31,8 @@ type routerFallback struct {
 
 func (f *routerFallback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var allowed []string
+	probe := r.WithContext(r.Context()) // Only Method changes during the read-only mux lookups.
 	for _, method := range probeMethods {
-		probe := r.Clone(r.Context())
 		probe.Method = method
 		if _, pattern := f.probe.Handler(probe); pattern != "" {
 			allowed = append(allowed, method)
@@ -50,34 +50,75 @@ func (f *routerFallback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"Not found", "No route matches "+r.URL.Path)
 }
 
-// routerFallbackPatterns returns the patterns that make a router own its whole
-// prefix, with the handler serving them. Root routers own no prefix. A router
-// whose own routes already cover the entire subtree needs no fallback.
-func routerFallbackPatterns(id registry.ID, router *RouterEntry) (patterns []string, handler http.Handler, err error) {
-	prefix := strings.TrimSuffix(router.prefix, "/")
-	if prefix == "" || ownsSubtree(router) {
-		return nil, nil, nil
-	}
+// Fallbacks live in a separate mux so synthetic prefix patterns never compete
+// with declared endpoint patterns. Concrete routes retain ServeMux precedence.
+type routerFallbacks struct {
+	*http.ServeMux
+}
 
-	probe := http.NewServeMux()
-	noop := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
-	for _, route := range router.routes {
-		if err := registerPattern(probe, buildPattern(route.method, router.prefix, route.path), noop); err != nil {
-			return nil, nil, err
+type prefixOwner struct {
+	http.Handler
+	prefix string
+}
+
+func buildRouterFallbacks(routers map[registry.ID]*RouterEntry) (*routerFallbacks, error) {
+	counts := make(map[string]int)
+	for _, router := range routers {
+		counts[strings.TrimSuffix(router.prefix, "/")]++
+	}
+	var owners *routerFallbacks
+	for id, router := range routers {
+		prefix := strings.TrimSuffix(router.prefix, "/")
+		// A wildcard prefix describes a set of paths, not a single owned
+		// subtree. Its declared routes stay on the native mux.
+		if prefix == "" || strings.ContainsAny(prefix, "{}") || counts[prefix] == 0 {
+			continue
 		}
-		if route.method != "" && route.method != http.MethodOptions {
-			// Duplicate OPTIONS registrations are tolerated; the main mux reports real conflicts.
-			_ = registerPattern(probe, buildPattern(http.MethodOptions, router.prefix, route.path), noop)
+		if owners == nil {
+			owners = &routerFallbacks{http.NewServeMux()}
+		}
+		// Equivalent prefixes have no single middleware owner. Preserve native
+		// routing for them, including precedence over a shorter prefix.
+		var handler http.Handler = http.NotFoundHandler()
+		if counts[prefix] == 1 && !ownsSubtree(router) {
+			probe := http.NewServeMux()
+			noop := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+			for _, route := range router.routes {
+				if err := registerPattern(probe, buildPattern(route.method, prefix, route.path), noop); err != nil {
+					return nil, err
+				}
+				if route.method != "" && route.method != http.MethodOptions {
+					_ = registerPattern(probe, buildPattern(http.MethodOptions, prefix, route.path), noop)
+				}
+			}
+			handler = &prefixOwner{withRouteLabel(id.String(), applyMiddlewareChain(router.middleware, &routerFallback{probe: probe})), prefix}
+		}
+		delete(counts, prefix)
+		for _, pattern := range []string{prefix, prefix + "/"} {
+			if err := registerPattern(owners.ServeMux, pattern, handler); err != nil {
+				return nil, err
+			}
 		}
 	}
+	return owners, nil
+}
 
-	handler = http.Handler(&routerFallback{probe: probe})
-	if len(router.middleware) > 0 {
-		handler = applyMiddlewareChain(router.middleware, handler)
+func (f *routerFallbacks) serveBelow(mount string, w http.ResponseWriter, r *http.Request) bool {
+	handler, _ := f.Handler(r)
+	owner, ok := handler.(*prefixOwner)
+	if !ok || !strings.HasPrefix(owner.prefix, mount) {
+		return false
 	}
-	handler = withRouteLabel(id.String(), handler)
+	owner.ServeHTTP(w, r)
+	return true
+}
 
-	return []string{prefix, prefix + "/"}, handler, nil
+func (f *routerFallbacks) beforeMount(pattern string, mount http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !f.serveBelow(pattern, w, r) {
+			mount.ServeHTTP(w, r)
+		}
+	})
 }
 
 // ownsSubtree reports whether a method-agnostic route already matches every
