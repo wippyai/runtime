@@ -270,15 +270,6 @@ func (rm *RouteManager) Build() error {
 	}
 	var allPatterns []patternEntry
 
-	// Add root mounts
-	for path, handler := range rm.mounts {
-		pattern := path
-		if !strings.HasSuffix(pattern, "/") {
-			pattern += "/"
-		}
-		allPatterns = append(allPatterns, patternEntry{handler, pattern})
-	}
-
 	// Collect route patterns
 	registeredOptions := make(map[string]bool)
 	for _, routerEntry := range rm.routers {
@@ -311,6 +302,23 @@ func (rm *RouteManager) Build() error {
 		}
 	}
 
+	owners, err := buildRouterFallbacks(rm.routers)
+	if err != nil {
+		return err
+	}
+
+	hasRootMount := false
+	for path, handler := range rm.mounts {
+		pattern := strings.TrimSuffix(path, "/") + "/"
+		if pattern == "/" {
+			hasRootMount = true
+		}
+		if owners != nil {
+			handler = owners.beforeMount(pattern, handler)
+		}
+		allPatterns = append(allPatterns, patternEntry{handler, pattern})
+	}
+
 	// Let ServeMux apply its complete method, path, wildcard, and subtree
 	// precedence rules. Convert registration panics into configuration errors so
 	// an invalid route set cannot crash the process during a rebuild.
@@ -321,6 +329,20 @@ func (rm *RouteManager) Build() error {
 		}
 	}
 
+	if owners != nil && !hasRootMount {
+		// Keep a native mux for misses outside owned prefixes (including its
+		// Allow header). A catch-all in the dispatch mux keeps concrete route
+		// hits on a single lookup. An existing catch-all already covers misses.
+		native := mux
+		dispatch := http.NewServeMux()
+		for _, p := range allPatterns {
+			dispatch.Handle(p.pattern, p.handler)
+		}
+		miss := owners.beforeMount("/", native)
+		if err := registerPattern(dispatch, "/", miss); err == nil {
+			mux = dispatch
+		}
+	}
 	var h http.Handler = mux
 	rm.router.Store(&h)
 
