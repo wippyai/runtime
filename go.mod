@@ -69,7 +69,7 @@ require (
 	github.com/wippyai/tree-sitter-sql v0.0.4
 	github.com/wippyai/tty v0.0.0-20261003165107-bf08248c5f14
 	github.com/wippyai/wapp v0.1.3-0.20261003195239-f1e565edf8ff
-	github.com/wippyai/wasm-runtime v0.0.0-20261118181135-990ca1e06677
+	github.com/wippyai/wasm-runtime v0.0.0-20261118182039-3ea5c9458033
 	github.com/xuri/excelize/v2 v2.11.1
 	go.bytecodealliance.org v0.7.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
