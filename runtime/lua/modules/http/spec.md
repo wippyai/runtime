@@ -136,7 +136,7 @@ Returned by `http.request()`. Provides access to incoming HTTP request data.
 | header | (name: string) | string?, error | Case-insensitive header value, multiple values joined with ", " |
 | headers | () | table, error | All request headers as a detached table |
 | content_type | () | string?, error | Content-Type header value |
-| content_length | () | number, error | Content-Length as number |
+| content_length | () | integer, error | Content-Length in bytes |
 | host | () | string, error | Host header value |
 | remote_addr | () | string, error | Remote address (IP:port) |
 | body | () | string, error | Full request body as string |
@@ -201,11 +201,11 @@ Returns Content-Type header value.
 
 **Returns:** `string?, error` - content type or nil if not set, plus error
 
-#### request:content_length() → number, error
+#### request:content_length() → integer, error
 
-Returns Content-Length header value as number.
+Returns Content-Length header value as integer.
 
-**Returns:** `number, error` - content length in bytes or nil + error
+**Returns:** `integer, error` - content length in bytes or nil + error
 
 #### request:host() → string, error
 
@@ -587,7 +587,7 @@ Returned by `request:parse_multipart()` for uploaded files.
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | name | () | string, error | Original filename |
-| size | () | number, error | File size in bytes |
+| size | () | integer, error | File size in bytes |
 | header | (name: string) | string? | File-specific header value |
 | stream | () | Stream, error | File content as stream |
 
@@ -597,11 +597,11 @@ Returns original filename from upload.
 
 **Returns:** `string, error` - filename or nil + error
 
-#### multipart_file:size() → number, error
+#### multipart_file:size() → integer, error
 
 Returns file size in bytes.
 
-**Returns:** `number, error` - size in bytes or nil + error
+**Returns:** `integer, error` - size in bytes or nil + error
 
 #### multipart_file:header(name: string) → string?
 

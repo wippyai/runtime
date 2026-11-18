@@ -257,7 +257,7 @@ func requestContentLength(l *lua.LState) int {
 	if req == nil {
 		return 0
 	}
-	l.Push(lua.LNumber(req.request.ContentLength))
+	l.Push(lua.LInteger(req.request.ContentLength))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -728,7 +728,7 @@ func multipartFileSize(l *lua.LState) int {
 	if mf == nil {
 		return 0
 	}
-	l.Push(lua.LNumber(mf.fileHeader.Size))
+	l.Push(lua.LInteger(mf.fileHeader.Size))
 	l.Push(lua.LNil)
 	return 2
 }

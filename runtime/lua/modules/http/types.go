@@ -29,7 +29,7 @@ func init() {
 	// Build multipart types first (requestType depends on multipartFormType)
 	multipartFileType = typ.NewInterface("http.MultipartFile", []typ.Method{
 		{Name: "stream", Type: typ.Func().Param("self", typ.Self).Returns(streamType, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "size", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "size", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "name", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "header", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.NewOptional(typ.String)).Build()},
 	})
@@ -48,7 +48,7 @@ func init() {
 		{Name: "header", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(typ.NewOptional(typ.String), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "headers", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewMap(typ.String, typ.String), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "content_type", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.String), typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "content_length", Type: typ.Func().Param("self", typ.Self).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "content_length", Type: typ.Func().Param("self", typ.Self).Returns(typ.Integer, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "host", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "remote_addr", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "body", Type: typ.Func().Param("self", typ.Self).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
@@ -65,7 +65,7 @@ func init() {
 
 // Response type
 var responseType = typ.NewInterface("http.Response", []typ.Method{
-	{Name: "set_status", Type: typ.Func().Param("self", typ.Self).Param("status", typ.Number).Returns(typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "set_status", Type: typ.Func().Param("self", typ.Self).Param("status", typ.Integer).Returns(typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "set_header", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Param("value", typ.String).Returns(typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "write", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "flush", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.LuaError)).Build()},
@@ -88,35 +88,35 @@ var methodConstType = typ.NewRecord().
 
 // STATUS constants
 var statusConstType = typ.NewRecord().
-	Field("OK", typ.Number).
-	Field("CREATED", typ.Number).
-	Field("ACCEPTED", typ.Number).
-	Field("NO_CONTENT", typ.Number).
-	Field("PARTIAL_CONTENT", typ.Number).
-	Field("MOVED_PERMANENTLY", typ.Number).
-	Field("FOUND", typ.Number).
-	Field("SEE_OTHER", typ.Number).
-	Field("NOT_MODIFIED", typ.Number).
-	Field("TEMPORARY_REDIRECT", typ.Number).
-	Field("PERMANENT_REDIRECT", typ.Number).
-	Field("BAD_REQUEST", typ.Number).
-	Field("UNAUTHORIZED", typ.Number).
-	Field("PAYMENT_REQUIRED", typ.Number).
-	Field("FORBIDDEN", typ.Number).
-	Field("NOT_FOUND", typ.Number).
-	Field("METHOD_NOT_ALLOWED", typ.Number).
-	Field("NOT_ACCEPTABLE", typ.Number).
-	Field("CONFLICT", typ.Number).
-	Field("GONE", typ.Number).
-	Field("UNPROCESSABLE", typ.Number).
-	Field("TOO_MANY_REQUESTS", typ.Number).
-	Field("INTERNAL_ERROR", typ.Number).
-	Field("INTERNAL_SERVER_ERROR", typ.Number).
-	Field("NOT_IMPLEMENTED", typ.Number).
-	Field("BAD_GATEWAY", typ.Number).
-	Field("SERVICE_UNAVAILABLE", typ.Number).
-	Field("GATEWAY_TIMEOUT", typ.Number).
-	Field("VERSION_NOT_SUPPORTED", typ.Number).
+	Field("OK", typ.Integer).
+	Field("CREATED", typ.Integer).
+	Field("ACCEPTED", typ.Integer).
+	Field("NO_CONTENT", typ.Integer).
+	Field("PARTIAL_CONTENT", typ.Integer).
+	Field("MOVED_PERMANENTLY", typ.Integer).
+	Field("FOUND", typ.Integer).
+	Field("SEE_OTHER", typ.Integer).
+	Field("NOT_MODIFIED", typ.Integer).
+	Field("TEMPORARY_REDIRECT", typ.Integer).
+	Field("PERMANENT_REDIRECT", typ.Integer).
+	Field("BAD_REQUEST", typ.Integer).
+	Field("UNAUTHORIZED", typ.Integer).
+	Field("PAYMENT_REQUIRED", typ.Integer).
+	Field("FORBIDDEN", typ.Integer).
+	Field("NOT_FOUND", typ.Integer).
+	Field("METHOD_NOT_ALLOWED", typ.Integer).
+	Field("NOT_ACCEPTABLE", typ.Integer).
+	Field("CONFLICT", typ.Integer).
+	Field("GONE", typ.Integer).
+	Field("UNPROCESSABLE", typ.Integer).
+	Field("TOO_MANY_REQUESTS", typ.Integer).
+	Field("INTERNAL_ERROR", typ.Integer).
+	Field("INTERNAL_SERVER_ERROR", typ.Integer).
+	Field("NOT_IMPLEMENTED", typ.Integer).
+	Field("BAD_GATEWAY", typ.Integer).
+	Field("SERVICE_UNAVAILABLE", typ.Integer).
+	Field("GATEWAY_TIMEOUT", typ.Integer).
+	Field("VERSION_NOT_SUPPORTED", typ.Integer).
 	Build()
 
 // CONTENT constants

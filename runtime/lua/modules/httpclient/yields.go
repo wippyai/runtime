@@ -66,17 +66,17 @@ func (y *RequestYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 	}
 
 	tbl := l.CreateTable(0, 7)
-	tbl.RawSetString("status_code", lua.LNumber(resp.StatusCode))
+	tbl.RawSetString("status_code", lua.LInteger(resp.StatusCode))
 	tbl.RawSetString("url", lua.LString(resp.URL))
 
 	if resp.StreamID > 0 {
 		tbl.RawSetString("stream", stream.NewStream(l, resp.StreamID))
-		tbl.RawSetString("body_size", lua.LNumber(-1))
+		tbl.RawSetString("body_size", lua.LInteger(-1))
 	} else {
 		if len(resp.Body) > 0 {
 			tbl.RawSetString("body", lua.LString(resp.Body))
 		}
-		tbl.RawSetString("body_size", lua.LNumber(len(resp.Body)))
+		tbl.RawSetString("body_size", lua.LInteger(len(resp.Body)))
 	}
 
 	if len(resp.Headers) > 0 {
@@ -152,13 +152,13 @@ func (y *RequestBatchYield) HandleResult(l *lua.LState, data any, err error) []l
 		}
 
 		tbl := l.CreateTable(0, 6)
-		tbl.RawSetString("status_code", lua.LNumber(resp.StatusCode))
+		tbl.RawSetString("status_code", lua.LInteger(resp.StatusCode))
 		tbl.RawSetString("url", lua.LString(resp.URL))
 
 		if len(resp.Body) > 0 {
 			tbl.RawSetString("body", lua.LString(resp.Body))
 		}
-		tbl.RawSetString("body_size", lua.LNumber(len(resp.Body)))
+		tbl.RawSetString("body_size", lua.LInteger(len(resp.Body)))
 
 		if len(resp.Headers) > 0 {
 			headers := l.CreateTable(0, len(resp.Headers))

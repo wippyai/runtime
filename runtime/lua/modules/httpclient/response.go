@@ -38,7 +38,7 @@ func responseIndex(l *lua.LState) int {
 	key := l.CheckString(2)
 	switch key {
 	case "status_code":
-		l.Push(lua.LNumber(res.statusCode))
+		l.Push(lua.LInteger(res.statusCode))
 	case "headers":
 		tbl := lua.CreateTable(0, len(res.headers))
 		for k, vs := range res.headers {
@@ -56,7 +56,7 @@ func responseIndex(l *lua.LState) int {
 	case "body":
 		l.Push(lua.LString(res.body))
 	case "body_size":
-		l.Push(lua.LNumber(len(res.body)))
+		l.Push(lua.LInteger(len(res.body)))
 	case "url":
 		l.Push(lua.LString(res.url))
 	default:
@@ -72,6 +72,6 @@ func responseToString(l *lua.LState) int {
 		l.Push(lua.LString("httpclient.Response{invalid}"))
 		return 1
 	}
-	l.Push(lua.LString("httpclient.Response{status=" + lua.LNumber(res.statusCode).String() + "}"))
+	l.Push(lua.LString("httpclient.Response{status=" + lua.LInteger(res.statusCode).String() + "}"))
 	return 1
 }

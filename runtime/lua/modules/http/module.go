@@ -74,7 +74,7 @@ func registerConstants(mod *lua.LTable) {
 	}
 	statusTbl := &lua.LTable{}
 	for name, val := range statuses {
-		statusTbl.RawSetString(name, lua.LNumber(val))
+		statusTbl.RawSetString(name, lua.LInteger(val))
 	}
 	statusTbl.Immutable = true
 	mod.RawSetString("STATUS", statusTbl)

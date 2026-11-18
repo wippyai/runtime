@@ -15,11 +15,11 @@ var streamReaderType = typ.NewInterface("http_client.StreamReader", []typ.Method
 
 // Response type for HTTP responses
 var responseType = typ.NewRecord().
-	Field("status_code", typ.Number).
+	Field("status_code", typ.Integer).
 	Field("headers", typ.NewMap(typ.String, typ.String)).
 	Field("cookies", typ.NewMap(typ.String, typ.String)).
 	OptField("body", typ.String).
-	Field("body_size", typ.Number).
+	Field("body_size", typ.Integer).
 	Field("url", typ.String).
 	OptField("stream", streamReaderType).
 	Build()
