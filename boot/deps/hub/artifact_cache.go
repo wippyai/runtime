@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/wippyai/runtime/boot/deps/graph"
 )
@@ -156,7 +157,7 @@ func publishVerifiedArtifact(candidate, destination, digest string, size uint64)
 		return err
 	}
 
-	if err := os.Link(candidate, destination); err == nil {
+	if err := linkArtifact(candidate, destination); err == nil {
 		return syncDirectory(filepath.Dir(destination))
 	}
 	// A concurrent publisher may have won between the existence check and Link.
@@ -185,7 +186,7 @@ func publishVerifiedArtifact(candidate, destination, digest string, size uint64)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := os.Link(stagedPath, destination); err != nil {
+	if err := linkOrRenameAbsent(stagedPath, destination); err != nil {
 		winnerErr := verifyExistingImmutableArtifact(destination, digest, size)
 		if winnerErr == nil {
 			return nil
@@ -196,6 +197,29 @@ func publishVerifiedArtifact(candidate, destination, digest string, size uint64)
 		return NewArtifactIOError("publish immutable artifact without replacement", destination, err)
 	}
 	return syncDirectory(filepath.Dir(destination))
+}
+
+// linkArtifact is os.Link. Tests replace it to simulate a file system without hard links.
+var linkArtifact = os.Link
+
+// linkOrRenameAbsent publishes a private file in the destination directory at
+// destination without replacing an existing entry. Some file systems, such as
+// Azure Files over SMB, have no hard links. There the file is renamed into
+// place while the destination is absent: a rename that loses a race replaces
+// the entry of a concurrent publisher, and the caller verifies the result.
+func linkOrRenameAbsent(private, destination string) error {
+	err := linkArtifact(private, destination)
+	if err == nil || !hardLinkUnsupported(err) {
+		return err
+	}
+	if _, statErr := os.Lstat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		return errors.Join(err, os.ErrExist, statErr)
+	}
+	return os.Rename(private, destination)
+}
+
+func hardLinkUnsupported(err error) bool {
+	return errors.Is(err, errors.ErrUnsupported) || errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.ENOSYS)
 }
 
 // stageArtifact creates a fully written, synced private candidate from content.
