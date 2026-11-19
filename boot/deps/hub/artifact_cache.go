@@ -97,7 +97,7 @@ func PublishImmutableArtifact(cacheDir, relative string, content io.Reader, dige
 	}
 	defer os.Remove(staged)
 	if errors.Is(existing, os.ErrNotExist) {
-		return publishVerifiedArtifact(staged, destination, digest, size)
+		return publishVerifiedArtifactLocked(staged, destination, digest, size)
 	}
 	return repairImmutableArtifact(staged, destination, digest, size)
 }
@@ -144,6 +144,16 @@ func MaterializeVerifiedArtifact(candidate, destination, digest string, size uin
 // accepted winner is verified against the same identity before it is returned.
 // Existing invalid immutable paths are never removed or overwritten.
 func publishVerifiedArtifact(candidate, destination, digest string, size uint64) error {
+	immutableArtifactPublishMu.Lock()
+	defer immutableArtifactPublishMu.Unlock()
+
+	return publishVerifiedArtifactLocked(candidate, destination, digest, size)
+}
+
+// publishVerifiedArtifactLocked is publishVerifiedArtifact for a caller that holds
+// immutableArtifactPublishMu. The rename fallback can replace a path that another
+// goroutine verifies, which Windows refuses, so the lock covers the whole publish.
+func publishVerifiedArtifactLocked(candidate, destination, digest string, size uint64) error {
 	if err := verifyDownloadedArtifact(candidate, digest, size); err != nil {
 		return NewArtifactIOError("verify private artifact", candidate, err)
 	}
