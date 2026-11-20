@@ -88,7 +88,7 @@ func TestDeliverOutdatedUpgradable(t *testing.T) {
 		Payloads: []payload.Payload{payload.New(ev)},
 	})
 
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	result := ch.Receive(nil, nil)
 	if result == nil {
@@ -143,7 +143,7 @@ func TestDeliverOutdatedDroppedWhenNotUpgradable(t *testing.T) {
 		Payloads: []payload.Payload{payload.New(ev)},
 	})
 
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if len(proc.messageQueue) != 0 {
 		t.Fatalf("expected OUTDATED to be dropped, queue has %d", len(proc.messageQueue))
@@ -179,7 +179,7 @@ func TestOutdatedCoalescedStaysO1(t *testing.T) {
 			registry.NewID("app", "w"+strconv.Itoa(i)),
 			registry.NewID("app", "shared"),
 		)
-		proc.flushMessageQueue(proc.subs)
+		proc.flushMessageQueue(proc.subs, nil)
 	}
 
 	if len(proc.messageQueue) != 0 {
@@ -209,7 +209,7 @@ func TestOutdatedDeliveredAfterSubscribe(t *testing.T) {
 
 	// Arrives before any events() subscription exists.
 	queueOutdated(proc, registry.NewID("app", "worker"))
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if proc.pendingOutdated == nil {
 		t.Fatal("OUTDATED before subscribe must be retained as pending")
@@ -223,7 +223,7 @@ func TestOutdatedDeliveredAfterSubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if proc.pendingOutdated != nil {
 		t.Fatal("pending OUTDATED must clear after delivery")

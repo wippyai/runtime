@@ -2917,7 +2917,7 @@ func TestProcessDeliverMessageWithHandler(t *testing.T) {
 	})
 
 	// Flush messages
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	// Check channel received transformed message
 	result := ch.Receive(nil, nil)
@@ -2960,7 +2960,7 @@ func TestProcessDeliverMessageToInboxFallback(t *testing.T) {
 	})
 
 	// Flush messages
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	// Check inbox received the message
 	result := ch.Receive(nil, nil)
@@ -2990,7 +2990,7 @@ func TestProcessDeliverMessageNoSubscription(t *testing.T) {
 	})
 
 	// Flush - message should stay in queue
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if len(proc.messageQueue) != 1 {
 		t.Fatalf("expected message to remain in queue, got %d", len(proc.messageQueue))
@@ -3023,7 +3023,7 @@ func TestProcessDeliverMessageTerminal(t *testing.T) {
 	})
 
 	// Flush - terminal should close channel
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if len(proc.messageQueue) != 0 {
 		t.Fatalf("expected empty queue after terminal, got %d", len(proc.messageQueue))
@@ -3062,7 +3062,7 @@ func TestProcessDeliverMessageWithTerminalAtEnd(t *testing.T) {
 	})
 
 	// Flush - should deliver data then close channel
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if len(proc.messageQueue) != 0 {
 		t.Fatalf("expected empty queue, got %d", len(proc.messageQueue))
@@ -3105,7 +3105,7 @@ func TestProcessDeliverMessageHandlerReturnsNil(t *testing.T) {
 	})
 
 	// Flush - handler returns nil, message handled but nothing sent to channel
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if len(proc.messageQueue) != 0 {
 		t.Fatalf("expected empty queue, got %d", len(proc.messageQueue))
@@ -3144,7 +3144,7 @@ func TestProcessDeliverMessageHandlerWithTerminal(t *testing.T) {
 	})
 
 	// Flush - handler returns nil + terminal should close channel
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if !ch.IsClosed() {
 		t.Fatal("channel should be closed after handler with terminal")
@@ -3177,7 +3177,7 @@ func TestProcessDeliverMessageAtTopic(t *testing.T) {
 	})
 
 	// Flush - @ topics don't fallback to inbox, so message stays in queue
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if len(proc.messageQueue) != 1 {
 		t.Fatalf("expected 1 message in queue (no fallback for @ topics), got %d", len(proc.messageQueue))

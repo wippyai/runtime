@@ -128,6 +128,12 @@ func channelSelectFunc(l *lua.LState) int {
 			canExecute = caseOp.Channel.CanSend()
 		} else {
 			canExecute = caseOp.Channel.CanReceive()
+			if !canExecute {
+				if p := GetProcess(l); p != nil {
+					p.prepareChannelReceive(caseOp.Channel)
+					canExecute = caseOp.Channel.CanReceive()
+				}
+			}
 		}
 
 		if canExecute {

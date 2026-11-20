@@ -29,6 +29,7 @@ type subscribeContext struct {
 	byTopic   map[string]*subscription
 	byChannel map[*Channel]string
 	nextID    uint64
+	revision  atomic.Uint64 // changes whenever a topic can route to a different channel
 	mu        sync.RWMutex
 }
 
@@ -72,6 +73,7 @@ func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription
 }
 
 func (m *subscribeContext) newSubscriptionLocked(topic string, ch *Channel) *subscription {
+	m.revision.Add(1)
 	m.nextID++
 	return &subscription{topic: topic, channel: ch, id: m.nextID}
 }
@@ -98,6 +100,7 @@ func (m *subscribeContext) removeAndReturnSubscription(ch *Channel) (string, *su
 		return "", nil, luaapi.ErrChannelNotFound
 	}
 	sub := m.byTopic[topic]
+	m.revision.Add(1)
 	delete(m.byTopic, topic)
 	delete(m.byChannel, ch)
 	return topic, sub, nil
@@ -108,6 +111,13 @@ func (m *subscribeContext) get(topic string) (*subscription, bool) {
 	defer m.mu.RUnlock()
 	sub, exists := m.byTopic[topic]
 	return sub, exists
+}
+
+func (m *subscribeContext) hasChannel(ch *Channel) bool {
+	m.mu.RLock()
+	_, exists := m.byChannel[ch]
+	m.mu.RUnlock()
+	return exists
 }
 
 // match finds a subscription that matches the given topic.
@@ -129,6 +139,7 @@ func (m *subscribeContext) snapshotAndClear() []*subscription {
 	for _, sub := range m.byTopic {
 		out = append(out, sub)
 	}
+	m.revision.Add(1)
 	clear(m.byTopic)
 	clear(m.byChannel)
 	return out

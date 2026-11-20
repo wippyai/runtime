@@ -30,7 +30,7 @@ func TestUpgradeDeliveryDoesNotAddPerMessageAllocations(t *testing.T) {
 						ReleaseResult(sub.channel.Receive(task.Thread(), nil))
 					}
 					p.enqueueMessage(queuedMessage{Topic: "data", Payloads: pls})
-					p.flushMessageQueue(p.subs)
+					p.flushMessageQueue(p.subs, nil)
 					if capacity != 0 {
 						p.applyExternalChannelResult(sub.channel.Receive(task.Thread(), nil))
 					}

@@ -201,6 +201,7 @@ func (p *Process) TransferUpgradeState(replacement process.Process) error {
 
 	// Move reservations rather than re-admitting already accepted messages:
 	// applying limits again could discard a backlog that fit the old buffer.
+	next.stallRevision = 0
 	next.messageQueue = messages
 	next.messageSeq = p.messageSeq
 	next.messageQueueItems, p.messageQueueItems = p.messageQueueItems, nil

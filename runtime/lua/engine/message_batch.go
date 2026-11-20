@@ -60,7 +60,7 @@ func (p *Process) finishMessageBatch(base []queuedMessage) {
 	p.messageBatchTopic = ""
 }
 
-func (p *Process) flushMessageBatch(subs *subscribeContext) bool {
+func (p *Process) flushMessageBatch(subs *subscribeContext, receiving *Channel) bool {
 	if !p.messageBatchActive {
 		return false
 	}
@@ -72,10 +72,14 @@ func (p *Process) flushMessageBatch(subs *subscribeContext) bool {
 		p.messageBatchActive = false
 		return false
 	}
+	if receiving != nil && sub.channel != receiving {
+		return true
+	}
+	p.stallRevision = 0
 	clear(p.stalledChans)
-	for len(p.messageQueue) > 0 && sub.channel.CanSend() {
+	for len(p.messageQueue) > 0 && sub.channel.canDeliverTo(receiving) {
 		qm := p.messageQueue[0]
-		if p.deliverMessage(subs, qm) {
+		if p.deliverMessage(subs, receiving, qm) {
 			break
 		}
 		p.releaseQueuedMessage(qm)

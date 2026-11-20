@@ -49,7 +49,7 @@ func TestBoundedMessageDoesNotFallbackToInbox(t *testing.T) {
 		MaxItems:     4,
 		MaxBytes:     64,
 	})
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if got := inbox.Size(); got != 0 {
 		t.Fatalf("bounded startup message fell back to inbox, size=%d", got)
@@ -63,7 +63,7 @@ func TestBoundedMessageDoesNotFallbackToInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	proc.SetTopicHandler(topic, cdcRegressionHandler)
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 	if got := cdc.Size(); got != 1 {
 		t.Fatalf("exact subscription did not receive startup message, size=%d", got)
 	}
@@ -87,7 +87,7 @@ func TestBoundedTerminalDoesNotCloseInbox(t *testing.T) {
 		MaxItems: 1,
 		MaxBytes: 64,
 	})
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 
 	if inbox.IsClosed() {
 		t.Fatal("bounded terminal closed the inbox fallback channel")
@@ -100,7 +100,7 @@ func TestBoundedTerminalDoesNotCloseInbox(t *testing.T) {
 	if err := proc.SubscribeExisting(topic, cdc); err != nil {
 		t.Fatal(err)
 	}
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 	if !cdc.IsClosed() {
 		t.Fatal("exact subscription did not receive terminal close")
 	}
@@ -138,7 +138,7 @@ func TestOrdinaryClosePreservesQueuedMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	proc.SetTopicHandler(topic, cdcRegressionHandler)
-	proc.flushMessageQueue(proc.subs)
+	proc.flushMessageQueue(proc.subs, nil)
 	if got := current.Size(); got != 1 {
 		t.Fatalf("preserved ordinary message was not delivered, size=%d", got)
 	}

@@ -166,6 +166,10 @@ func (c *Channel) CanReceive() bool {
 	return c.buffer.Len() > 0 || c.sendq.Len() > 0 || c.closed
 }
 
+func (c *Channel) canDeliverTo(receiving *Channel) bool {
+	return c.CanSend() || (c == receiving && !c.CanReceive())
+}
+
 func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *ChannelResult {
 	if c.closed {
 		return errorResult(task, errors.New("send on closed channel"))
@@ -201,13 +205,13 @@ func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *
 // the ephemeral channel router) that must never block on a Lua channel
 // because there is no real producer task that could be woken.
 func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
-	return c.trySend(value, nil)
+	return c.trySend(value, nil, nil)
 }
 
 // Only buffered mailbox values need a wrapper. On direct handoff, the process
 // records the envelope while applying the receiver update. Ordinary channels
 // pass nil; wrappers are private and pooled.
-func (c *Channel) trySend(value lua.LValue, envelope *queuedMessage) (*ChannelResult, bool) {
+func (c *Channel) trySend(value lua.LValue, envelope *queuedMessage, receiving *Channel) (*ChannelResult, bool) {
 	if c.closed {
 		return errorResult(nil, errors.New("send on closed channel")), false
 	}
@@ -235,8 +239,9 @@ func (c *Channel) trySend(value lua.LValue, envelope *queuedMessage) (*ChannelRe
 		return r, true
 	}
 
-	// Case 2: buffer has space.
-	if c.buffer.Len() < c.capacity {
+	// Case 2: buffer has space, or the select is about to receive this
+	// one value synchronously on the owning Lua goroutine.
+	if c.canDeliverTo(receiving) {
 		if envelope != nil {
 			value = acquireBufferedDelivery(value, envelope.mailboxEnvelope())
 		}

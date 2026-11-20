@@ -6,6 +6,7 @@ import (
 	"container/list"
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -102,10 +103,10 @@ type Process struct {
 	channels        map[*Channel]int
 	state           *lua.LState
 	handlers        map[string]topicHandlerRegistration
-	// stalledChans records channels that could not accept a message during the
-	// current flush. Later messages for the same channel, including terminals,
-	// remain queued so delivery order cannot be inverted.
-	stalledChans           map[*Channel]struct{}
+	// stalledChans maps a channel to its earliest retained message sequence.
+	// It also prevents a terminal from overtaking data during a flush.
+	stalledChans           map[*Channel]uint64
+	selectData             *selectDataBatch
 	exported               map[string]*lua.LFunction
 	messageQueueDiscarded  map[string]struct{}
 	messageQueueOverflowed map[string]struct{}
@@ -129,6 +130,7 @@ type Process struct {
 	threads           []*Task
 	yieldSeq          uint64
 	messageSeq        uint64
+	stallRevision     uint64 // subscription revision of the last mailbox scan
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -137,6 +139,7 @@ type Process struct {
 	epoch                 atomic.Uint64
 	flushingMessages      bool
 	messageBatchActive    bool
+	canIndexSelect        bool
 	trapLinks             bool
 	upgradable            bool
 	outdatedDelivered     bool
@@ -296,6 +299,7 @@ func (p *Process) closeSubscription(ch *Channel, retainUnread bool) bool {
 	if err != nil {
 		return false
 	}
+	delete(p.stalledChans, ch)
 	p.RemoveTopicHandler(topic)
 	if sub != nil {
 		if retainUnread && sub.retainOnUpgrade && ch.buffer.Len() > 0 {
@@ -347,6 +351,7 @@ func (p *Process) SetTopicHandler(topic string, handler TopicHandler) {
 }
 
 func (p *Process) setTopicHandler(topic string, handler TopicHandler, onDelivery bool) {
+	p.stallRevision = 0
 	if p.handlers == nil {
 		p.handlers = make(map[string]topicHandlerRegistration, 4)
 	}
@@ -371,6 +376,9 @@ func (p *Process) RemoveTopicHandler(topic string) {
 // When false (default), process terminates when linked process fails.
 // When true, process receives LINK_DOWN event and can handle it.
 func (p *Process) SetTrapLinks(trap bool) {
+	if p.trapLinks != trap {
+		p.stallRevision = 0 // queued LINK_DOWN events must be reconsidered
+	}
 	p.trapLinks = trap
 }
 
@@ -780,6 +788,9 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) (stepErr
 	}
 	if base := p.beginMessageBatch(); base != nil {
 		defer p.finishMessageBatch(base)
+	} else if len(p.messageQueue) >= minSelectBatch {
+		p.canIndexSelect = true
+		defer p.finishSelectDataBatch()
 	}
 
 	// Process in a loop until stable (no new subscriptions trigger channel work)
@@ -794,7 +805,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) (stepErr
 		// Flush any pending messages to subscribed channels BEFORE processing
 		// This ensures messages that arrived while tasks were blocked get delivered
 		if p.subs != nil {
-			p.flushMessageQueue(p.subs)
+			p.flushMessageQueue(p.subs, nil)
 		}
 
 		if p.outdatedRejected && !p.outdatedRejectionSent {
@@ -848,7 +859,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) (stepErr
 		// rendezvous delivery on system topics like @pid/events.
 		if !hadSubscriptions && p.queue.IsEmpty() {
 			if p.subs != nil && (len(p.messageQueue) > 0 || p.pendingOutdated != nil) {
-				p.flushMessageQueue(p.subs)
+				p.flushMessageQueue(p.subs, nil)
 				if !p.queue.IsEmpty() {
 					continue
 				}
@@ -1134,7 +1145,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 				}
 
 				// Flush queued messages for this topic BEFORE returning channel
-				p.flushMessageQueue(subs)
+				p.flushMessageQueue(subs, nil)
 
 				// Wrap channel as userdata if not already wrapped
 				chValue := sub.channel.Value()
@@ -1166,7 +1177,18 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 	return p.outTasks, hadSubscriptions, nil
 }
 
-// flushMessageQueue delivers queued messages to subscribed channels.
+// prepareChannelReceive makes an admitted message available to the channel
+// currently being considered by select, without registering a waiting task.
+func (p *Process) prepareChannelReceive(ch *Channel) {
+	// A receiver already registered on this channel takes the next message
+	// during the scheduler's flush. Here the current select is the receiver.
+	if ch.recvq.Len() == 0 && p.subs != nil && (len(p.messageQueue) > 0 || p.pendingOutdated != nil) && p.subs.hasChannel(ch) {
+		p.flushMessageQueue(p.subs, ch)
+	}
+}
+
+// flushMessageQueue delivers queued messages to subscribed channels. A
+// receiving channel can accept one value for the select testing its readiness.
 // Messages that can't be delivered stay in the queue, preserving order.
 //
 // Invariant: for any channel, a terminal must not overtake data retained on
@@ -1174,35 +1196,69 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 // channel in stalledChans; a later channel-closing message (terminal) for it is
 // then held until the backlog drains. Pure data is not held, so an
 // undeliverable message does not block unrelated later sends to the channel.
-func (p *Process) flushMessageQueue(subs *subscribeContext) {
-	if len(p.messageQueue) > 0 && !p.flushMessageBatch(subs) {
-		// stalledChans tracks per-pass stalled channels. clear(nil) is a no-op;
-		// the map is created lazily on the first stall to avoid an allocation on
-		// the common no-stall flush.
-		clear(p.stalledChans)
-
-		// Process queue, retaining undelivered messages in order.
-		queued := p.messageQueue
-		remaining := queued[:0]
-		p.flushingMessages = true
-		for _, qm := range queued {
-			if p.deliverMessage(subs, qm) {
-				remaining = append(remaining, qm) // retain in queue
-			} else {
-				p.releaseQueuedMessage(qm)
-			}
-		}
-		p.flushingMessages = false
-		p.messageQueue = remaining
-		clear(queued[len(remaining):])
-		p.finishDiscardedTopics()
+func (p *Process) flushMessageQueue(subs *subscribeContext, receiving *Channel) {
+	if len(p.messageQueue) > 0 && !p.flushMessageBatch(subs, receiving) {
+		p.flushMixedQueue(subs, receiving)
 	}
 
 	// A coalesced OUTDATED event lives outside the queue in a single slot and is
 	// delivered here so it reaches a receiver that subscribes after it arrived.
 	if p.pendingOutdated != nil {
-		p.tryDeliverPendingOutdated(subs)
+		p.tryDeliverPendingOutdated(subs, receiving)
 	}
+}
+
+func (p *Process) flushMixedQueue(subs *subscribeContext, receiving *Channel) {
+	// Queued sequence numbers survive compaction and upgrades. After a
+	// scan, each destination points to its earliest retained message.
+	// A new subscription or admission requires routing the queue again.
+	revision := subs.revision.Load()
+	if p.selectData != nil && (receiving == nil || p.stallRevision != revision) {
+		p.finishSelectDataBatch()
+		if len(p.messageQueue) == 0 {
+			return
+		}
+	}
+	queued := p.messageQueue
+	start := 0
+	if receiving != nil && revision != 0 && p.stallRevision == revision {
+		first, exists := p.stalledChans[receiving]
+		if !exists {
+			return
+		}
+		if p.selectData != nil {
+			p.receiveSelectData(subs, receiving)
+			return
+		}
+		if first > queued[0].sequence {
+			start = sort.Search(len(queued), func(i int) bool { return queued[i].sequence >= first })
+		}
+		if p.canIndexSelect && len(queued)-start >= minSelectBatch {
+			p.canIndexSelect = false
+			p.selectData = p.indexSelectData(subs)
+			if p.selectData != nil {
+				p.receiveSelectData(subs, receiving)
+				return
+			}
+		}
+		delete(p.stalledChans, receiving)
+	} else {
+		clear(p.stalledChans)
+	}
+	p.stallRevision = revision // callbacks below may invalidate it
+	remaining := queued[:start]
+	p.flushingMessages = true
+	for _, qm := range queued[start:] {
+		if p.deliverMessage(subs, receiving, qm) {
+			remaining = append(remaining, qm) // retain in queue
+		} else {
+			p.releaseQueuedMessage(qm)
+		}
+	}
+	p.flushingMessages = false
+	p.messageQueue = remaining
+	clear(queued[len(remaining):])
+	p.finishDiscardedTopics()
 }
 
 // clearMessageQueue releases queued payload references before truncating the
@@ -1210,6 +1266,7 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 // reuse; otherwise a single large message remains reachable through the
 // backing array until that slice grows past its old capacity.
 func (p *Process) clearMessageQueue() {
+	p.stallRevision = 0
 	for _, qm := range p.messageQueue {
 		p.releaseQueuedMessage(qm)
 	}
@@ -1229,6 +1286,7 @@ func (p *Process) clearMessageQueue() {
 // mailbox. Limits are opt-in: only messages carrying MaxItems/MaxBytes are
 // bounded, so unrelated process topics retain their historical behavior.
 func (p *Process) enqueueMessage(qm queuedMessage) {
+	p.stallRevision = 0
 	p.messageSeq++
 	qm.sequence = p.messageSeq
 	if qm.MaxItems <= 0 {
@@ -1396,6 +1454,7 @@ func (p *Process) topicHasBoundedMessages(topic string) bool {
 }
 
 func (p *Process) discardMessageTopic(topic string) {
+	p.finishSelectDataBatch()
 	queued := p.messageQueue
 	remaining := queued[:0]
 	for _, qm := range queued {
@@ -1468,11 +1527,13 @@ func isOverflowTerminal(payloads payload.Payloads) bool {
 
 // markStalled records that a channel retained a message in the current flush
 // pass, lazily creating the set.
-func (p *Process) markStalled(ch *Channel) {
+func (p *Process) markStalled(ch *Channel, sequence uint64) {
 	if p.stalledChans == nil {
-		p.stalledChans = make(map[*Channel]struct{})
+		p.stalledChans = make(map[*Channel]uint64)
 	}
-	p.stalledChans[ch] = struct{}{}
+	if _, exists := p.stalledChans[ch]; !exists {
+		p.stalledChans[ch] = sequence
+	}
 }
 
 func (p *Process) isStalled(ch *Channel) bool {
@@ -1492,7 +1553,7 @@ func (p *Process) isStalled(ch *Channel) bool {
 // Invariant: for any channel, a terminal must not overtake data retained on
 // that same channel this pass. Only channel-closing messages are held by the
 // stall; pure data retries normally and a full buffer preserves its order.
-func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep bool) {
+func (p *Process) deliverMessage(subs *subscribeContext, receiving *Channel, qm queuedMessage) (keep bool) {
 	topic := qm.Topic
 	if _, discarded := p.messageQueueDiscarded[topic]; discarded && messageIsBounded(qm) {
 		return false
@@ -1549,6 +1610,10 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 			return true // no subscription, keep in queue
 		}
 	}
+	if receiving != nil && sub.channel != receiving {
+		p.markStalled(sub.channel, qm.sequence)
+		return true
+	}
 
 	payloads := qm.Payloads
 	outerTerminal := false
@@ -1589,8 +1654,8 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	// Eager handlers still run: they may consume/filter without channel delivery.
 	// Routed frames keep their existing drop/terminal handling below.
 	handler, hasHandler := p.handlers[handlerTopic]
-	if (!hasHandler || handler.onDelivery) && !hasFrame && !sub.channel.IsClosed() && !sub.channel.CanSend() {
-		p.markStalled(sub.channel)
+	if (!hasHandler || handler.onDelivery) && !hasFrame && !sub.channel.IsClosed() && !sub.channel.canDeliverTo(receiving) {
+		p.markStalled(sub.channel, qm.sequence)
 		return true
 	}
 	var value lua.LValue
@@ -1608,7 +1673,8 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	}
 
 	// External delivery is non-blocking: no producer task exists to park.
-	// TrySend hands off to a waiting receiver or buffers if there is room.
+	// trySend hands off to a waiting receiver or stages a value for an
+	// immediate select or available buffer slot.
 	// When neither succeeds, the message stays in messageQueue and is
 	// retried on the next step — preserving mailbox order and rendezvous
 	// semantics on zero-buffer topics (@pid/events, @pid/inbox) and lossless
@@ -1617,7 +1683,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	if sub.retainOnUpgrade && !hasFrame {
 		envelope = &qm
 	}
-	result, sent := sub.channel.trySend(value, envelope)
+	result, sent := sub.channel.trySend(value, envelope, receiving)
 	if !sent {
 		if sub.channel.IsClosed() {
 			p.closeChannel(sub.channel)
@@ -1637,7 +1703,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 		// Full bounded buffer, no waiting receiver, not a routed frame: retain
 		// in the queue and mark the channel stalled so later messages for it
 		// (including a terminal) stay behind this backlog.
-		p.markStalled(sub.channel)
+		p.markStalled(sub.channel, qm.sequence)
 		return true
 	}
 	p.applyChannelResult(result, envelope)
@@ -1697,14 +1763,14 @@ func (p *Process) mergePendingOutdated(ev *topology.OutdatedEvent) {
 // live events() subscription (or no waiting receiver on a zero-buffer channel)
 // the slot is retained and retried on the next flush. The event reaches Lua as
 // { kind = process.event.OUTDATED, sources = { "ns:name", ... } }.
-func (p *Process) tryDeliverPendingOutdated(subs *subscribeContext) {
+func (p *Process) tryDeliverPendingOutdated(subs *subscribeContext, receiving *Channel) {
 	sub, exists := subs.get(topology.TopicEvents)
-	if !exists {
-		return // no events() subscription yet: keep pending, retry
+	if !exists || (receiving != nil && sub.channel != receiving) {
+		return
 	}
 
 	value := p.outdatedEventToLua(p.pendingOutdated)
-	result, sent := sub.channel.TrySend(value)
+	result, sent := sub.channel.trySend(value, nil, receiving)
 	if !sent {
 		if sub.channel.IsClosed() {
 			p.closeChannel(sub.channel)
@@ -2058,6 +2124,7 @@ func (p *Process) Close() {
 	p.flushingMessages = false
 	p.messageBatchTopic = ""
 	p.messageBatchActive = false
+	p.stallRevision = 0
 	p.stalledChans = nil
 	p.trapLinks = false
 	p.upgradable = false
