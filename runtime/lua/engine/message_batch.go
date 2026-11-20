@@ -75,6 +75,7 @@ func (p *Process) flushMessageBatch(subs *subscribeContext, receiving *Channel) 
 	if receiving != nil && sub.channel != receiving {
 		return true
 	}
+	p.stallRevision = 0
 	clear(p.stalledChans)
 	for len(p.messageQueue) > 0 && sub.channel.canDeliverTo(receiving) {
 		qm := p.messageQueue[0]
