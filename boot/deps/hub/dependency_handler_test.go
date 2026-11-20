@@ -3178,7 +3178,7 @@ func newTestContext() context.Context {
 	return ctx
 }
 
-func writeWapp(t *testing.T, path string, entries []wapp.Entry) {
+func writeWapp(t testing.TB, path string, entries []wapp.Entry) {
 	t.Helper()
 	buf := buildWappBytes(t, entries)
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
@@ -3192,7 +3192,7 @@ func mustReadFile(t *testing.T, path string) []byte {
 	return data
 }
 
-func buildWappBytes(t *testing.T, entries []wapp.Entry) []byte {
+func buildWappBytes(t testing.TB, entries []wapp.Entry) []byte {
 	t.Helper()
 	entries = completeArtifactFixture(entries)
 	var buf bytes.Buffer

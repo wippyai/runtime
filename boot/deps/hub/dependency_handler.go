@@ -426,6 +426,11 @@ func (h *DependencyHandler) expand(
 	}
 	desiredModules := resolvedModuleSet(resolved)
 	addModuleSet(controlledModules, desiredModules)
+	// Requirement targets are reloaded from their raw artifacts without making
+	// their modules mutable, so unrelated resident entries stay preserved.
+	reloadedModules := make(map[string]struct{}, len(touchedModules))
+	addModuleSet(reloadedModules, touchedModules)
+	requirementTargets := make(map[string]struct{})
 
 	var moduleEntries regapi.State
 	var combined []regapi.Entry
@@ -447,7 +452,7 @@ func (h *DependencyHandler) expand(
 					if _, desired := desiredModules[module]; !desired {
 						continue
 					}
-					if _, touched := touchedModules[module]; touched {
+					if _, reloaded := reloadedModules[module]; reloaded {
 						continue
 					}
 				}
@@ -460,10 +465,16 @@ func (h *DependencyHandler) expand(
 		}
 		// A changed declaration can reconfigure an unchanged child. Reload its
 		// authored entries before linking, including self-targeted defaults.
-		parameterModules, err := changedDependencyParameterModules(ctx, snapshot, applyOperationToState(combined, op), transcoder)
+		desiredState := applyOperationToState(combined, op)
+		parameterModules, err := changedDependencyParameterModules(ctx, snapshot, desiredState, transcoder)
 		if err != nil {
 			return regapi.DirectiveResult{}, err
 		}
+		targets, err := changedRequirementTargets(ctx, snapshot, desiredState, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		addModuleSet(requirementTargets, targets.entries)
 		toLoad = make(map[string]struct{})
 		for module := range parameterModules {
 			if _, desired := desiredModules[module]; !desired {
@@ -472,9 +483,22 @@ func (h *DependencyHandler) expand(
 			if _, touched := touchedModules[module]; touched {
 				continue
 			}
-			toLoad[module] = struct{}{}
 			touchedModules[module] = struct{}{}
 			strictModules = append(strictModules, module)
+			if _, reloaded := reloadedModules[module]; !reloaded {
+				toLoad[module] = struct{}{}
+				reloadedModules[module] = struct{}{}
+			}
+		}
+		for module := range targets.modules {
+			if _, desired := desiredModules[module]; !desired {
+				continue
+			}
+			if _, reloaded := reloadedModules[module]; reloaded {
+				continue
+			}
+			toLoad[module] = struct{}{}
+			reloadedModules[module] = struct{}{}
 		}
 		if len(toLoad) == 0 {
 			break
@@ -496,7 +520,7 @@ func (h *DependencyHandler) expand(
 		return regapi.DirectiveResult{}, err
 	}
 	linkDeps := mergeLinkDependencies(authoredEntries,
-		mergeLinkDependencies(boundEntries, mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, touchedModules), moduleEntries)))
+		mergeLinkDependencies(boundEntries, mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, reloadedModules), moduleEntries)))
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
@@ -513,7 +537,8 @@ func (h *DependencyHandler) expand(
 		controlledModules: controlledModules,
 		// The resolution diff also makes changed child packs mutable. Their
 		// selected artifacts must publish definitions alongside their identities.
-		mutableModules: touchedModules,
+		mutableModules:     touchedModules,
+		requirementTargets: requirementTargets,
 	})
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -908,6 +933,10 @@ func (h *DependencyHandler) ReconcileResolution(
 	var combined []regapi.Entry
 	unpackPlan := &unpackPlan{}
 	defer func() { _ = unpackPlan.cleanup() }()
+	// Modules reloaded only to relink requirement targets keep their resident
+	// entries and do not make their own requirements strict.
+	targetModules := make(map[string]struct{})
+	requirementTargets := make(map[string]struct{})
 	toLoad := touched
 	for {
 		loaded, loadedPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, toLoad), target, transcoder)
@@ -940,8 +969,28 @@ func (h *DependencyHandler) ReconcileResolution(
 		if err != nil {
 			return regapi.DirectiveResult{}, err
 		}
+		targets, err := changedRequirementTargets(ctx, current, combined, transcoder)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		addModuleSet(requirementTargets, targets.entries)
 		toLoad = make(map[string]struct{})
 		for module := range parameterModules {
+			if _, desired := desiredModules[module]; !desired {
+				continue
+			}
+			if _, loaded := touched[module]; loaded {
+				if _, targetOnly := targetModules[module]; targetOnly {
+					delete(targetModules, module)
+					mutable[module] = struct{}{}
+				}
+				continue
+			}
+			toLoad[module] = struct{}{}
+			touched[module] = struct{}{}
+			mutable[module] = struct{}{}
+		}
+		for module := range targets.modules {
 			if _, desired := desiredModules[module]; !desired {
 				continue
 			}
@@ -950,7 +999,7 @@ func (h *DependencyHandler) ReconcileResolution(
 			}
 			toLoad[module] = struct{}{}
 			touched[module] = struct{}{}
-			mutable[module] = struct{}{}
+			targetModules[module] = struct{}{}
 		}
 		if len(toLoad) == 0 {
 			break
@@ -1020,10 +1069,16 @@ func (h *DependencyHandler) ReconcileResolution(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	strictTouched := make(map[string]struct{}, len(touched))
+	for module := range touched {
+		if _, targetOnly := targetModules[module]; !targetOnly {
+			strictTouched[module] = struct{}{}
+		}
+	}
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
-		stages.Link(stages.WithDependencies(mergeLinkDependencies(boundEntries, combined)), stages.WithStrictRequirementModules(sortedSetKeys(touched))),
+		stages.Link(stages.WithDependencies(mergeLinkDependencies(boundEntries, combined)), stages.WithStrictRequirementModules(sortedSetKeys(strictTouched))),
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
@@ -1037,8 +1092,9 @@ func (h *DependencyHandler) ReconcileResolution(
 	// and restart unrelated services during undo/redo (including the governance
 	// worker itself).
 	additional, err := (operationPlanner{resolver: h.resolver}).plan(target, combined, operationPlanOptions{
-		controlledModules: controlled,
-		mutableModules:    mutable,
+		controlledModules:  controlled,
+		mutableModules:     mutable,
+		requirementTargets: requirementTargets,
 	})
 	if err != nil {
 		return regapi.DirectiveResult{}, err

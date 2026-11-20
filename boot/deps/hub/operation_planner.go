@@ -32,7 +32,10 @@ func entriesEqual(a, b regapi.Entry) bool {
 type operationPlanOptions struct {
 	controlledModules map[string]struct{}
 	mutableModules    map[string]struct{}
-	originalKey       string
+	// requirementTargets are resident entries whose linked value changes with
+	// a requirement. They follow the linked graph even in immutable modules.
+	requirementTargets map[string]struct{}
+	originalKey        string
 }
 
 type operationPlanner struct {
@@ -73,7 +76,7 @@ func (p operationPlanner) plan(current regapi.State, desired []regapi.Entry, opt
 				continue
 			}
 			if !entriesEqual(existing, entry) {
-				if preserveImmutableResidentEntry(existing, entry, opts.mutableModules) {
+				if _, linked := opts.requirementTargets[key]; !linked && preserveImmutableResidentEntry(existing, entry, opts.mutableModules) {
 					continue
 				}
 				ops = append(ops, regapi.Operation{Kind: regapi.EntryUpdate, Entry: entry})
