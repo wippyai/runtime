@@ -109,34 +109,22 @@ func (d *Deque) Steal() *Processor {
 
 // StealHalfInto takes up to half the items into dst buffer.
 func (d *Deque) StealHalfInto(dst []*Processor) int {
-	top := d.top.Load()
-	bottom := d.bottom.Load()
-
-	size := bottom - top
-	if size <= 0 {
+	size := d.Len()
+	if size == 0 {
 		return 0
 	}
 
-	buf := d.buffer.Load()
-
-	n := size / 2
-	if n < 1 {
-		n = 1
+	// The owner can pop from the bottom while we steal. A size snapshot
+	// bounds the batch, but only Steal's per-item claim grants ownership.
+	limit := min(len(dst), max(1, size/2))
+	for i := range limit {
+		p := d.Steal()
+		if p == nil {
+			return i
+		}
+		dst[i] = p
 	}
-	if n > int64(len(dst)) {
-		n = int64(len(dst))
-	}
-
-	for i := int64(0); i < n; i++ {
-		idx := (top + i) & buf.mask
-		dst[i] = (*Processor)(atomic.LoadPointer(&buf.items[idx]))
-	}
-
-	if !d.top.CompareAndSwap(top, top+n) {
-		return 0
-	}
-
-	return int(n)
+	return limit
 }
 
 // Len returns approximate count of items.
