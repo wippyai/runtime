@@ -375,7 +375,7 @@ Returned by `http.response()`. Provides methods to build and send HTTP responses
 
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
-| set_status | (code: integer) | error | Set HTTP status code |
+| set_status | (code: number) | error | Set HTTP status code |
 | set_header | (name: string, value: string) | error | Set response header |
 | set_content_type | (content_type: string) | error | Set Content-Type header |
 | write | (data: string) | error | Write response body |
@@ -384,7 +384,7 @@ Returned by `http.response()`. Provides methods to build and send HTTP responses
 | set_transfer | (mode: string) | error | Set transfer mode (chunked or sse) |
 | write_event | (event: table) | error | Write Server-Sent Event |
 
-#### response:set_status(code: integer) → error
+#### response:set_status(code: number) → error
 
 Selects the HTTP response status without sending headers. Headers are committed
 on the first write or flush, or when the handler returns without a body.

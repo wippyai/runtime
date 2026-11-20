@@ -79,6 +79,10 @@ local req = http.request()
 local length: integer = req:content_length()
 local res = http.response()
 res:set_status(http.STATUS.OK)
+local function respond(code: number)
+    res:set_status(code)
+end
+respond(http.STATUS.OK)
 local status: integer = http.STATUS.NOT_FOUND
 local form = req:parse_multipart()
 `, "integer_fields.lua", map[string]*io.Manifest{"http": ModuleTypes()})

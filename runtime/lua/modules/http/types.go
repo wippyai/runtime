@@ -65,7 +65,7 @@ func init() {
 
 // Response type
 var responseType = typ.NewInterface("http.Response", []typ.Method{
-	{Name: "set_status", Type: typ.Func().Param("self", typ.Self).Param("status", typ.Integer).Returns(typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "set_status", Type: typ.Func().Param("self", typ.Self).Param("status", typ.Number).Returns(typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "set_header", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Param("value", typ.String).Returns(typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "write", Type: typ.Func().Param("self", typ.Self).Param("data", typ.String).Returns(typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "flush", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.LuaError)).Build()},
