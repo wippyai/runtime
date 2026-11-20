@@ -111,6 +111,50 @@ func TestDequeStealHalf(t *testing.T) {
 	}
 }
 
+// A batch thief competes with the owner for the last few processors. Verify
+// identities: a duplicate processor can start a second worker after pool reuse.
+func TestDequeBatchStealAndPopClaimEachProcessorOnce(t *testing.T) {
+	const size = 32
+	d := NewDeque(size * 2)
+	var items [size]Processor
+	for i := range items {
+		items[i].id = uint64(i)
+	}
+
+	start := make(chan struct{})
+	done := make(chan int)
+	var stolen [size / 2]*Processor
+	go func() {
+		for range start {
+			done <- d.StealHalfInto(stolen[:])
+		}
+	}()
+	defer close(start)
+
+	for round := range 5000 {
+		for i := range items {
+			d.Push(&items[i])
+		}
+		start <- struct{}{}
+		if round%2 == 0 {
+			runtime.Gosched()
+		}
+		var seen [size]int
+		for p := d.Pop(); p != nil; p = d.Pop() {
+			seen[p.id]++
+		}
+		n := <-done
+		for _, p := range stolen[:n] {
+			seen[p.id]++
+		}
+		for i, count := range seen {
+			if count != 1 {
+				t.Fatalf("round %d: processor %d claimed %d times", round, i, count)
+			}
+		}
+	}
+}
+
 func TestDequeGrow(t *testing.T) {
 	d := NewDeque(4)
 
