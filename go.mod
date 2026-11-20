@@ -49,7 +49,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/rabbitmq/amqp091-go v1.16.0
 	github.com/rqlite/go-sqlite3 v1.54.0
-	github.com/sergi/go-diff v1.4.0
+	github.com/sergi/go-diff v1.4.5
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	github.com/tetratelabs/wazero v1.12.0
