@@ -708,13 +708,3 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 
 	return merged
 }
-
-func retainedDependencyEntries(entries []regapi.Entry, reloaded map[string]struct{}) []regapi.Entry {
-	retained := make([]regapi.Entry, 0, len(entries))
-	for _, entry := range entries {
-		if _, replaced := reloaded[entryModule(entry)]; !replaced {
-			retained = append(retained, entry)
-		}
-	}
-	return retained
-}
