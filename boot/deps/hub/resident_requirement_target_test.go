@@ -243,3 +243,70 @@ func TestResidentRequirementTargetFollowsInstallRestartUndoAndUninstall(t *testi
 		})
 	}
 }
+
+func TestHotUpdatePreservesResidentTransitiveRequirementBinding(t *testing.T) {
+	handler := residentRequirementTargetHandler(t)
+
+	componentRoot := residentRoot("component", "acme/component")
+	automationRoot := residentRoot("automation", "acme/automation")
+	workflowsRoot := residentRoot("workflows", "acme/workflows")
+	validatorID := regapi.NewID("acme.component", "validator")
+
+	writeWapp(t, filepath.Join(handler.vendorDir, "acme", "component-v1.1.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.component", "validator"), Kind: "function.lua", Data: map[string]any{
+			"source": "return {upgraded = true}", "imports": map[string]any{"base": "acme.component:base"},
+		}},
+		{ID: wapp.NewID("acme.component", "base"), Kind: "function.lua", Data: map[string]any{"source": "return {}"}},
+	})
+	writeWapp(t, filepath.Join(handler.vendorDir, "acme", "automation-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.automation", "definition"), Kind: regapi.NamespaceDefinition, Data: map[string]any{}},
+		{ID: wapp.NewID("acme.automation", "admission_import"), Kind: regapi.NamespaceRequirement, Data: map[string]any{
+			"default": "acme.automation:guard",
+			"targets": []any{map[string]any{"entry": "acme.component:validator", "path": ".imports.automation_admission"}},
+		}},
+		{ID: wapp.NewID("acme.automation", "guard"), Kind: "function.lua", Data: map[string]any{"source": "return {}"}},
+	})
+	handler.deployment.Modules = append(handler.deployment.Modules, regapi.ResolvedModule{
+		Name: "acme/automation", Version: "v1.0.0",
+	})
+	cache := func(name, version string) []byte {
+		return mustReadFile(t, filepath.Join(handler.vendorDir, "acme", name+"-"+version+".wapp"))
+	}
+	hub := handler.hub.(*fakeHub)
+	hub.getDownload = func(_ context.Context, params *DownloadParams) (*DownloadInfo, error) {
+		data := cache(params.Module, params.Version)
+		sum := sha256.Sum256(data)
+		return &DownloadInfo{URL: params.Module + "/" + params.Version,
+			Digest: "sha256:" + hex.EncodeToString(sum[:]), Size: uint64(len(data))}, nil
+	}
+	hub.downloadFile = func(_ context.Context, url, dest string) error {
+		name, version, _ := strings.Cut(url, "/")
+		return os.WriteFile(dest, cache(name, version), 0o600)
+	}
+	automation := regapi.EntryMetadata{Owner: "acme/automation"}
+	workflows := regapi.EntryMetadata{Owner: "acme/workflows"}
+	snapshot := regapi.State{
+		componentRoot, automationRoot, workflowsRoot,
+		{ID: validatorID, Kind: "function.lua", Registry: regapi.EntryMetadata{Owner: "acme/component"},
+			Data: payload.NewPayload(`{"source":"return {}","imports":{"base":"acme.component:base","automation_admission":"acme.workflows:guard"}}`, payload.JSON)},
+		{ID: regapi.NewID("acme.component", "base"), Kind: "function.lua", Registry: regapi.EntryMetadata{Owner: "acme/component"},
+			Data: payload.NewPayload(`{"source":"return {}"}`, payload.JSON)},
+		{ID: regapi.NewID("acme.automation", "definition"), Kind: regapi.NamespaceDefinition, Registry: automation,
+			Data: payload.NewPayload(`{}`, payload.JSON)},
+		{ID: regapi.NewID("acme.automation", "admission_import"), Kind: regapi.NamespaceRequirement, Registry: automation,
+			Data: payload.NewPayload(`{"default":"acme.automation:guard","targets":[{"entry":"acme.component:validator","path":".imports.automation_admission"}]}`, payload.JSON)},
+		{ID: regapi.NewID("acme.automation", "guard"), Kind: "function.lua", Registry: automation,
+			Data: payload.NewPayload(`{"source":"return {}"}`, payload.JSON)},
+		{ID: regapi.NewID("acme.workflows", "guard"), Kind: "function.lua", Registry: workflows,
+			Data: payload.NewPayload(`{"source":"return {}"}`, payload.JSON)},
+		{ID: regapi.NewID("acme.workflows", "dep.automation"), Kind: regapi.NamespaceDependency, Registry: workflows,
+			Data: payload.NewPayload(`{"component":"acme/automation","version":"v1.0.0","parameters":[{"name":"acme.automation:admission_import","value":"acme.workflows:guard"}]}`, payload.JSON)},
+	}
+	componentRoot.Data = payload.NewPayload(`{"component":"acme/component","version":"v1.1.0"}`, payload.JSON)
+	result, err := handler.Expand(newTestContext(), regapi.Operation{Kind: regapi.EntryUpdate, Entry: componentRoot}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	requireValidatorImports(t, result.Additional, map[string]any{
+		"base": "acme.component:base", "automation_admission": "acme.workflows:guard",
+	})
+}

@@ -359,11 +359,6 @@ func (h *DependencyHandler) expand(
 	for module := range extraMutable {
 		mutableModules[module] = struct{}{}
 	}
-	desiredDepEntries := make([]regapi.Entry, 0, len(desiredDeps))
-	for _, dep := range desiredDeps {
-		desiredDepEntries = append(desiredDepEntries, dep.entry)
-	}
-
 	authoredIDs := make(map[string]struct{}, len(authoredChanges))
 	for _, change := range authoredChanges {
 		authoredIDs[idKey(change.Entry.ID)] = struct{}{}
@@ -519,8 +514,10 @@ func (h *DependencyHandler) expand(
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	linkDeps := mergeLinkDependencies(authoredEntries,
-		mergeLinkDependencies(boundEntries, mergeLinkDependencies(retainedDependencyEntries(desiredDepEntries, reloadedModules), moduleEntries)))
+	// Link against the effective graph, including dependency parameters from
+	// unchanged resident modules. Only root dependencies drive the solver.
+	linkState := applyOperationToState(combined, op)
+	linkDeps := mergeLinkDependencies(authoredEntries, mergeLinkDependencies(boundEntries, linkState))
 
 	pipeline := build.New(
 		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
