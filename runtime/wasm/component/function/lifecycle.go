@@ -364,6 +364,10 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 		m.releaseModule(module)
 		return nil, false, runtimewasm.NewCompileModuleError(err)
 	}
+	if err := module.ReleaseSource(); err != nil {
+		m.releaseModule(module)
+		return nil, false, runtimewasm.NewCompileModuleError(err)
+	}
 	m.log.Info("wasm module compiled",
 		zap.String("path", cfg.Path),
 		zap.Int("bytes", len(data)),
