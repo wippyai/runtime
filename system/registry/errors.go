@@ -12,7 +12,11 @@ import (
 
 // Sentinel errors
 var (
-	ErrNoCurrentVersion             = apierror.New(apierror.NotFound, "no current version").WithRetryable(apierror.False)
+	ErrNoCurrentVersion              = apierror.New(apierror.NotFound, "no current version").WithRetryable(apierror.False)
+	ErrInstalledEntryRevisionChanged = apierror.New(apierror.Conflict, "installed registry entry revision changed").
+						WithRetryable(apierror.True)
+	ErrInstalledStateUnavailable = apierror.New(apierror.Unavailable, "installed registry state is unavailable until a full state reload").
+					WithRetryable(apierror.True)
 	ErrDependencyResolverNotInit    = apierror.New(apierror.Internal, "dependency resolver not initialized").WithRetryable(apierror.False)
 	ErrDurableResolutionUnsupported = apierror.New(apierror.Internal, "history does not support durable dependency resolutions").WithRetryable(apierror.False)
 	ErrEmptyVersionPath             = apierror.New(apierror.Internal, "empty version path").WithRetryable(apierror.False)
