@@ -239,8 +239,8 @@ type (
 	// supplied its registry-owned metadata.
 	InstalledEntry struct {
 		Revision string
-		Version  uint
 		Entry    Entry
+		Version  uint
 	}
 
 	// InstalledEntryReader reads one entry without taking a full snapshot.
