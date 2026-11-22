@@ -90,9 +90,8 @@ func NewModule(opts Options) *luaapi.ModuleDef {
 		Description: "Registry operations for entries, snapshots, and versioning",
 		Class:       []string{luaapi.ClassNondeterministic, luaapi.ClassStorage},
 		Build: func() (*lua.LTable, []luaapi.YieldType) {
-			mod := lua.CreateTable(0, 12)
+			mod := lua.CreateTable(0, 11)
 			mod.RawSetString("get", lua.LGoFunc(registryGet))
-			mod.RawSetString("get_installed_entry", lua.LGoFunc(registryGetInstalledEntry))
 			mod.RawSetString("find", lua.LGoFunc(registryFind))
 			mod.RawSetString("parse_id", lua.LGoFunc(parseID))
 			mod.RawSetString("snapshot", lua.LGoFunc(registrySnapshot))
@@ -188,33 +187,34 @@ func parseID(l *lua.LState) int {
 	return 1
 }
 
-func registryEntryRead(l *lua.LState) (regapi.Registry, regapi.ID, *lua.Error) {
+func registryGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		return nil, regapi.ID{}, lua.NewLuaError(l, "no context").
+		err := lua.NewLuaError(l, "no context").
 			WithKind(lua.Internal).
 			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
-		return nil, regapi.ID{}, lua.NewLuaError(l, "registry not found in context").
+		err := lua.NewLuaError(l, "registry not found in context").
 			WithKind(lua.Internal).
 			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	id := regapi.ParseID(l.CheckString(1))
+	idStr := l.CheckString(1)
+	id := regapi.ParseID(idStr)
+
 	if !security.IsAllowed(ctx, "registry.get", id.String(), nil) {
-		return nil, regapi.ID{}, lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
+		err := lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
 			WithKind(lua.PermissionDenied).
 			WithRetryable(false)
-	}
-	return reg, id, nil
-}
-
-func registryGet(l *lua.LState) int {
-	reg, id, err := registryEntryRead(l)
-	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
@@ -241,58 +241,6 @@ func registryGet(l *lua.LState) int {
 	}
 
 	l.Push(entryTable)
-	l.Push(lua.LNil)
-	return 2
-}
-
-func registryGetInstalledEntry(l *lua.LState) int {
-	reg, id, readErr := registryEntryRead(l)
-	if readErr != nil {
-		l.Push(lua.LNil)
-		l.Push(readErr)
-		return 2
-	}
-	reader, ok := reg.(regapi.InstalledEntryReader)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "registry does not support installed entry reads").
-			WithKind(lua.Unavailable).
-			WithRetryable(false))
-		return 2
-	}
-
-	var expected string
-	if l.Get(2) != lua.LNil {
-		expected = l.CheckString(2)
-		if expected == "" {
-			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, "registry revision is required when supplied").
-				WithKind(lua.Invalid).
-				WithRetryable(false))
-			return 2
-		}
-	}
-
-	installed, err := reader.GetInstalledEntry(id, expected)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get installed registry entry"))
-		return 2
-	}
-	entry, err := stateEntryToLuaTable(l, installed.Entry)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "convert installed registry entry").
-			WithKind(lua.Internal).
-			WithRetryable(false))
-		return 2
-	}
-
-	result := l.CreateTable(0, 3)
-	result.RawSetString("entry", entry)
-	result.RawSetString("revision", lua.LString(installed.Revision))
-	result.RawSetString("version", lua.LNumber(installed.Version))
-	l.Push(result)
 	l.Push(lua.LNil)
 	return 2
 }

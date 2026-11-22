@@ -235,22 +235,6 @@ type (
 		GetEntry(ID) (Entry, error)
 	}
 
-	// InstalledEntry pairs one durable entry with the effective state that
-	// supplied its registry-owned metadata.
-	InstalledEntry struct {
-		Revision string
-		Entry    Entry
-		Version  uint
-	}
-
-	// InstalledEntryReader reads one entry without taking a full snapshot.
-	// The revision is opaque and local to a registry instance. Pass an empty
-	// revision for the initial read. Overlays and their shadows are excluded.
-	// Reads are unavailable after a failed rollback until a full state load.
-	InstalledEntryReader interface {
-		GetInstalledEntry(id ID, expectedRevision string) (InstalledEntry, error)
-	}
-
 	// History defines methods for managing the version history of the registry
 	History interface {
 		// Versions returns a list of all versions available in the history

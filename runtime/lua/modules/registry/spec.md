@@ -93,23 +93,6 @@ it explicitly only when changing root status.
 | Entry not found | errors.NOT_FOUND | no |
 | Conversion failed | errors.INTERNAL | no |
 
-### get_installed_entry(id: string, revision?: string) → table, error
-
-Reads one installed entry with its registry-owned metadata using the same
-entry-specific permission as `get`. The result has `entry`, `version`, and
-`revision` fields. The entry includes `registry.owner` and `registry.root`
-with the same meaning as in `snapshot():state()`.
-
-The revision is an opaque string for the current state of this registry
-instance. Omit it for the first read and pass it to subsequent reads to
-require the same state. A changed state returns a retryable
-`errors.CONFLICT`. Process-local overlay entries and entries shadowed by an
-overlay return `errors.NOT_FOUND`. Overlay changes can advance the revision
-without changing the history version.
-
-A failed rollback makes installed reads return retryable
-`errors.UNAVAILABLE` until a full registry state load succeeds.
-
 ### find(filter: table) → table[], error
 
 Searches for entries matching filter criteria.

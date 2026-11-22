@@ -41,7 +41,7 @@ func TestLoad(t *testing.T) {
 
 	functions := []string{
 		"snapshot", "current_version", "versions",
-		"parse_id", "history", "find", "get", "get_installed_entry", "build_delta", "overlay",
+		"parse_id", "history", "find", "get", "build_delta", "overlay",
 	}
 	for _, fn := range functions {
 		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
