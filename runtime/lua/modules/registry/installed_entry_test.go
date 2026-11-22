@@ -14,11 +14,15 @@ import (
 )
 
 type installedEntryTestRegistry struct {
+	readErr error
 	*mockRegistry
 	installed regapi.InstalledEntry
 }
 
 func (r *installedEntryTestRegistry) GetInstalledEntry(id regapi.ID, expected string) (regapi.InstalledEntry, error) {
+	if r.readErr != nil {
+		return regapi.InstalledEntry{}, r.readErr
+	}
 	if expected != "" && expected != r.installed.Revision {
 		return regapi.InstalledEntry{}, sysregistry.ErrInstalledEntryRevisionChanged
 	}
@@ -68,5 +72,11 @@ func TestRegistryGetInstalledEntryReturnsNativeOwnershipWithReadPermission(t *te
 		assert(invalid == nil and err:kind() == errors.INVALID)
 		local stale, err = registry.get_installed_entry("app:visible", "wrong-revision")
 		assert(stale == nil and err:kind() == errors.CONFLICT and err:retryable())
+	`))
+
+	reg.readErr = sysregistry.ErrInstalledStateUnavailable
+	require.NoError(t, l.DoString(`
+		local entry, err = registry.get_installed_entry("app:visible")
+		assert(entry == nil and err:kind() == errors.UNAVAILABLE and err:retryable())
 	`))
 }

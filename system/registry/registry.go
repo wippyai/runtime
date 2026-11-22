@@ -53,6 +53,7 @@ type Reg struct {
 	mu                sync.RWMutex
 	applyMu           sync.Mutex
 	stateLoaded       bool
+	installedUnsynced bool
 }
 
 // NewRegistry creates a new registry instance.
@@ -163,6 +164,9 @@ func (r *Reg) GetInstalledEntry(path registry.ID, expectedRevision string) (regi
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if r.installedUnsynced {
+		return registry.InstalledEntry{}, ErrInstalledStateUnavailable
+	}
 	if expectedRevision != "" && expectedRevision != r.installedRevision {
 		return registry.InstalledEntry{}, ErrInstalledEntryRevisionChanged
 	}
@@ -837,6 +841,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 	r.overlayFloor = r.overlayEpoch
 	r.stateLoaded = true
+	r.installedUnsynced = false
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
@@ -952,7 +957,10 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 		return nil // success
 	}
 
-	r.state = partial // we remain in a desynced state
+	r.state = partial
+	// Ordinary reads can expose recovery diagnostics. Only a successful full
+	// state load can reestablish the authority of installed-entry reads.
+	r.installedUnsynced = true
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.reconcileKnownOverlaysAfterFailedRollback()

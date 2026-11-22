@@ -246,6 +246,7 @@ type (
 	// InstalledEntryReader reads one entry without taking a full snapshot.
 	// The revision is opaque and local to a registry instance. Pass an empty
 	// revision for the initial read. Overlays and their shadows are excluded.
+	// Reads are unavailable after a failed rollback until a full state load.
 	InstalledEntryReader interface {
 		GetInstalledEntry(id ID, expectedRevision string) (InstalledEntry, error)
 	}

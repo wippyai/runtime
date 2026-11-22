@@ -107,6 +107,9 @@ require the same state. A changed state returns a retryable
 overlay return `errors.NOT_FOUND`. Overlay changes can advance the revision
 without changing the history version.
 
+A failed rollback makes installed reads return retryable
+`errors.UNAVAILABLE` until a full registry state load succeeds.
+
 ### find(filter: table) → table[], error
 
 Searches for entries matching filter criteria.
