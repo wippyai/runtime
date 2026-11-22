@@ -5,11 +5,9 @@ package registry
 import (
 	"context"
 	"errors"
-	"strconv"
 	"sync"
 	"sync/atomic"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -28,8 +26,6 @@ type indexedSortBuilder interface {
 
 type Reg struct {
 	currentVersion    registry.Version
-	installedRevision string
-	instanceID        string
 	runner            registry.Runner
 	builder           registry.StateBuilder
 	resolver          registry.DependencyResolver
@@ -53,7 +49,6 @@ type Reg struct {
 	mu                sync.RWMutex
 	applyMu           sync.Mutex
 	stateLoaded       bool
-	installedUnsynced bool
 }
 
 // NewRegistry creates a new registry instance.
@@ -80,7 +75,6 @@ func NewRegistry(
 		overlayShadows:    make(map[registry.ID]overlayShadow),
 		overlayGeneration: make(map[string]uint64),
 		log:               log,
-		instanceID:        uuid.NewString(),
 		currentVersion:    version.FromParent(nil, 0), // initial version
 	}
 
@@ -159,32 +153,6 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	return registry.Entry{}, NewEntryNotFoundError(path)
 }
 
-func (r *Reg) GetInstalledEntry(path registry.ID, expectedRevision string) (registry.InstalledEntry, error) {
-	path = canonicalEntryID(path)
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if r.installedUnsynced {
-		return registry.InstalledEntry{}, ErrInstalledStateUnavailable
-	}
-	if expectedRevision != "" && expectedRevision != r.installedRevision {
-		return registry.InstalledEntry{}, ErrInstalledEntryRevisionChanged
-	}
-	if r.currentVersion == nil {
-		return registry.InstalledEntry{}, ErrNoCurrentVersion
-	}
-	idx, found := r.stateIndex[path]
-	_, overlaid := r.overlayOwners[path]
-	if !found || overlaid {
-		return registry.InstalledEntry{}, NewEntryNotFoundError(path)
-	}
-	return registry.InstalledEntry{
-		Entry:    r.state[idx],
-		Revision: r.installedRevision,
-		Version:  r.currentVersion.ID(),
-	}, nil
-}
-
 func (r *Reg) Snapshot() registry.Snapshot {
 	current := r.snapshot.Load()
 	if current == nil {
@@ -209,7 +177,6 @@ func (r *Reg) publishSnapshot() {
 		Registry: registry.StateMetadata{Resolution: r.currentResolution},
 	})
 	r.stateRevision++
-	r.installedRevision = r.instanceID + ":" + strconv.FormatUint(r.stateRevision, 10)
 }
 
 // StateRevision counts the states this registry has published. Durable
@@ -841,7 +808,6 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 	r.overlayFloor = r.overlayEpoch
 	r.stateLoaded = true
-	r.installedUnsynced = false
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
@@ -957,10 +923,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 		return nil // success
 	}
 
-	r.state = partial
-	// Ordinary reads can expose recovery diagnostics. Only a successful full
-	// state load can reestablish the authority of installed-entry reads.
-	r.installedUnsynced = true
+	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.reconcileKnownOverlaysAfterFailedRollback()
