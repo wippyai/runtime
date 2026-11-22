@@ -5,9 +5,11 @@ package registry
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -26,6 +28,8 @@ type indexedSortBuilder interface {
 
 type Reg struct {
 	currentVersion    registry.Version
+	installedRevision string
+	instanceID        string
 	runner            registry.Runner
 	builder           registry.StateBuilder
 	resolver          registry.DependencyResolver
@@ -75,6 +79,7 @@ func NewRegistry(
 		overlayShadows:    make(map[registry.ID]overlayShadow),
 		overlayGeneration: make(map[string]uint64),
 		log:               log,
+		instanceID:        uuid.NewString(),
 		currentVersion:    version.FromParent(nil, 0), // initial version
 	}
 
@@ -153,6 +158,29 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	return registry.Entry{}, NewEntryNotFoundError(path)
 }
 
+func (r *Reg) GetInstalledEntry(path registry.ID, expectedRevision string) (registry.InstalledEntry, error) {
+	path = canonicalEntryID(path)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if expectedRevision != "" && expectedRevision != r.installedRevision {
+		return registry.InstalledEntry{}, ErrInstalledEntryRevisionChanged
+	}
+	if r.currentVersion == nil {
+		return registry.InstalledEntry{}, ErrNoCurrentVersion
+	}
+	idx, found := r.stateIndex[path]
+	_, overlaid := r.overlayOwners[path]
+	if !found || overlaid {
+		return registry.InstalledEntry{}, NewEntryNotFoundError(path)
+	}
+	return registry.InstalledEntry{
+		Entry:    r.state[idx],
+		Revision: r.installedRevision,
+		Version:  r.currentVersion.ID(),
+	}, nil
+}
+
 func (r *Reg) Snapshot() registry.Snapshot {
 	current := r.snapshot.Load()
 	if current == nil {
@@ -177,6 +205,7 @@ func (r *Reg) publishSnapshot() {
 		Registry: registry.StateMetadata{Resolution: r.currentResolution},
 	})
 	r.stateRevision++
+	r.installedRevision = r.instanceID + ":" + strconv.FormatUint(r.stateRevision, 10)
 }
 
 // StateRevision counts the states this registry has published. Durable

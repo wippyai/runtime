@@ -50,6 +50,12 @@ var stateEntryType = typ.NewRecord().
 	Field("registry", entryMetadataType).
 	Build()
 
+var installedEntryType = typ.NewRecord().
+	Field("entry", stateEntryType).
+	Field("revision", typ.String).
+	Field("version", typ.Number).
+	Build()
+
 var dependencyRootType = typ.NewRecord().
 	Field("id", typ.String).
 	Field("component", typ.String).
@@ -163,6 +169,7 @@ func ModuleTypes() *typio.Manifest {
 
 	moduleType := typ.NewInterface("registry", []typ.Method{
 		{Name: "get", Type: typ.Func().Param("key", typ.String).Returns(entryType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "get_installed_entry", Type: typ.Func().Param("key", typ.String).OptParam("revision", typ.String).Returns(installedEntryType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "find", Type: typ.Func().Param("query", typ.Any).Returns(typ.NewArray(entryType), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "parse_id", Type: typ.Func().Param("id", typ.String).Returns(idType).Build()},
 		{Name: "snapshot", Type: typ.Func().Returns(snapshotType, typ.NewOptional(typ.LuaError)).Build()},
