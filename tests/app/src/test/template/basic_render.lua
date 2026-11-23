@@ -33,6 +33,17 @@ local function test_render_with_globals()
 	set:release()
 end
 
+local function test_render_plain_text()
+	local set, err = templates.get("app.test.template:plain_set")
+	assert.is_nil(err, "get plain-text template set")
+
+	local value = [[R&D <"text"> 'draft']]
+	local result, err = set:render("subject", {value = value})
+	set:release()
+	assert.is_nil(err, "render plain-text subject")
+	assert.eq(result, "Subject: " .. value, "plain-text subject output")
+end
+
 local function test_tostring()
 	local set, err = templates.get("app.test.template:test_set")
 	assert.is_nil(err, "get template set")
@@ -50,6 +61,7 @@ local function main()
 	test_get_template_set()
 	test_simple_render()
 	test_render_with_globals()
+	test_render_plain_text()
 	test_tostring()
 	return true
 end

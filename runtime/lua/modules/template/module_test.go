@@ -163,6 +163,28 @@ func TestTemplateRender(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestTemplateRenderWithoutEscaping(t *testing.T) {
+	cfg := &templatecfg.SetConfig{Engine: templatecfg.EngineConfig{Escape: templatecfg.EscapeNone}}
+	set, err := jet.NewSet(registry.ParseID("app:test_templates"), cfg, payloadSystem.GlobalTranscoder())
+	require.NoError(t, err)
+	require.NoError(t, set.AddTemplate("subject", `{{ value }}`))
+
+	l := setupTestState(t, &mockResource{resValue: set})
+	defer l.Close()
+
+	err = l.DoString(`
+		local set, err = templates.get("app:test_templates")
+		if err then error(err) end
+
+		local value = [[R&D <"text"> 'draft']]
+		local result, err = set:render("subject", {value = value})
+		set:release()
+		if err then error(err) end
+		assert(result == value, "expected verbatim text, got " .. result)
+	`)
+	require.NoError(t, err)
+}
+
 func TestTemplateRenderWithNestedData(t *testing.T) {
 	templateSet := createTestTemplateSet(t)
 	mockRes := &mockResource{resValue: templateSet}

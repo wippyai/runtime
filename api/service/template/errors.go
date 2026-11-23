@@ -22,4 +22,5 @@ var (
 	ErrEmptyCommentDelimiters = apierror.New(apierror.Invalid, "comment delimiters cannot be empty").WithRetryable(apierror.False)
 	ErrConflictingDelimiters  = apierror.New(apierror.Invalid, "delimiters and comment delimiters cannot be the same").WithRetryable(apierror.False)
 	ErrEmptyExtensions        = apierror.New(apierror.Invalid, "at least one file extension is required").WithRetryable(apierror.False)
+	ErrInvalidEscape          = apierror.New(apierror.Invalid, "escape must be html or none").WithRetryable(apierror.False)
 )

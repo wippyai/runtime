@@ -66,6 +66,7 @@ func makeSetEntry(id registry.ID, cfg *template.SetConfig) registry.Entry {
 		Data: payload.New(map[string]any{
 			"engine": map[string]any{
 				"development_mode": cfg.Engine.DevelopmentMode,
+				"escape":           cfg.Engine.Escape,
 				"delimiters": map[string]any{
 					"left":  cfg.Engine.Delimiters.Left,
 					"right": cfg.Engine.Delimiters.Right,
@@ -410,6 +411,35 @@ func TestManager_UpdateSet(t *testing.T) {
 	set, _ := m.GetTemplateSet(setID)
 	source, _ := set.GetTemplateSource("my-template")
 	assert.Equal(t, "Hello", source)
+}
+
+func TestManager_UpdateSetEscapeMode(t *testing.T) {
+	m, _ := newTestManager(t)
+	ctx := context.Background()
+	setID := registry.NewID("test", "messages")
+	tplID := registry.NewID("test", "subject")
+	html := makeSetEntry(setID, &template.SetConfig{Engine: template.EngineConfig{Escape: template.EscapeHTML}})
+	plain := makeSetEntry(setID, &template.SetConfig{Engine: template.EngineConfig{Escape: template.EscapeNone}})
+
+	require.NoError(t, m.Add(ctx, html))
+	require.NoError(t, m.Add(ctx, makeTemplateEntry(tplID, &template.Config{
+		Source: `{{ value }}`,
+		Set:    setID,
+	})))
+	assertRender := func(want string) {
+		t.Helper()
+		set, err := m.GetTemplateSet(setID)
+		require.NoError(t, err)
+		result, err := set.RenderTemplate("subject", map[string]any{"value": "R&D"})
+		require.NoError(t, err)
+		assert.Equal(t, want, result)
+	}
+
+	assertRender("R&amp;D")
+	require.NoError(t, m.Update(ctx, plain))
+	assertRender("R&D")
+	require.NoError(t, m.Update(ctx, html))
+	assertRender("R&amp;D")
 }
 
 func TestManager_DeleteSet(t *testing.T) {

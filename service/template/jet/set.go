@@ -45,6 +45,10 @@ func NewSet(id registry.ID, config *templateapi.SetConfig, dtt payload.Transcode
 		options = append(options, jet.InDevelopmentMode())
 	}
 
+	if engine.Escape == templateapi.EscapeNone {
+		options = append(options, jet.WithSafeWriter(nil))
+	}
+
 	if engine.Delimiters.Left != "" && engine.Delimiters.Right != "" {
 		options = append(options, jet.WithDelims(
 			engine.Delimiters.Left,
