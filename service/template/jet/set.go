@@ -21,7 +21,7 @@ import (
 type Set struct {
 	dtt     payload.Transcoder
 	jetSet  *jet.Set
-	loader  *jet.InMemLoader
+	loader  *templateLoader
 	cache   *compiledCache
 	config  *templateapi.SetConfig
 	sources map[string]string
@@ -34,8 +34,7 @@ func NewSet(id registry.ID, config *templateapi.SetConfig, dtt payload.Transcode
 	if config == nil {
 		config = &templateapi.SetConfig{}
 	}
-	// Create a loader for in-memory templates
-	loader := jet.NewInMemLoader()
+	loader := &templateLoader{InMemLoader: jet.NewInMemLoader(), active: make(map[string]int)}
 
 	cache := newCompiledCache()
 	options := []jet.Option{jet.WithCache(cache)}
@@ -96,7 +95,8 @@ func (s *Set) AddTemplate(name string, source string) error {
 		return servicetemplate.NewTemplateExistsInSetError(name)
 	}
 
-	// Register the template with Jet's InMemLoader
+	s.loader.mu.Lock()
+	defer s.loader.mu.Unlock()
 	s.loader.Set(name, source)
 	s.cache.reset()
 
@@ -115,7 +115,8 @@ func (s *Set) UpdateTemplate(name string, source string) error {
 		return servicetemplate.ErrTemplateNotFound
 	}
 
-	// Update the template in Jet's loader
+	s.loader.mu.Lock()
+	defer s.loader.mu.Unlock()
 	s.loader.Set(name, source)
 	s.cache.reset()
 
@@ -134,7 +135,8 @@ func (s *Set) RemoveTemplate(name string) error {
 		return servicetemplate.ErrTemplateNotFound
 	}
 
-	// Delete the template from Jet's loader
+	s.loader.mu.Lock()
+	defer s.loader.mu.Unlock()
 	s.loader.Delete(name)
 	s.cache.reset()
 
