@@ -31,13 +31,30 @@ Method results are wrapped as Payload objects. See `runtime/lua/modules/payload/
 
 ## Functions
 
-### get(contract_id: string) → Contract, error
+### get(contract_id: string, client_type?: type) → Contract, error
 
 Retrieves a contract definition for introspection.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | contract_id | string | yes | - | Contract registry ID (e.g., "namespace:name") |
+| client_type | type | no | - | Static type of the client returned by the wrapper's `open()` method |
+
+Pass a client type to preserve the contract's declared method signatures at the call site.
+
+```lua
+type Reader = {
+    read: (self: Reader, input: { id: string }) -> ({ value: string }?, error?)
+}
+
+local definition, err = contract.get("example:readable", Reader)
+if not definition then return nil, err end
+local client, open_err = definition:open()
+if not client then return nil, open_err end
+return client:read({ id = "example" })
+```
+
+The client type is used by the type checker. Binding selection, authorization, and invocation use the registered contract.
 
 **Returns:**
 - Success: Contract wrapper with introspection methods
