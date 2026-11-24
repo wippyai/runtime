@@ -4,6 +4,10 @@ package template
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"runtime/debug"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -331,4 +335,58 @@ func TestModuleInfo(t *testing.T) {
 	info := Module.Info()
 	assert.Equal(t, "templates", info.Name)
 	assert.Equal(t, "Template rendering engine", info.Description)
+}
+
+func TestTemplateRenderDependencyCycles(t *testing.T) {
+	for _, tc := range []struct {
+		sources            map[string]string
+		name, entry, chain string
+	}{
+		{map[string]string{"a": `{{ extends "a" }}`}, "self-extends", "a", "/a -> /a"},
+		{map[string]string{"a": `{{ extends "b" }}`, "b": `{{ extends "a" }}`}, "mutual-extends", "a", "/a -> /b -> /a"},
+		{map[string]string{"a": `{{ import "a" }}`}, "self-import", "a", "/a -> /a"},
+		{map[string]string{"a": `{{ import "b" }}`, "b": `{{ import "a" }}`}, "mutual-import", "a", "/a -> /b -> /a"},
+		{map[string]string{
+			"a": `{{ import "b" }}`, "b": `{{ import "c" }}`, "c": `{{ import "a" }}`,
+		}, "three-imports", "a", "/a -> /b -> /c -> /a"},
+		{map[string]string{"entry": `{{ import "a" }}valid`, "a": `{{ extends "a" }}`}, "entry", "entry", "/entry -> /a -> /a"},
+		{map[string]string{"entry": `{{ include target }}`, "a": `{{ import "a" }}`}, "cold-include", "entry", "/a -> /a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const child = "WIPPY_LUA_TEMPLATE_CYCLE_TEST"
+			if os.Getenv(child) != t.Name() {
+				cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^"+t.Name()+"$")
+				cmd.Env = append(os.Environ(), child+"="+t.Name(), "GOTRACEBACK=none")
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, "%s", output)
+				return
+			}
+			defer debug.SetMaxStack(debug.SetMaxStack(512 << 10))
+
+			set := createTestTemplateSet(t)
+			for name, source := range tc.sources {
+				require.NoError(t, set.AddTemplate(name, source))
+			}
+			l := setupTestState(t, &mockResource{resValue: set})
+			defer l.Close()
+			message := "failed to get compiled template"
+			if tc.name == "cold-include" {
+				message = "template render failed"
+			}
+			require.NoError(t, l.DoString(fmt.Sprintf(`
+				local set, err = templates.get("app:test_templates")
+				assert(set, tostring(err))
+				local result, err = set:render(%q, {target = "a"})
+				assert(result == nil and err ~= nil)
+				local msg = tostring(err)
+				assert(err:kind() == "Internal", msg)
+				assert(err:retryable() == false, msg)
+				assert(string.find(msg, %q, 1, true), msg)
+				assert(string.find(msg, %q, 1, true), msg)
+				local healthy, healthy_err = set:render("welcome", {name = "Jet"})
+				assert(healthy == "Hello, Jet!", tostring(healthy_err))
+				assert(set:release())
+			`, tc.entry, message, "template dependency cycle: "+tc.chain)))
+		})
+	}
 }
