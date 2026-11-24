@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/system/eventbus"
+	resourcesystem "github.com/wippyai/runtime/system/resource"
 )
 
 func TestSQLResourceWaitCancellationAfterDispatchStillReportsRejection(t *testing.T) {
@@ -58,8 +59,7 @@ func TestSQLResourceCancellationBeforeDispatchSendsNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bus := &cancelOnSubscribeBus{readinessBus: &readinessBus{subs: make(map[string]chan<- event.Event), requests: make(chan event.Event, 1)}, cancel: cancel}
-	m := &Manager{bus: bus}
-	require.ErrorIs(t, m.awaitResource(ctx, event.Event{System: resource.System, Kind: resource.Delete}), context.Canceled)
+	require.ErrorIs(t, resourcesystem.AwaitOperation(ctx, bus, event.Event{System: resource.System, Kind: resource.Delete}), context.Canceled)
 	require.Empty(t, bus.requests)
 	require.Empty(t, bus.subs)
 }
@@ -74,10 +74,9 @@ func (b *shutdownReadinessBus) Done() <-chan struct{} { return b.done }
 func TestSQLResourceHandoffEndsOnBusShutdown(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		bus := &shutdownReadinessBus{readinessBus: &readinessBus{subs: make(map[string]chan<- event.Event), requests: make(chan event.Event, 1)}, done: make(chan struct{})}
-		m := &Manager{bus: bus}
 		done := make(chan error, 1)
 		go func() {
-			done <- m.awaitResource(context.Background(), event.Event{System: resource.System, Kind: resource.Delete})
+			done <- resourcesystem.AwaitOperation(context.Background(), bus, event.Event{System: resource.System, Kind: resource.Delete})
 		}()
 		<-bus.requests
 		close(bus.done)
@@ -88,10 +87,9 @@ func TestSQLResourceHandoffEndsOnBusShutdown(t *testing.T) {
 
 func TestSQLResourceWaitAlreadyCanceledSendsNothing(t *testing.T) {
 	bus := &readinessBus{subs: make(map[string]chan<- event.Event), requests: make(chan event.Event, 1)}
-	m := &Manager{bus: bus}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.ErrorIs(t, m.awaitResource(ctx, event.Event{System: resource.System, Kind: resource.Delete}), context.Canceled)
+	require.ErrorIs(t, resourcesystem.AwaitOperation(ctx, bus, event.Event{System: resource.System, Kind: resource.Delete}), context.Canceled)
 	require.Empty(t, bus.requests)
 	require.Empty(t, bus.subs)
 }

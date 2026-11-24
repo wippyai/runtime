@@ -15,6 +15,7 @@ import (
 	templateapi "github.com/wippyai/runtime/api/service/template"
 	servicetemplate "github.com/wippyai/runtime/service/template"
 	entryutil "github.com/wippyai/runtime/system/entry"
+	resourcesystem "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -332,12 +333,7 @@ func (m *Manager) handleSetAdd(ctx context.Context, entry registry.Entry) error 
 		return servicetemplate.NewCreateSetError(err)
 	}
 
-	// Store the set and its configuration
-	m.sets[entry.ID] = set
-	m.setConfigs[entry.ID] = cfg
-
-	// Register as resource provider
-	m.bus.Send(ctx, event.Event{
+	if err := resourcesystem.AwaitOperation(ctx, m.bus, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   entry.ID.String(),
@@ -346,7 +342,12 @@ func (m *Manager) handleSetAdd(ctx context.Context, entry registry.Entry) error 
 			Provider: set,
 			Meta:     entry.Meta,
 		},
-	})
+	}); err != nil {
+		return err
+	}
+
+	m.sets[entry.ID] = set
+	m.setConfigs[entry.ID] = cfg
 
 	m.log.Info("template set added",
 		zap.String("id", entry.ID.String()))
@@ -385,12 +386,7 @@ func (m *Manager) handleSetUpdate(ctx context.Context, entry registry.Entry) err
 		}
 	}
 
-	// Update the set and its configuration
-	m.sets[entry.ID] = set
-	m.setConfigs[entry.ID] = cfg
-
-	// Update resource provider
-	m.bus.Send(ctx, event.Event{
+	if err := resourcesystem.AwaitOperation(ctx, m.bus, event.Event{
 		System: resource.System,
 		Kind:   resource.Update,
 		Path:   entry.ID.String(),
@@ -399,7 +395,12 @@ func (m *Manager) handleSetUpdate(ctx context.Context, entry registry.Entry) err
 			Provider: set,
 			Meta:     entry.Meta,
 		},
-	})
+	}); err != nil {
+		return err
+	}
+
+	m.sets[entry.ID] = set
+	m.setConfigs[entry.ID] = cfg
 
 	m.log.Info("template set updated",
 		zap.String("id", entry.ID.String()))
@@ -424,13 +425,14 @@ func (m *Manager) handleSetDelete(ctx context.Context, entry registry.Entry) err
 		return servicetemplate.NewSetNotEmptyError(entry.ID.String(), len(templates))
 	}
 
-	// Unregister resource provider
-	m.bus.Send(ctx, event.Event{
+	if err := resourcesystem.AwaitOperation(ctx, m.bus, event.Event{
 		System: resource.System,
 		Kind:   resource.Delete,
 		Path:   entry.ID.String(),
 		Data:   entry.ID,
-	})
+	}); err != nil {
+		return err
+	}
 
 	// Remove the set and its configuration
 	delete(m.sets, entry.ID)

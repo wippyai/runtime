@@ -16,47 +16,28 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/service/template"
+	"github.com/wippyai/runtime/system/eventbus"
 	payloadSystem "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
+	resourcesystem "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
-type mockBus struct {
-	events []event.Event
-	mu     sync.Mutex
-}
-
-func (m *mockBus) Subscribe(_ context.Context, _ event.System, _ chan<- event.Event) (event.SubscriberID, error) {
-	return "", nil
-}
-
-func (m *mockBus) SubscribeP(_ context.Context, _ event.System, _ event.Kind, _ chan<- event.Event) (event.SubscriberID, error) {
-	return "", nil
-}
-
-func (*mockBus) HasSubscribers(event.System, event.Kind) bool { return true }
-
-func (m *mockBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
-
-func (m *mockBus) Send(_ context.Context, e event.Event) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.events = append(m.events, e)
-}
-
-func (m *mockBus) getEvents() []event.Event {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.events
-}
-
-func newTestManager(_ *testing.T) (*Manager, *mockBus) {
-	transcoder := payloadSystem.GlobalTranscoder()
+func newTestManager(t *testing.T) (*Manager, *[]event.Event) {
+	t.Helper()
+	transcoder := payloadSystem.NewTranscoder()
 	json.Register(transcoder)
-	bus := &mockBus{}
-	log := zap.NewNop()
-	m := NewManager(bus, transcoder, log)
-	return m, bus
+	bus := &resourceDeliveryBus{Bus: eventbus.NewBus()}
+	t.Cleanup(bus.Stop)
+	var requests []event.Event
+	bus.deliver = func(ctx context.Context, e event.Event) {
+		requests = append(requests, e)
+		bus.Bus.Send(ctx, e)
+	}
+	resources := resourcesystem.NewRegistry(bus.Bus, nil)
+	require.NoError(t, resources.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, resources.Stop()) })
+	return NewManager(bus, transcoder, zap.NewNop()), &requests
 }
 
 func makeSetEntry(id registry.ID, cfg *template.SetConfig) registry.Entry {
@@ -97,7 +78,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManager_AddSet(t *testing.T) {
-	m, bus := newTestManager(t)
+	m, requests := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -120,7 +101,7 @@ func TestManager_AddSet(t *testing.T) {
 	require.NotNil(t, set)
 	assert.Equal(t, setID, set.ID())
 
-	events := bus.getEvents()
+	events := *requests
 	require.Len(t, events, 1)
 	assert.Equal(t, resource.System, events[0].System)
 	assert.Equal(t, resource.Register, events[0].Kind)
@@ -372,7 +353,7 @@ func TestManager_DeleteTemplateNotFound(t *testing.T) {
 }
 
 func TestManager_UpdateSet(t *testing.T) {
-	m, bus := newTestManager(t)
+	m, requests := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -397,7 +378,7 @@ func TestManager_UpdateSet(t *testing.T) {
 	err := m.Update(ctx, updatedSetEntry)
 	require.NoError(t, err)
 
-	events := bus.getEvents()
+	events := *requests
 	var updateEvent *event.Event
 	for _, e := range events {
 		if e.Kind == resource.Update {
@@ -413,7 +394,7 @@ func TestManager_UpdateSet(t *testing.T) {
 }
 
 func TestManager_DeleteSet(t *testing.T) {
-	m, bus := newTestManager(t)
+	m, requests := newTestManager(t)
 	ctx := context.Background()
 
 	setID := registry.NewID("test", "my-set")
@@ -427,7 +408,7 @@ func TestManager_DeleteSet(t *testing.T) {
 	_, err = m.GetTemplateSet(setID)
 	assert.ErrorIs(t, err, template.ErrSetNotFound)
 
-	events := bus.getEvents()
+	events := *requests
 	var deleteEvent *event.Event
 	for _, e := range events {
 		if e.Kind == resource.Delete {

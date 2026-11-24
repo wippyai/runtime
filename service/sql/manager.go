@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/supervisor"
+	resourcesystem "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -156,7 +157,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) registerService(ctx context.Context, entry registry.Entry, pool *ConnPool, lifecycle supervisor.LifecycleConfig) error {
 	// Publish routing before the supervisor can start the service, and do not
 	// acknowledge the registry entry until the provider is visible.
-	if err := m.awaitResource(ctx, event.Event{
+	if err := resourcesystem.AwaitOperation(ctx, m.bus, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   entry.ID.String(),
@@ -199,7 +200,7 @@ func (m *Manager) updateService(ctx context.Context, entry registry.Entry, lifec
 // unregisterService handles the common service unregistration logic
 func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) error {
 	// Retire routing before the supervisor can stop the pool.
-	if err := m.awaitResource(ctx, event.Event{
+	if err := resourcesystem.AwaitOperation(ctx, m.bus, event.Event{
 		System: resource.System, Kind: resource.Delete, Path: entry.ID.String(), Data: entry.ID,
 	}); err != nil {
 		return err
