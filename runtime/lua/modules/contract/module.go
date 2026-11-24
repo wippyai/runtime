@@ -180,7 +180,6 @@ func parseBindingID(bindingID string) (string, map[string]any, error) {
 }
 
 // getContract retrieves a contract definition by ID.
-// The optional client type is used only by the type checker.
 func getContract(l *lua.LState) int {
 	contractID := l.CheckString(1)
 
