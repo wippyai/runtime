@@ -210,6 +210,41 @@ func TestSet_RenderTemplate(t *testing.T) {
 	assert.Equal(t, template.ErrTemplateNotFound, err)
 }
 
+func TestSet_RenderEscapeModes(t *testing.T) {
+	const value = `R&D <"text"> 'draft'`
+	const escaped = `R&amp;D &lt;&#34;text&#34;&gt; &#39;draft&#39;`
+	vars := map[string]any{"value": value}
+
+	t.Run("html", func(t *testing.T) {
+		cfg := &template.SetConfig{Engine: template.EngineConfig{Escape: template.EscapeHTML}}
+		set, err := NewSet(registry.NewID("", "html"), cfg, payloadSystem.GlobalTranscoder())
+		require.NoError(t, err)
+		require.NoError(t, set.AddTemplate("text", `{{ value }} | {{ raw(value) }}`))
+
+		result, err := set.RenderTemplate("text", vars)
+		require.NoError(t, err)
+		assert.Equal(t, escaped+" | "+value, result)
+	})
+
+	t.Run("none", func(t *testing.T) {
+		cfg := &template.SetConfig{Engine: template.EngineConfig{Escape: template.EscapeNone}}
+		set, err := NewSet(registry.NewID("", "plain"), cfg, payloadSystem.GlobalTranscoder())
+		require.NoError(t, err)
+		require.NoError(t, set.AddTemplate("text", `{{ value }} | {{ value | safeHtml }}`))
+		require.NoError(t, set.AddTemplate("layout", `Layout: {{ value }} | {{ yield body() }}`))
+		require.NoError(t, set.AddTemplate("partial", `{{ value }}`))
+		require.NoError(t, set.AddTemplate("page", `{{ extends "layout" }}{{ block body() }}{{ include "partial" }}{{ end }}`))
+
+		result, err := set.RenderTemplate("text", vars)
+		require.NoError(t, err)
+		assert.Equal(t, value+" | "+escaped, result)
+
+		result, err = set.RenderTemplate("page", vars)
+		require.NoError(t, err)
+		assert.Equal(t, "Layout: "+value+" | "+value, result)
+	})
+}
+
 func TestSet_RenderPayload(t *testing.T) {
 	// Create a template set with a template
 	set := createTestSet(t)

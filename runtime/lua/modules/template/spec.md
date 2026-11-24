@@ -43,6 +43,8 @@ Acquires a template set resource by registry ID.
 
 Template set returned by `templates.get()`. Represents a collection of templates with shared configuration.
 
+In a `template.set` entry, `engine.escape` defaults to `html`. Set it to `none` to disable automatic HTML escaping for plain-text output.
+
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | render | (name: string, data?: table) | string, error | Renders template with data |

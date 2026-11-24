@@ -16,6 +16,13 @@ const (
 	Set registry.Kind = "template.set"
 )
 
+const (
+	// EscapeHTML applies HTML escaping to interpolated values.
+	EscapeHTML = "html"
+	// EscapeNone disables automatic escaping for interpolated values.
+	EscapeNone = "none"
+)
+
 // Config represents configuration for a template entry
 type Config struct {
 	Meta attrs.Bag `json:"meta"`
@@ -31,6 +38,7 @@ type Config struct {
 type EngineConfig struct {
 	Globals         map[string]any  `json:"globals"`
 	Delimiters      DelimiterConfig `json:"delimiters"`
+	Escape          string          `json:"escape"`
 	Extensions      []string        `json:"extensions"`
 	DevelopmentMode bool            `json:"development_mode"`
 }
@@ -77,6 +85,10 @@ func (e *EngineConfig) initDefaults() {
 		e.Extensions = []string{".jet", ".html.jet", ".jet.html"}
 	}
 
+	if e.Escape == "" {
+		e.Escape = EscapeHTML
+	}
+
 	// Initialize globals map if nil
 	if e.Globals == nil {
 		e.Globals = make(map[string]any)
@@ -115,6 +127,10 @@ func (e *EngineConfig) Validate() error {
 
 	if len(e.Extensions) == 0 {
 		return ErrEmptyExtensions
+	}
+
+	if e.Escape != EscapeHTML && e.Escape != EscapeNone {
+		return ErrInvalidEscape
 	}
 
 	return nil

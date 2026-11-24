@@ -210,3 +210,23 @@ func TestSetConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineConfig_ValidateEscape(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		var cfg EngineConfig
+		require.NoError(t, cfg.Validate())
+		assert.Equal(t, EscapeHTML, cfg.Escape)
+	})
+
+	t.Run("none", func(t *testing.T) {
+		var cfg EngineConfig
+		require.NoError(t, json.Unmarshal([]byte(`{"escape":"none"}`), &cfg))
+		require.NoError(t, cfg.Validate())
+		assert.Equal(t, EscapeNone, cfg.Escape)
+	})
+
+	t.Run("unknown", func(t *testing.T) {
+		cfg := EngineConfig{Escape: "unknown"}
+		require.ErrorIs(t, cfg.Validate(), ErrInvalidEscape)
+	})
+}

@@ -16,6 +16,16 @@ entries:
         siteName: "Test Site"
         version: "1.0.0"
 
+  - name: plain_set
+    kind: template.set
+    engine:
+      escape: none
+
+  - name: subject
+    kind: template.jet
+    set: app.test.template:plain_set
+    source: "Subject: {{value}}"
+
   # Base layout template
   - name: base
     kind: template.jet
