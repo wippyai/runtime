@@ -26,16 +26,12 @@ func init() {
 		OptField("output_schemas", typ.NewArray(schemaDefinitionType)).
 		Build()
 
-	contractType = contractDefinitionType(typ.Any)
-}
-
-func contractDefinitionType(client typ.Type) typ.Type {
-	return typ.NewInterface("contract.Contract", []typ.Method{
+	contractType = typ.NewInterface("contract.Contract", []typ.Method{
 		{Name: "id", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
 		{Name: "methods", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(methodDefinitionType)).Build()},
 		{Name: "method", Type: typ.Func().Param("self", typ.Self).Param("name", typ.String).Returns(methodDefinitionType, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "implementations", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "open", Type: typ.Func().Param("self", typ.Self).OptParam("name", typ.String).OptParam("scope", typ.Any).Returns(client, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "open", Type: typ.Func().Param("self", typ.Self).OptParam("name", typ.String).OptParam("scope", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "with_context", Type: typ.Func().Param("self", typ.Self).Param("ctx", typ.Any).Returns(typ.Self).Build()},
 		{Name: "with_actor", Type: typ.Func().Param("self", typ.Self).Param("actor", typ.Any).Returns(typ.Self).Build()},
 		{Name: "with_scope", Type: typ.Func().Param("self", typ.Self).Param("scope", typ.Any).Returns(typ.Self).Build()},
@@ -50,18 +46,12 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("MethodDefinition", methodDefinitionType)
 	m.DefineType("SchemaDefinition", schemaDefinitionType)
 
-	client := typ.NewTypeParam("Client", nil)
-	get := typ.NewUnion(
-		typ.Func().TypeParam("Client", nil).Param("name", typ.String).Param("client_type", typ.NewMeta(client)).
-			Returns(typ.NewOptional(contractDefinitionType(typ.NewOptional(client))), typ.NewOptional(typ.LuaError)).Build(),
-		typ.Func().Param("name", typ.String).Returns(contractType, typ.NewOptional(typ.LuaError)).Build(),
-	)
-	moduleType := typ.NewRecord().
-		Field("get", get).
-		Field("open", typ.Func().Param("name", typ.String).OptParam("scope", typ.Any).OptParam("options", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()).
-		Field("find_implementations", typ.Func().Param("name", typ.String).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()).
-		Field("is", typ.Func().Param("value", typ.Any).Param("name", typ.String).Returns(typ.Boolean).Build()).
-		Build()
+	moduleType := typ.NewInterface("contract", []typ.Method{
+		{Name: "get", Type: typ.Func().Param("name", typ.String).Returns(contractType, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "open", Type: typ.Func().Param("name", typ.String).OptParam("scope", typ.Any).OptParam("options", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "find_implementations", Type: typ.Func().Param("name", typ.String).Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "is", Type: typ.Func().Param("value", typ.Any).Param("name", typ.String).Returns(typ.Boolean).Build()},
+	})
 
 	m.SetExport(moduleType)
 	return m
