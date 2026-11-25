@@ -22,7 +22,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
-	github.com/expr-lang/expr v1.17.8
+	github.com/expr-lang/expr v1.18.1
 	github.com/fatih/color v1.19.0
 	github.com/felixge/httpsnoop v1.1.0
 	github.com/go-json-experiment/json v1.27.2
