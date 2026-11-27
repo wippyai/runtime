@@ -156,13 +156,13 @@ Validates a Lua value against a JSON Schema.
 
 **Errors (structured):**
 
-| Condition | Kind | Retryable | Notes |
-|-----------|------|-----------|-------|
-| schema is nil | errors.INVALID | no | Schema parameter required |
-| data is nil | errors.INVALID | no | Data parameter required |
-| schema invalid | errors.INVALID | no | Schema not table, string or raw |
-| schema compile error | errors.INVALID | no | Invalid JSON Schema |
-| validation failed | errors.INVALID | no | Data doesn't match schema |
+| Condition | Kind | Retryable | details.code | Notes |
+|-----------|------|-----------|--------------|-------|
+| schema is nil | errors.INVALID | no | - | Schema parameter required |
+| data is nil | errors.INVALID | no | - | Data parameter required |
+| schema invalid | errors.INVALID | no | `schema` | Schema not table, string or raw |
+| schema compile error | errors.INVALID | no | `schema` | Invalid JSON Schema or unresolvable `$ref` |
+| validation failed | errors.INVALID | no | `validation` | Data doesn't match schema |
 
 **Schema caching:** Schemas are cached internally by SHA256 hash (cache size: 100).
 
@@ -181,19 +181,19 @@ Validates a JSON string against a JSON Schema without decoding it first.
 
 **Errors (structured):**
 
-| Condition | Kind | Retryable | Notes |
-|-----------|------|-----------|-------|
-| schema is nil | errors.INVALID | no | Schema parameter required |
-| data not string | errors.INVALID | no | Second parameter must be string |
-| schema invalid | errors.INVALID | no | Schema not table, string or raw |
-| schema compile error | errors.INVALID | no | Invalid JSON Schema |
-| validation failed | errors.INVALID | no | JSON doesn't match schema |
+| Condition | Kind | Retryable | details.code | Notes |
+|-----------|------|-----------|--------------|-------|
+| schema is nil | errors.INVALID | no | - | Schema parameter required |
+| data not string | errors.INVALID | no | - | Second parameter must be string |
+| schema invalid | errors.INVALID | no | `schema` | Schema not table, string or raw |
+| schema compile error | errors.INVALID | no | `schema` | Invalid JSON Schema or unresolvable `$ref` |
+| validation failed | errors.INVALID | no | `validation` | JSON doesn't match schema |
 
 **Validation failure format:** the message is `validation failed: <instance path>: <keyword>: <text>` for the
 most specific violated rule. `if`/`not`/`contains` sub-results are conditions, not violations; `$ref`, `allOf`,
 `anyOf`, `oneOf`, `properties` and `items` wrappers are descended to their leaf rules. For `required` the instance
 path is the missing property (`/a/b`, keyword `required`); `dependentRequired` likewise reports one leaf per missing property; for `additionalProperties` it is the extra property; for `propertyNames` it is the offending property name with the failing sub-schema keyword.
-`err:details()` returns `{errors = [{instance_path, keyword, message, schema_path}], total = n}`, ordered most
+`err:details()` returns `{code = "validation", errors = [{instance_path, keyword, message, schema_path}], total = n}`, ordered most
 specific first (`required`, `additionalProperties`/`unevaluatedProperties`, `enum`/`const`, `type`, others; then
 deepest path first) and holding at most 50 entries; `total` is the full leaf count. The root path is `/`.
 

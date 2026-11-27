@@ -14,6 +14,12 @@ import (
 
 const maxValidationDetails = 50
 
+// Error codes in details.code of a failed validate or validate_string.
+const (
+	schemaErrorCode     = "schema"
+	validationErrorCode = "validation"
+)
+
 // schemaLeaf is a single violated rule of a failed schema evaluation.
 type schemaLeaf struct {
 	instancePath string
@@ -289,7 +295,10 @@ func unescapePointer(s string) string {
 func validationFailure(l *lua.LState, result *jsonschema.EvaluationResult) *lua.Error {
 	leaves := collectSchemaLeaves(result)
 	if len(leaves) == 0 {
-		return lua.NewLuaError(l, "validation failed").WithKind(lua.Invalid).WithRetryable(false)
+		return lua.NewLuaError(l, "validation failed").
+			WithKind(lua.Invalid).
+			WithRetryable(false).
+			WithDetails(map[string]any{"code": validationErrorCode})
 	}
 	sortLeaves(leaves)
 
@@ -310,5 +319,5 @@ func validationFailure(l *lua.LState, result *jsonschema.EvaluationResult) *lua.
 	return lua.NewLuaError(l, "validation failed: "+leaves[0].String()).
 		WithKind(lua.Invalid).
 		WithRetryable(false).
-		WithDetails(map[string]any{"errors": errs, "total": len(leaves)})
+		WithDetails(map[string]any{"code": validationErrorCode, "errors": errs, "total": len(leaves)})
 }

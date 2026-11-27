@@ -229,6 +229,17 @@ func validationError(l *lua.LState, goErr error, context string) int {
 	return 2
 }
 
+// schemaError reports a schema that cannot be read, compiled or resolved.
+func schemaError(l *lua.LState, goErr error, context string) int {
+	err := lua.WrapErrorWithLua(l, goErr, context).
+		WithKind(lua.Invalid).
+		WithRetryable(false).
+		WithDetails(map[string]any{"code": schemaErrorCode})
+	l.Push(lua.LFalse)
+	l.Push(err)
+	return 2
+}
+
 func validationFailed(l *lua.LState, result *jsonschema.EvaluationResult) int {
 	l.Push(lua.LFalse)
 	l.Push(validationFailure(l, result))
@@ -682,12 +693,12 @@ func schemaValidateFunc(l *lua.LState) int {
 
 	schemaJSON, err := getSchemaJSON(schemaArg)
 	if err != nil {
-		return validationError(l, err, "schema error")
+		return schemaError(l, err, "schema error")
 	}
 
 	schema, err := compileSchema(schemaJSON)
 	if err != nil {
-		return validationError(l, err, "compile schema")
+		return schemaError(l, err, "compile schema")
 	}
 
 	// Convert Lua value directly to Go value
@@ -727,12 +738,12 @@ func schemaValidateStringFunc(l *lua.LState) int {
 
 	schemaJSON, err := getSchemaJSON(schemaArg)
 	if err != nil {
-		return validationError(l, err, "schema error")
+		return schemaError(l, err, "schema error")
 	}
 
 	schema, err := compileSchema(schemaJSON)
 	if err != nil {
-		return validationError(l, err, "compile schema")
+		return schemaError(l, err, "compile schema")
 	}
 
 	result := schema.Validate([]byte(jsonStr))
