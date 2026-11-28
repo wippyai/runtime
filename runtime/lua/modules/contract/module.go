@@ -4,6 +4,8 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
+	"mime"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -22,6 +24,7 @@ import (
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/future"
+	jsonmod "github.com/wippyai/runtime/runtime/lua/modules/json"
 	"github.com/wippyai/runtime/runtime/security"
 )
 
@@ -811,10 +814,24 @@ func createSchemasTable(l *lua.LState, schemas []contract.SchemaDefinition) *lua
 	for i, schema := range schemas {
 		schemaTable := l.CreateTable(0, 2)
 		schemaTable.RawSetString("format", lua.LString(schema.Format))
-		if schema.Definition != nil {
-			if lv, err := luaconv.GoToLua(schema.Definition); err == nil {
-				schemaTable.RawSetString("definition", lv)
+		definition := lua.LNil
+		var err error
+		switch d := schema.Definition.(type) {
+		case nil:
+		case json.RawMessage:
+			definition, err = jsonmod.Decode(d)
+		default:
+			definition, err = luaconv.GoToLua(d)
+		}
+		// A JSON media type declares definition text as the JSON document itself.
+		if text, ok := definition.(lua.LString); ok && err == nil {
+			if mediaType, _, perr := mime.ParseMediaType(schema.Format); perr == nil &&
+				(mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")) {
+				definition, err = jsonmod.Decode([]byte(text))
 			}
+		}
+		if err == nil && definition != lua.LNil {
+			schemaTable.RawSetString("definition", definition)
 		}
 		result.RawSetInt(i+1, schemaTable)
 	}
