@@ -3,11 +3,13 @@
 package events
 
 import (
+	"context"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -162,6 +164,7 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
 			return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "subscribe")}
 		}
+		proc.SetTopicHandler(y.Topic, eventToLua)
 	}
 
 	// Create subscription with channel and unsubscribe function
@@ -201,6 +204,30 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 	l.Pop(1) // Remove from stack since we return via slice
 
 	return []lua.LValue{subUD, lua.LNil}
+}
+
+func eventToLua(ctx context.Context, l *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
+	if len(payloads) != 1 || payloads[0] == nil || payloads[0].Format() != payload.Golang {
+		return engine.PayloadsToLua(ctx, l, payloads)
+	}
+	envelope, _ := payloads[0].Data().(map[string]any)
+	system, systemOK := envelope["system"].(string)
+	kind, kindOK := envelope["kind"].(string)
+	path, pathOK := envelope["path"].(string)
+	if !systemOK || !kindOK || !pathOK {
+		return engine.PayloadsToLua(ctx, l, payloads)
+	}
+
+	// Internal events can carry Go-only data, such as function callbacks.
+	// Convert data independently so it cannot discard the event metadata.
+	event := l.CreateTable(0, len(envelope))
+	event.RawSetString("system", lua.LString(system))
+	event.RawSetString("kind", lua.LString(kind))
+	event.RawSetString("path", lua.LString(path))
+	if data := envelope["data"]; data != nil {
+		event.RawSetString("data", engine.PayloadsToLua(ctx, l, []payload.Payload{payload.New(data)}))
+	}
+	return event
 }
 
 // EventSendYield is yielded to send an event to the bus.
