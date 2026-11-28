@@ -11,6 +11,8 @@ import (
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -29,6 +31,67 @@ import (
 	"github.com/wippyai/runtime/system/scheduler/pool/inline"
 	"go.uber.org/zap"
 )
+
+func TestWildcardSubscriptionReceivesEventsWithUnsupportedData(t *testing.T) {
+	tc := setupEventsLeakTest(t, 1)
+	defer tc.Close(t)
+
+	proc, err := engine.NewProcess(engine.WithScript(`
+		local sub = assert(events.subscribe("*"))
+		local ch = sub:channel()
+		publish()
+
+		local function receive()
+			local result = channel.select{ch:case_receive()}
+			assert(result.ok)
+			return result.value
+		end
+
+		local registration = receive()
+		assert(registration.system == "function")
+		assert(registration.kind == "function.register")
+		assert(registration.path == "app:probe")
+		assert(registration.data == nil)
+
+		local next_event = receive()
+		assert(next_event.system == "registry")
+		assert(next_event.data.seq == 2)
+		return true
+	`, "wildcard_events.lua"), engine.WithModuleBinder(func(l *lua.LState) error {
+		engine.LoadModuleDef(l, engine.ChannelModule)
+		mod, _ := eventsmod.Module.Build()
+		l.SetGlobal("events", mod)
+		l.SetGlobal("publish", lua.LGoFunc(func(l *lua.LState) int {
+			tc.bus.Send(l.Context(), event.Event{
+				System: function.System,
+				Kind:   function.FunctionRegister,
+				Path:   "app:probe",
+				Data: &function.FuncEntry{
+					Handler: func(context.Context, runtime.Task) (*runtime.Result, error) { return nil, nil },
+				},
+			})
+			tc.bus.Send(l.Context(), event.Event{
+				System: "registry",
+				Kind:   "entry.accept",
+				Path:   "app:probe",
+				Data:   map[string]any{"seq": 2},
+			})
+			return 0
+		}))
+		return nil
+	}))
+	require.NoError(t, err)
+
+	frameCtx, runPID := tc.frameCtxPID(t)
+	ctx, cancel := context.WithTimeout(frameCtx, 5*time.Second)
+	defer cancel()
+	result, err := tc.scheduler.Execute(ctx, runPID, proc, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NoError(t, result.Error)
+	require.NotNil(t, result.Value)
+	require.Equal(t, lua.LTrue, result.Value.Data())
+}
 
 // DebugPool wraps pool to log Send
 type DebugPool struct {
