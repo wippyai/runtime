@@ -3,11 +3,16 @@
 package di
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/go-json-experiment/json/jsontext"
 
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/event"
@@ -334,6 +339,9 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 			if hasInputDef && inputSchema.Format == "" {
 				return NewInputSchemaMissingFormatError(i, method.Name, defID)
 			}
+			if err := jsonDefinitionTextError(inputSchema); err != nil {
+				return NewInputSchemaInvalidJSONError(i, method.Name, defID, err)
+			}
 		}
 
 		// Validate OutputSchemas: if definition exists, format must exist.
@@ -352,9 +360,38 @@ func (m *Manager) validateDefinitionStructure(def *contract.Definition, defID re
 			if hasOutputDef && outputSchema.Format == "" {
 				return NewOutputSchemaMissingFormatError(i, method.Name, defID)
 			}
+			if err := jsonDefinitionTextError(outputSchema); err != nil {
+				return NewOutputSchemaInvalidJSONError(i, method.Name, defID, err)
+			}
 		}
 	}
 	return nil
+}
+
+// jsonDefinitionTextError returns the parse error of a schema whose format is a
+// JSON media type and whose definition is text: that media type declares the
+// text as the JSON document itself.
+func jsonDefinitionTextError(schema contract.SchemaDefinition) error {
+	var text string
+	switch d := schema.Definition.(type) {
+	case json.RawMessage:
+		if !bytes.HasPrefix(bytes.TrimLeft(d, " \t\r\n"), []byte(`"`)) {
+			return nil
+		}
+		if err := json.Unmarshal(d, &text); err != nil {
+			return err
+		}
+	case string:
+		text = d
+	default:
+		return nil
+	}
+	mediaType, _, err := mime.ParseMediaType(schema.Format)
+	if err != nil || (mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")) {
+		return nil
+	}
+	document := jsontext.Value(text)
+	return document.Format()
 }
 
 // validateBindingAgainstDefinitions checks if a binding is valid with the current set of definitions.

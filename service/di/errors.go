@@ -49,6 +49,30 @@ func NewOutputSchemaMissingFormatError(index int, methodName string, defID regis
 		}))
 }
 
+func NewInputSchemaInvalidJSONError(index int, methodName string, defID registry.ID, cause error) error {
+	return apierror.New(apierror.Invalid, "input schema definition is not valid JSON").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"schema_index":  index,
+			"method_name":   methodName,
+			"definition_id": defID.String(),
+			"cause":         cause.Error(),
+		})).
+		WithCause(cause)
+}
+
+func NewOutputSchemaInvalidJSONError(index int, methodName string, defID registry.ID, cause error) error {
+	return apierror.New(apierror.Invalid, "output schema definition is not valid JSON").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"schema_index":  index,
+			"method_name":   methodName,
+			"definition_id": defID.String(),
+			"cause":         cause.Error(),
+		})).
+		WithCause(cause)
+}
+
 func NewBindingNoContractsError(bindingID registry.ID) error {
 	return apierror.New(apierror.Invalid, "binding must bind at least one contract: "+bindingID.String()).
 		WithRetryable(apierror.False).

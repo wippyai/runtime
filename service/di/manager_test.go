@@ -299,6 +299,112 @@ func TestManager_DefinitionAdd(t *testing.T) {
 	})
 }
 
+func TestManager_DefinitionAddJSONSchemaText(t *testing.T) {
+	ctx, manager, _ := setupDIManagerTest(t)
+
+	objectSchema := apidi.SchemaConfig{Format: "application/json", Definition: json.RawMessage(`{"type":"object"}`)}
+	definitionEntry := func(name string, inputs, outputs []apidi.SchemaConfig) registry.Entry {
+		return registry.Entry{
+			ID:   registry.NewID("test", name),
+			Kind: apidi.Definition,
+			Data: NewMockPayload(&apidi.DefinitionConfig{
+				Methods: []apidi.MethodConfig{
+					{Name: "first"},
+					{Name: "second", InputSchemas: inputs, OutputSchemas: outputs},
+				},
+			}),
+		}
+	}
+
+	refused := []struct {
+		name     string
+		message  string
+		inputs   []apidi.SchemaConfig
+		outputs  []apidi.SchemaConfig
+		position int
+	}{
+		{
+			name: "input_application_json",
+			inputs: []apidi.SchemaConfig{
+				objectSchema,
+				{Format: "application/json", Definition: json.RawMessage(`"{\"type\": \"object\""`)},
+			},
+			message:  "input schema definition is not valid JSON",
+			position: 1,
+		},
+		{
+			name:     "output_json_suffix",
+			outputs:  []apidi.SchemaConfig{{Format: "application/schema+json", Definition: json.RawMessage(`"type: object"`)}},
+			message:  "output schema definition is not valid JSON",
+			position: 0,
+		},
+		{
+			name:     "input_media_type_parameters",
+			inputs:   []apidi.SchemaConfig{{Format: "Application/JSON; charset=utf-8", Definition: json.RawMessage(`"{} {}"`)}},
+			message:  "input schema definition is not valid JSON",
+			position: 0,
+		},
+		{
+			name:     "output_duplicate_member_names",
+			outputs:  []apidi.SchemaConfig{objectSchema, {Format: "application/json", Definition: json.RawMessage(`"{\"type\":\"object\",\"type\":\"string\"}"`)}},
+			message:  "output schema definition is not valid JSON",
+			position: 1,
+		},
+	}
+	for _, tc := range refused {
+		t.Run("refuses_"+tc.name, func(t *testing.T) {
+			entry := definitionEntry(tc.name, tc.inputs, tc.outputs)
+
+			err := manager.Add(ctx, entry)
+			apiErr := requireAPIError(t, err, apierror.Invalid, tc.message)
+			assertDetailString(t, apiErr, "definition_id", entry.ID.String())
+			assertDetailString(t, apiErr, "method_name", "second")
+			assertDetailInt(t, apiErr, "schema_index", tc.position)
+			assert.NotEmpty(t, apiErr.Details().GetString("cause", ""))
+			assert.NotNil(t, errors.Unwrap(err))
+
+			manager.mu.RLock()
+			_, exists := manager.definitions[entry.ID]
+			manager.mu.RUnlock()
+			assert.False(t, exists)
+		})
+	}
+
+	accepted := []struct {
+		name    string
+		inputs  []apidi.SchemaConfig
+		outputs []apidi.SchemaConfig
+	}{
+		{
+			name:    "json_document_text",
+			inputs:  []apidi.SchemaConfig{{Format: "application/json", Definition: json.RawMessage(`"{\"type\": \"object\"}"`)}},
+			outputs: []apidi.SchemaConfig{{Format: "application/schema+json", Definition: json.RawMessage(`"{\"type\": \"string\"}"`)}},
+		},
+		{
+			name:    "json_document",
+			inputs:  []apidi.SchemaConfig{objectSchema},
+			outputs: []apidi.SchemaConfig{objectSchema},
+		},
+		{
+			name:    "non_json_format_text",
+			inputs:  []apidi.SchemaConfig{{Format: "text/plain", Definition: json.RawMessage(`"type: object"`)}},
+			outputs: []apidi.SchemaConfig{{Format: "application/x-yaml", Definition: json.RawMessage(`"{not json"`)}},
+		},
+	}
+	for _, tc := range accepted {
+		t.Run("accepts_"+tc.name, func(t *testing.T) {
+			entry := definitionEntry(tc.name, tc.inputs, tc.outputs)
+
+			require.NoError(t, manager.Add(ctx, entry))
+
+			manager.mu.RLock()
+			_, exists := manager.definitions[entry.ID]
+			manager.mu.RUnlock()
+			assert.True(t, exists)
+		})
+	}
+}
+
 func TestManager_DefinitionUpdate(t *testing.T) {
 	ctx, manager, bus := setupDIManagerTest(t)
 
