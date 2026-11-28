@@ -4,6 +4,7 @@ package contract_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
+	apidi "github.com/wippyai/runtime/api/service/di"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	contractmod "github.com/wippyai/runtime/runtime/lua/modules/contract"
@@ -1593,6 +1595,87 @@ func TestIntegration_ActorPropagation_AsyncCall(t *testing.T) {
 	require.Nil(t, result.Error, "script error: %v", result.Error)
 	require.NotNil(t, result.Value)
 	assert.Equal(t, "actor:async-owner", string(result.Value.Data().(lua.LString)))
+}
+
+func TestIntegration_MethodSchemaDefinitionsDecode(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	// Entry data as the registry holds it: the output schema is declared as schema
+	// text (the file:// form), the input schema inline as an object.
+	var cfg apidi.DefinitionConfig
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"methods": [{
+			"name": "lookup",
+			"input_schemas": [{
+				"format": "application/schema+json",
+				"definition": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}
+			}],
+			"output_schemas": [{
+				"format": "application/schema+json",
+				"definition": "{\"type\": \"object\", \"properties\": {\"count\": {\"type\": \"integer\", \"minimum\": 0}}, \"required\": [\"count\"]}"
+			}]
+		}]
+	}`), &cfg))
+
+	contractID := registry.NewID("test", "schema_contract")
+	tc.registerContract(t, contractID, cfg.ToDefinition())
+
+	script := `
+		local c, err = contract.get("test:schema_contract")
+		if err then
+			return nil, tostring(err)
+		end
+		local method, merr = c:method("lookup")
+		if merr then
+			return nil, tostring(merr)
+		end
+		local listed = c:methods()[1]
+
+		local function check(schemas, label, want)
+			local schema = schemas[1]
+			if schema.format ~= "application/schema+json" then
+				return label .. ": format " .. tostring(schema.format)
+			end
+			local def = schema.definition
+			if type(def) ~= "table" then
+				return label .. ": definition is " .. type(def)
+			end
+			return want(def, label)
+		end
+
+		local function output_schema(def, label)
+			if def.type ~= "object" then return label .. ": type " .. tostring(def.type) end
+			local count = def.properties and def.properties.count
+			if type(count) ~= "table" or count.type ~= "integer" then return label .. ": properties.count" end
+			if math.type(count.minimum) ~= "integer" or count.minimum ~= 0 then return label .. ": minimum" end
+			if #def.required ~= 1 or def.required[1] ~= "count" then return label .. ": required" end
+			return nil
+		end
+
+		local function input_schema(def, label)
+			if def.type ~= "object" then return label .. ": type " .. tostring(def.type) end
+			local id = def.properties and def.properties.id
+			if type(id) ~= "table" or id.type ~= "string" then return label .. ": properties.id" end
+			if #def.required ~= 1 or def.required[1] ~= "id" then return label .. ": required" end
+			return nil
+		end
+
+		local failure = check(method.output_schemas, "method output", output_schema)
+			or check(method.input_schemas, "method input", input_schema)
+			or check(listed.output_schemas, "methods output", output_schema)
+			or check(listed.input_schemas, "methods input", input_schema)
+		return failure or "ok"
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	proc := newLuaProcess(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error, "script error: %v", result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "ok", string(result.Value.Data().(lua.LString)))
 }
 
 // changeEvent wraps one change in a change batch sent and answered on path.
